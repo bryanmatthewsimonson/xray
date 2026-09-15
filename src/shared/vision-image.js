@@ -184,6 +184,15 @@ export function blockedImageUrl(raw) {
     try { u = new URL(String(raw || '')); } catch (_) { return 'not a valid URL'; }
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return 'not an http(s) URL';
     let host = u.hostname.toLowerCase();
+    // Strip the fully-qualified trailing root label BEFORE any
+    // comparison. The URL parser normalizes the numeric host forms for
+    // us — 2130706433, 0x7f000001 and 127.1 all arrive as "127.0.0.1",
+    // and a v4 literal with a trailing dot is normalized too — but it
+    // does NOT strip one from a NAMED host, so "localhost." reached the
+    // equality check below as a miss and was admitted while resolving
+    // to exactly the host this function exists to refuse.
+    // (Found 2026-08-15 via the direct-cloud-transcription URL gate.)
+    if (host.endsWith('.') && !host.endsWith(']')) host = host.replace(/\.+$/, '');
     if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) {
         return 'a local hostname';
     }

@@ -2,9 +2,11 @@
 //
 // The ONLY module that talks to the Anthropic Messages API. It runs in
 // the background service worker (page CSP can't open this; the relay
-// pool lives here for the same reason), reached via the
-// `xray:llm:suggest` message. Everything downstream consumes the
-// validated PROPOSALS this returns — it never saves or publishes.
+// pool lives here for the same reason), reached via the xray:llm:* /
+// xray:audit:* / xray:vision:* messages. Everything downstream consumes
+// the validated RAW OUTPUT this returns — it never saves or publishes.
+// (The original `xray:llm:suggest` standalone pass retired in UA.3;
+// every Suggest surface rides the ONE article pass, runCorpusMapPass.)
 //
 // Consent gates (both must pass before any network call):
 //   1. the `llmAssist` feature flag is on, AND
@@ -17,13 +19,11 @@
 
 import { Utils } from './utils.js';
 import { loadFlags, isEnabled } from './metadata/feature-flags.js';
+import { createSseParser, createMessageAssembler } from './llm-stream.js';
 import {
-    ANTHROPIC_API_URL, ANTHROPIC_VERSION, resolveModel,
-    LLM_KEY_STORAGE, LLM_MODEL_STORAGE, LLM_SUGGEST_KINDS_STORAGE,
-    buildSuggestTool, buildSystemPrompt, buildUserPrompt,
-    normalizeSuggestKinds, categoryOfProposalKind, vocabularyFromRegistry
+    ANTHROPIC_API_URL, ANTHROPIC_VERSION, resolveModel, outputBudget,
+    LLM_KEY_STORAGE, LLM_MODEL_STORAGE
 } from './llm-prompts.js';
-import { Storage } from './storage.js';
 import {
     AUDIT_TOOL_NAME, STANDING_SINGLE_SHOT_CAVEAT, opinionStandingCaveat, STANDING_OPINION_CAVEAT,
     buildAuditTool, buildAuditSystemPrompt, buildAuditUserPrompt, assembleAudit,
@@ -39,6 +39,7 @@ import {
     buildLensTool, buildLensSystemPrompt, buildLensUserPrompt
 } from './lens-prompt.js';
 import { lensPreflightRefusal, assembleJurisdictionReading } from './lens-engine.js';
+import { validateCorpusExtract, repairCorpusExtract } from './case-synthesis.js';
 import {
     MAX_ENTITY_AUDIT_OUTPUT_TOKENS,
     buildEntityAuditTool, buildEntityAuditSystemPrompt, buildEntityAuditUserPrompt
@@ -78,36 +79,32 @@ export { LLM_KEY_STORAGE, LLM_MODEL_STORAGE };
 // SW-side slice is a defensive no-op on the audit path (the hash gate
 // covers exactly the text that was scored).
 const MAX_ARTICLE_CHARS = MAX_AUDIT_INPUT_CHARS;
-// Output cap for the structured tool call. A dense, long capture — a book
-// chapter is the pathological case — yields a big proposal set (entities +
-// claims + optional relationships/assessments), and 8192 truncated it
-// ("hit its output limit before finishing"). 32768 matches the extraction
-// cap, fits a rich proposal set with headroom, and stays well under every
-// current model's per-request output limit; the suggest call carries no
-// client-side timeout, so a longer completion is not aborted. If the model
-// still hits it we surface a clear error rather than feeding truncated JSON
-// to the validators.
-const MAX_OUTPUT_TOKENS = 32768;
-// A full eight-module audit is much larger than a proposal set (eight
-// nested findings payloads in one tool call), so it gets its own cap.
-const MAX_AUDIT_OUTPUT_TOKENS = 16384;
-// The per-module ("thorough") path emits ONE module's findings per call,
-// so a smaller cap is plenty and keeps each call cheap.
-const MAX_MODULE_OUTPUT_TOKENS = 8192;
-// A lens pass emits ONE jurisdiction's readings per call (§6 call
-// topology), so the per-module cap size is right for it too.
-const MAX_LENS_OUTPUT_TOKENS = 8192;
-// Audit call bounds. A single-shot (quick) audit emits up to 16384
-// output tokens — the lens's 120s would abort legitimate calls, so it
-// gets a generous cap; a per-module call emits one module and fits the
-// lens-sized window. Both exist so a hung request can never wedge the
-// reader's audit controls (the reader races its own slightly-longer
-// timeout on top).
-const AUDIT_TIMEOUT_MS = 300000;
-const MODULE_TIMEOUT_MS = 120000;
-// Each lens call is bounded so a hung request cannot permanently
-// disable the reader's lens control (§6).
-const LENS_TIMEOUT_MS = 120000;
+// OUTPUT CAPS (raised 2026-08-13). These were each guessed at "how much
+// will this pass need", and every guess was a silent quality ceiling: a
+// cap that binds does not shorten the analysis, it DISCARDS a fully paid
+// call (`stop_reason: 'max_tokens'` → the partial tool JSON is
+// unparseable, so the pass reports failure and the spend is gone).
+// `max_tokens` is a ceiling, never a target — unproduced tokens are not
+// billed — so a cap that is too high costs nothing and a cap that is too
+// low costs everything. They now sit high and are clamped per model by
+// outputBudget(); the timeouts below own the only real cost of headroom.
+const MAX_AUDIT_OUTPUT_TOKENS = 32768;
+const MAX_MODULE_OUTPUT_TOKENS = 32768;
+const MAX_LENS_OUTPUT_TOKENS = 32768;
+
+// Timeouts DERIVED from the cap they guard, not hand-set beside it.
+// Hand-set pairs drift: the map cap moved twice while its 120s timeout
+// sat still, which would have traded a token-cap failure for an abort
+// (JOURNAL 2026-07-18). ~50 tok/s is the conservative Opus-tier
+// generation rate; the floor covers latency on small calls and the slack
+// covers a slow first token.
+const TOKENS_PER_SEC = 50;
+function timeoutForBudget(maxTokens) {
+    return Math.max(120000, Math.ceil(maxTokens / TOKENS_PER_SEC) * 1000 + 60000);
+}
+const AUDIT_TIMEOUT_MS  = timeoutForBudget(MAX_AUDIT_OUTPUT_TOKENS);
+const MODULE_TIMEOUT_MS = timeoutForBudget(MAX_MODULE_OUTPUT_TOKENS);
+const LENS_TIMEOUT_MS   = timeoutForBudget(MAX_LENS_OUTPUT_TOKENS);
 
 // ------------------------------------------------------------------
 // Storage helpers (callback → promise; SW-safe)
@@ -179,9 +176,24 @@ function mapHttpError(status, bodyText) {
  * network failure, HTTP errors, and unreadable bodies; the caller checks
  * stop_reason and pulls its tool out. NEVER logs the key or request body.
  *
- * @returns {Promise<{ok:true, data:object} | {ok:false, error:string, status?:number, timeout?:boolean}>}
+ * ALWAYS STREAMS (`stream: true`), and reassembles the events into the
+ * SAME object shape the non-streaming endpoint returns — callers are
+ * unchanged by design (shared/llm-stream.js). Streaming is what makes
+ * the raised output caps safe: a whole-response fetch must arrive
+ * complete before it resolves, so a bigger cap raised the odds of a
+ * timeout with nothing to show; a stream delivers continuously and the
+ * AbortController stays the sole limiter.
+ *
+ * @param {object} [opts]
+ * @param {AbortSignal} [opts.signal]
+ * @param {boolean} [opts.salvage]  recover a truncated tool call to its
+ *        last COMPLETE element. Only for list-shaped payloads, and the
+ *        caller MUST disclose the loss (`res.salvaged`).
+ * @param {function} [opts.onProgress]
+ * @returns {Promise<{ok:true, data:object, salvaged:boolean}
+ *                  | {ok:false, error:string, status?:number, timeout?:boolean}>}
  */
-async function postMessages(payload, apiKey, { signal } = {}) {
+async function postMessages(payload, apiKey, { signal, salvage = false, onProgress = null } = {}) {
     let resp;
     try {
         resp = await fetch(ANTHROPIC_API_URL, {
@@ -194,7 +206,7 @@ async function postMessages(payload, apiKey, { signal } = {}) {
                 // for it. The fetch runs in the SW, not a page with site CSP.
                 'anthropic-dangerous-direct-browser-access': 'true'
             },
-            body: JSON.stringify(payload),
+            body: JSON.stringify({ ...payload, stream: true }),
             signal
         });
     } catch (err) {
@@ -206,6 +218,7 @@ async function postMessages(payload, apiKey, { signal } = {}) {
         return { ok: false, error: 'Could not reach the Anthropic API (network error). Check your connection and host permissions.' };
     }
 
+    // An error response is JSON, not SSE — read it whole, as before.
     if (!resp.ok) {
         let bodyText = '';
         try { bodyText = await resp.text(); } catch (_) { /* ignore */ }
@@ -213,19 +226,38 @@ async function postMessages(payload, apiKey, { signal } = {}) {
         Utils.error('[X-Ray LLM] HTTP', resp.status, error);
         return { ok: false, error, status: resp.status };
     }
+    if (!resp.body || typeof resp.body.getReader !== 'function') {
+        return { ok: false, error: 'Anthropic returned an unreadable response (no stream body).' };
+    }
 
-    let data;
+    const parser = createSseParser();
+    const asm = createMessageAssembler({ salvage, onProgress });
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
     try {
-        data = await resp.json();
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            // stream:true keeps multi-byte characters whole across chunks.
+            for (const ev of parser.push(decoder.decode(value, { stream: true }))) asm.handle(ev);
+        }
+        for (const ev of parser.push(decoder.decode())) asm.handle(ev);
     } catch (err) {
-        // The abort can also fire mid-body — that is still a timeout,
-        // not a malformed response.
+        // An abort mid-body is a timeout, not a malformed response.
         if (err && err.name === 'AbortError') {
             return { ok: false, timeout: true, error: 'The Anthropic call was aborted before completing (timeout).' };
         }
-        return { ok: false, error: 'Anthropic returned an unreadable response.' };
+        Utils.error('[X-Ray LLM] stream error:', err && err.message);
+        return { ok: false, error: 'The Anthropic response ended early (stream error). Try again.' };
+    } finally {
+        try { reader.releaseLock(); } catch (_) { /* already released */ }
     }
-    return { ok: true, data };
+
+    const { message, error, salvaged } = asm.result();
+    // A mid-stream `error` frame is the API reporting failure AFTER a
+    // 200 — surface it as an error, never as an empty success.
+    if (error) return { ok: false, error: `Anthropic stream error: ${error}` };
+    return { ok: true, data: message, salvaged };
 }
 
 /**
@@ -273,110 +305,13 @@ export function extractToolInput(data, toolName) {
 }
 
 // ------------------------------------------------------------------
-// Public entry point
+// (runSuggestionPass — the standalone suggestion pass — RETIRED in
+// UA.3 with its xray:llm:suggest message: every Suggest surface now
+// rides the ONE article pass (runCorpusMapPass via
+// shared/article-pass.js). The reader modal, its validators, and the
+// kinds preference all survive — they gate what DERIVES from the
+// extract, not what is read.)
 // ------------------------------------------------------------------
-
-/**
- * Run one user-invoked suggestion pass.
- *
- * @param {object} req
- * @param {string} [req.task='all']     one of SUGGEST_TASKS
- * @param {string} req.articleText      the captured article body text
- * @param {string} [req.articleUrl]
- * @param {string} [req.articleTitle]
- * @param {string} [req.context]        optional extra context
- * @returns {Promise<{ok:true, model:string, proposals:Array, usage?:object}
- *                  | {ok:false, error:string, status?:number}>}
- */
-export async function runSuggestionPass(req = {}) {
-    await loadFlags();
-    if (!isEnabled('llmAssist')) {
-        return { ok: false, error: 'LLM assist is off. Enable it in Options → Advanced → LLM assist.' };
-    }
-
-    const apiKey = await readApiKey();
-    if (!apiKey) {
-        return { ok: false, error: 'No Anthropic API key set. Add one in Options → Advanced → LLM assist.' };
-    }
-
-    const articleText = String(req.articleText || '').slice(0, MAX_ARTICLE_CHARS);
-    if (!articleText.trim()) {
-        return { ok: false, error: 'No article text to analyze.' };
-    }
-
-    // Which artifact categories to propose. Default ON = entities +
-    // claims (extraction); relationships / assessments / findings are
-    // opt-in via Options. We both SCOPE the prompt to the enabled kinds
-    // (fewer off-target proposals, smaller prompt) and FILTER the result
-    // (defense in depth — the model can't smuggle a disabled kind past it).
-    const enabledKinds = normalizeSuggestKinds(
-        (await storageGetRaw([LLM_SUGGEST_KINDS_STORAGE]))[LLM_SUGGEST_KINDS_STORAGE]);
-    if (enabledKinds.length === 0) {
-        return { ok: false, error: 'No suggestion types are enabled. Turn some on in Options → Advanced → LLM assist.' };
-    }
-
-    // Vocabulary injection (Phase 28): the active workspace's entity
-    // registry rides the prompt as naming vocabulary, so re-mentioned
-    // entities are proposed under their established names and merge on
-    // accept instead of fragmenting. Assembled HERE, not by callers, so
-    // the reader's Suggest button and the import panel's
-    // suggest-after-import share one path. Storage resolves the active
-    // workspace, so under a case-bound workspace this IS the case's
-    // registry — and we read the raw dict rather than
-    // EntityModel.getAll(): the vocabulary needs names, never keypairs.
-    let entityVocabulary = [];
-    try { entityVocabulary = vocabularyFromRegistry(await Storage.get('entities', {})); }
-    catch (_) { entityVocabulary = []; }
-
-    const model = await readModel();
-    const system = buildSystemPrompt({
-        tasks: enabledKinds, url: req.articleUrl || '', title: req.articleTitle || '',
-        // 28.3 — the reader resolves the active workspace's case frame
-        // and sends it along; absent → the prompt stays frame-free.
-        caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '',
-        entityVocabulary
-    });
-    const userContent = buildUserPrompt({ articleText, context: req.context || '' });
-    const tool = buildSuggestTool();
-
-    const payload = {
-        model,
-        max_tokens: MAX_OUTPUT_TOKENS,
-        system,
-        tools: [tool],
-        // Force the structured tool so we always get parseable JSON.
-        tool_choice: { type: 'tool', name: tool.name },
-        messages: [{ role: 'user', content: userContent }]
-    };
-
-    Utils.log('[X-Ray LLM] suggestion pass:', { kinds: enabledKinds, model, chars: articleText.length, vocab: entityVocabulary.length });
-
-    const res = await postMessages(payload, apiKey);
-    if (!res.ok) return res;
-    const data = res.data;
-
-    { const r = refusalResult(data, 'capture suggestions for this article'); if (r) return r; }
-    if (data && data.stop_reason === 'max_tokens') {
-        return { ok: false, error: 'The model hit its output limit before finishing. This can happen on a very long or dense capture — try narrowing the suggestion types in Options → Advanced → LLM assist, or run Suggest on a shorter section.' };
-    }
-
-    const proposals = extractProposals(data);
-    if (proposals === null) {
-        return { ok: false, error: 'The model did not return a structured proposal set. Try again.' };
-    }
-
-    // Drop anything outside the enabled categories (the model occasionally
-    // volunteers an off-target kind even when unasked).
-    const filtered = proposals.filter((p) => enabledKinds.includes(categoryOfProposalKind(p && p.kind)));
-
-    Utils.log('[X-Ray LLM] proposals:', filtered.length, 'of', proposals.length);
-    return {
-        ok: true,
-        model: (data && data.model) || model,
-        proposals: filtered,
-        usage: data && data.usage ? data.usage : undefined
-    };
-}
 
 /**
  * Run one user-invoked ENTITY AUDIT pass (Phase 17 E2 —
@@ -407,7 +342,7 @@ export async function runEntityAuditPass(req = {}) {
     const tool = buildEntityAuditTool();
     const payload = {
         model,
-        max_tokens: MAX_ENTITY_AUDIT_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_ENTITY_AUDIT_OUTPUT_TOKENS, model),
         system: buildEntityAuditSystemPrompt(),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
@@ -453,7 +388,7 @@ export async function runForensicCorpusPass(req = {}) {
     const tool = buildForensicCorpusTool();
     const payload = {
         model,
-        max_tokens: MAX_FORENSIC_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_FORENSIC_OUTPUT_TOKENS, model),
         system: buildForensicCorpusSystemPrompt(),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
@@ -474,22 +409,6 @@ export async function runForensicCorpusPass(req = {}) {
     return { ok: true, model: (data && data.model) || model, findings: input.findings, usage: data && data.usage };
 }
 
-/**
- * Pull the `propose_capture` tool_use input out of a Messages response.
- * Returns the proposals array, or null if no usable tool call was found.
- * Exported for unit tests (no network involved).
- */
-export function extractProposals(data) {
-    const blocks = (data && Array.isArray(data.content)) ? data.content : [];
-    for (const block of blocks) {
-        if (block && block.type === 'tool_use' && block.name === 'propose_capture') {
-            const input = block.input || {};
-            if (Array.isArray(input.proposals)) return input.proposals;
-            return [];
-        }
-    }
-    return null;
-}
 
 /**
  * Run one user-invoked epistemic-audit pass: a single forced tool call
@@ -542,7 +461,7 @@ export async function runAuditPass(req = {}) {
 
     const payload = {
         model,
-        max_tokens: MAX_AUDIT_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_AUDIT_OUTPUT_TOKENS, model),
         system,
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
@@ -645,7 +564,7 @@ export async function runAuditModulePass(req = {}) {
         : '';
     const payload = {
         model,
-        max_tokens: MAX_MODULE_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_MODULE_OUTPUT_TOKENS, model),
         system: buildModuleSystemPrompt(name, { url: req.articleUrl || '', title: req.articleTitle || '' }),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
@@ -694,16 +613,15 @@ export async function runAuditModulePass(req = {}) {
 // stay portal-side (the SW stays thin, the lens/audit pattern).
 // ------------------------------------------------------------------
 
-const CORPUS_MAP_TIMEOUT_MS = 120000;
-// The reduce is the ONE long single fetch in the corpus flow (the map phase
-// is many short calls). With MAX_REDUCE_OUTPUT_TOKENS raised to 32768, a
-// full breadth brief can generate ~20-25k tokens, which on the slower
-// (Opus-tier) models runs ~350-455s. The portal keeps the service worker
-// alive across the whole run (synthesis-block startSwKeepalive), so this
-// AbortController — not the SW lifetime — is the limiter; 8 min gives the
-// largest breadth briefs headroom rather than trading a token-cap failure
-// for an abort or an SW teardown ("no response").
-const CORPUS_REDUCE_TIMEOUT_MS = 480000;
+// Both derived from the cap they guard (timeoutForBudget) rather than
+// hand-set: a full-budget emission must be able to FINISH, or a raised
+// cap just converts a token-cap failure into an AbortError — the trade
+// JOURNAL 2026-07-18 warned about, and the drift that hand-set pairs
+// invite. Neither call is bounded by the MV3 lifetime: the map's two
+// callers and the portal's synthesis run each hold a keepalive, so this
+// AbortController is the sole limiter.
+const CORPUS_MAP_TIMEOUT_MS = timeoutForBudget(MAX_MAP_OUTPUT_TOKENS);
+const CORPUS_REDUCE_TIMEOUT_MS = timeoutForBudget(MAX_REDUCE_OUTPUT_TOKENS);
 
 /** Gating snapshot for the portal's "Analyze corpus" control. */
 export async function getCorpusConfig() {
@@ -717,6 +635,18 @@ async function corpusGate() {
     if (!isEnabled('caseSynthesis')) {
         return { error: 'Case synthesis is off. Enable it in Options → Advanced → Case synthesis.' };
     }
+    return assistGate();
+}
+
+// UA.1 — the MAP pass alone gates on llmAssist + key, WITHOUT
+// caseSynthesis: since the One Article Pass, the reader's Suggest
+// serves its claim half from the article extract, so the map call is
+// part of the same llmAssist surface as the suggest call it replaces —
+// same article text, same destination, same click consent. The reduce
+// and every other corpus pass keep the full corpusGate (they are the
+// synthesis feature).
+async function assistGate() {
+    await loadFlags();
     if (!isEnabled('llmAssist')) {
         return { error: 'LLM assist is off. Enable it in Options → Advanced → LLM assist.' };
     }
@@ -736,7 +666,7 @@ async function corpusGate() {
  * @param {object} req { member_id, memberText, memberMeta? }
  */
 export async function runCorpusMapPass(req = {}) {
-    const gate = await corpusGate();
+    const gate = await assistGate();   // UA.1 — see assistGate: the map rides the Suggest surface
     if (gate.error) return { ok: false, member_id: req.member_id, error: gate.error };
 
     const memberText = String(req.memberText || '').slice(0, MAX_MEMBER_INPUT_CHARS);
@@ -746,7 +676,7 @@ export async function runCorpusMapPass(req = {}) {
     const tool = buildMapTool();
     const payload = {
         model,
-        max_tokens: MAX_MAP_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_MAP_OUTPUT_TOKENS, model),
         system: buildMapSystemPrompt(),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
@@ -758,18 +688,118 @@ export async function runCorpusMapPass(req = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), CORPUS_MAP_TIMEOUT_MS);
     let res;
-    try { res = await postMessages(payload, gate.apiKey, { signal: controller.signal }); }
-    finally { clearTimeout(timer); }
+    // SALVAGE, map only. The extract is a LIST of independent atoms, so
+    // "the first N of them" is a true statement about the article — a
+    // partial audit or brief would instead read as a complete judgment
+    // and those passes keep the honest failure. A cut-off call is
+    // otherwise a total loss: fully paid, unparseable, discarded.
+    try {
+        res = await postMessages(payload, gate.apiKey, { signal: controller.signal, salvage: true });
+    } finally { clearTimeout(timer); }
     if (!res.ok) return { ...res, member_id: req.member_id };
 
-    const data = res.data;
+    let data = res.data;
     { const r = refusalResult(data, 'an extract for this article'); if (r) return { ...r, member_id: req.member_id }; }
-    if (data && data.stop_reason === 'max_tokens') {
-        return { ok: false, member_id: req.member_id, error: 'The map call hit its output limit before finishing.' };
+    let extract = extractToolInput(data, tool.name);
+    let cutShort = !!(data && data.stop_reason === 'max_tokens');
+    let partial = cutShort || !!res.salvaged;
+    if (extract === null) {
+        return {
+            ok: false, member_id: req.member_id,
+            error: cutShort
+                // Nothing survived the cut — the caps sit at the model
+                // ceiling, so this means the article genuinely outruns
+                // one call, not that a number needs nudging.
+                ? 'The map call hit its output limit before a single complete assertion. This article is too long to atomize in one pass.'
+                : 'The model did not return a structured extract.'
+        };
     }
-    const extract = extractToolInput(data, tool.name);
-    if (extract === null) return { ok: false, member_id: req.member_id, error: 'The model did not return a structured extract.' };
-    return { ok: true, member_id: req.member_id, extract, model: (data && data.model) || model, usage: data && data.usage };
+
+    // ONE shape-repair round — field-found 2026-08-25: six Suggest
+    // failures in ~30 minutes ("$.position required field missing",
+    // "$.entities expected array, got string"). Tool input schemas are
+    // advisory to the model, and taking the first answer made the HUMAN
+    // the retry loop — same content, same wrong shape, every click.
+    // A complete-but-invalid extract goes back to the model ONCE as an
+    // is_error tool_result naming the exact violations. Never on a
+    // truncated/salvaged payload (that is the output ceiling — cause 1 —
+    // and a retry would pay full price for the same cut), and never
+    // more than once. The lossless double-encoding repair stays free:
+    // validation probes the REPAIRED view, so only shapes repair cannot
+    // fix reach the paid round.
+    if (!partial) {
+        const probe = validateCorpusExtract(repairCorpusExtract(extract).extract);
+        if (!probe.ok) {
+            const detail = shapeErrorText(probe.errors);
+            Utils.log('Corpus map: invalid extract shape, one repair round:', detail);
+            const toolUseBlock = ((data && data.content) || []).find(
+                (b) => b && b.type === 'tool_use' && b.name === tool.name);
+            const retryPayload = {
+                ...payload,
+                messages: [
+                    ...payload.messages,
+                    { role: 'assistant', content: data.content },
+                    { role: 'user', content: [{
+                        type: 'tool_result', tool_use_id: toolUseBlock ? toolUseBlock.id : '',
+                        is_error: true,
+                        content: `Schema validation failed: ${detail}. Call ${tool.name} again with the SAME `
+                            + 'analysis in a valid shape: position is a REQUIRED object ({summary, side_label}); '
+                            + 'key_assertions, entities, source_references and open_questions are ARRAYS of '
+                            + 'objects per the schema — never strings or prose.'
+                    }] }
+                ]
+            };
+            const c2 = new AbortController();
+            const t2 = setTimeout(() => c2.abort(), CORPUS_MAP_TIMEOUT_MS);
+            let res2;
+            try { res2 = await postMessages(retryPayload, gate.apiKey, { signal: c2.signal, salvage: true }); }
+            catch (_) { res2 = { ok: false }; }
+            finally { clearTimeout(t2); }
+            const data2 = res2 && res2.ok ? res2.data : null;
+            const extract2 = data2 ? extractToolInput(data2, tool.name) : null;
+            if (extract2 !== null) {
+                const cut2 = !!(data2 && data2.stop_reason === 'max_tokens');
+                const v2 = validateCorpusExtract(repairCorpusExtract(extract2).extract);
+                if (v2.ok || cut2 || res2.salvaged) {
+                    // Adopt the repaired answer (a cut-off repair rides
+                    // through as partial — article-pass reads that as
+                    // cause 1 exactly like a cut-off first answer).
+                    data = data2; extract = extract2;
+                    cutShort = cut2; partial = cut2 || !!res2.salvaged;
+                } else {
+                    return {
+                        ok: false, member_id: req.member_id,
+                        error: 'The model returned an extract X-Ray cannot use: '
+                            + `${shapeErrorText(v2.errors)}. A repair round was already attempted.`
+                    };
+                }
+            } else {
+                return {
+                    ok: false, member_id: req.member_id,
+                    error: `The model returned an extract X-Ray cannot use: ${detail}. `
+                        + 'A repair round was attempted and did not return a structured extract.'
+                };
+            }
+        }
+    }
+
+    // Disclosed, never silent: `partial` rides to the caller so the
+    // review surface can say the extract stops early rather than
+    // presenting it as the whole article.
+    return {
+        ok: true, member_id: req.member_id, extract,
+        partial,
+        model: (data && data.model) || model,
+        usage: data && data.usage
+    };
+}
+
+/** Two violations, tersely — the model (and the toast) need WHICH
+ *  fields, not the whole walk. Mirrors article-pass's describer. */
+function shapeErrorText(errors) {
+    const parts = (Array.isArray(errors) ? errors : []).slice(0, 2).map(
+        (e) => (e && e.path && e.message) ? `${e.path} ${e.message}` : String((e && e.message) || e));
+    return parts.length ? parts.join('; ') : 'no reason reported';
 }
 
 /**
@@ -789,7 +819,7 @@ export async function runCorpusReducePass(req = {}) {
     const tool = buildReduceTool();
     const payload = {
         model,
-        max_tokens: MAX_REDUCE_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_REDUCE_OUTPUT_TOKENS, model),
         system: buildReduceSystemPrompt({ caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '' }),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
@@ -835,7 +865,7 @@ export async function runEntityPagePass(req = {}) {
     const tool = buildEntityPageTool();
     const payload = {
         model,
-        max_tokens: MAX_ENTITY_PAGE_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_ENTITY_PAGE_OUTPUT_TOKENS, model),
         system: buildEntityPageSystemPrompt({
             entityName: req.entityName || '', entityType: req.entityType || '',
             caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || ''
@@ -885,7 +915,7 @@ export async function runHypothesisEdgePass(req = {}) {
     const tool = buildHypothesisEdgeTool();
     const payload = {
         model,
-        max_tokens: MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS, model),
         system: buildHypothesisEdgeSystemPrompt({ caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '' }),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
@@ -932,7 +962,7 @@ export async function runClaimLinksPass(req = {}) {
     const tool = buildClaimLinksTool();
     const payload = {
         model,
-        max_tokens: MAX_CLAIM_LINKS_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_CLAIM_LINKS_OUTPUT_TOKENS, model),
         system: buildClaimLinksSystemPrompt({ caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '' }),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
@@ -962,11 +992,12 @@ export async function runClaimLinksPass(req = {}) {
 // AI vision pass — the "Describe images" surface
 // ------------------------------------------------------------------
 
-// One image, one caption, at most one page of transcription — the
-// per-module window fits with room; a dense scanned magazine page runs
-// ~3k output tokens.
-const VISION_TIMEOUT_MS = 120000;
-const MAX_VISION_OUTPUT_TOKENS = 8192;
+// One image, one caption, at most one page of transcription — a dense
+// scanned magazine page runs ~3k output tokens, so the cap is pure
+// headroom (unproduced tokens are never billed) and only exists so a
+// full-page transcription can never be the thing that truncates.
+const MAX_VISION_OUTPUT_TOKENS = 32768;
+const VISION_TIMEOUT_MS = timeoutForBudget(MAX_VISION_OUTPUT_TOKENS);
 
 /**
  * Non-secret gating snapshot for the reader's "Describe images"
@@ -1023,7 +1054,7 @@ export async function runVisionPass(req = {}) {
     const tool = buildVisionTool();
     const payload = {
         model,
-        max_tokens: MAX_VISION_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_VISION_OUTPUT_TOKENS, model),
         system: buildVisionSystemPrompt(),
         tools: [tool],
         tool_choice: { type: 'tool', name: tool.name },
@@ -1179,7 +1210,7 @@ export async function runLensPass(req = {}) {
     const tool = buildLensTool();
     const payload = {
         model,
-        max_tokens: MAX_LENS_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_LENS_OUTPUT_TOKENS, model),
         system: buildLensSystemPrompt({
             jurisdiction,
             authorities: admissibleAuthorities(jurisdiction),
@@ -1254,10 +1285,11 @@ export async function runLensPass(req = {}) {
 // LLM extraction assist (Phase 18 C5 — COMPLEX_CONTENT_DESIGN.md §6)
 // ------------------------------------------------------------------
 
-// PDF vision over up to 100 pages is the slowest pass this client
-// runs — same ceiling as the audit, no lower.
-const EXTRACT_TIMEOUT_MS = 300000;
-const MAX_EXTRACT_OUTPUT_TOKENS = 32768;
+// PDF vision over up to 100 pages is the slowest pass this client runs,
+// and a 100-page transcription is genuinely large output — this is the
+// pass most likely to want the whole budget.
+const MAX_EXTRACT_OUTPUT_TOKENS = 64000;
+const EXTRACT_TIMEOUT_MS = timeoutForBudget(MAX_EXTRACT_OUTPUT_TOKENS);
 
 /**
  * One extraction pass over an archived PDF's bytes. RETURNS RAW SPANS —
@@ -1292,7 +1324,7 @@ export async function runExtractPass(req = {}) {
 
     const payload = {
         model,
-        max_tokens: MAX_EXTRACT_OUTPUT_TOKENS,
+        max_tokens: outputBudget(MAX_EXTRACT_OUTPUT_TOKENS, model),
         system: buildExtractSystemPrompt(mode),
         tools: [buildExtractTool()],
         tool_choice: { type: 'tool', name: EXTRACT_TOOL_NAME },

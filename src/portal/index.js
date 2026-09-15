@@ -19,13 +19,14 @@ import { fetchCorpus, FALLBACK_RELAYS } from './corpus.js';
 import { saveRecords, loadRecords, getMeta, setMeta, clearAll } from './portal-cache.js';
 import {
     buildItems, applyFilters, typeCounts, facetValues, isOtherClient,
-    kindLabel, pageWindow, TYPE_DEFS, EMPTY_FILTERS
-} from './library.js';
+    kindLabel, pageWindow, TYPE_DEFS, CORE_TAB_KEYS, EMPTY_FILTERS } from './library.js';
 import { buildBuckets, brushRange } from './timeline.js';
 import { el, svgEl, clear, truncate, shortKey } from './dom.js';
 import { mountTranscriptImport } from './import-transcript.js';
+import { mountMediaTranscribe } from './import-media.js';
 import { mountUrlImport } from './import-urls.js';
 import { mountBookImport } from './import-book.js';
+import { createImportPanelSwitch } from './import-panel.js';
 import { renderEntityView } from './entity-view.js';
 import { renderCaseView } from './case-view.js';
 import { renderEntityDossierView } from './entity-dossier-view.js';
@@ -38,6 +39,11 @@ import { loadLocalLedger, reconcile, countLocalOnly, listLocalArtifacts } from '
 import { getByEventId as journalGetByEventId } from '../shared/event-journal.js';
 import { rebroadcastEvent } from '../shared/publish-gate.js';
 import { renderInspector } from './inspector.js';
+import { openArchivedInReader } from './open-archived.js';
+import { createNavStack } from './nav-stack.js';
+import { inspectButton, TIMELINE_HINT } from './row-controls.js';
+import { addMenuOptions, moreMenuOptions, identitySummaryLine } from './header-chrome.js';
+import { resolveActiveCaseRef } from '../shared/case-membership.js';
 import {
     buildAuditIndex, mergeLocalRuns, mergeLocalResolutions, auditsForArticle,
     latestAuditFor, dossierInputsForEntity, computeEntityDossier,
@@ -51,6 +57,7 @@ import { listRuns, listPredictions, listResolutions } from '../shared/audit/audi
 import { PredictionModel } from '../shared/audit/audit-model.js';
 import { listArticles as listArchiveArticles } from '../shared/archive-cache.js';
 import { openResolveForm } from './resolve-form.js';
+import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -89,7 +96,21 @@ function setStatus(text, isError) {
     node.classList.toggle('xr-portal__status--error', !!isError);
 }
 
+// How an identity was established, in words a first-session user can
+// read. The raw tokens stay as tooltips and CSS hooks.
+const IDENTITY_SOURCE_LABELS = {
+    signer: 'your signer',
+    'sync-key': 'backup key',
+    'publish-history': 'seen in your published events',
+    manual: 'added by you'
+};
+
 function renderIdentityChips() {
+    // PR-8 (D2): the one line that stays visible when the strip is
+    // folded. Identities listed, viewers named as viewing — the words
+    // keep identity.js's fence visible.
+    const summary = $('#xr-identity-summary');
+    if (summary) summary.textContent = identitySummaryLine({ identities: state.identities, viewers: state.viewers });
     const host = $('#xr-identity-chips');
     clear(host);
     for (const id of state.identities) {
@@ -97,7 +118,12 @@ function renderIdentityChips() {
         chip.appendChild(el('span', 'xr-chip__key', shortKey(id.pubkey)));
         chip.title = id.pubkey;
         for (const src of id.sources) {
-            chip.appendChild(el('span', `xr-chip__src xr-chip__src--${src}`, src));
+            // Plain label, raw token kept as the tooltip and the CSS hook
+            // (docs/PORTAL_UX_REVIEW.md §5 — provenance tokens were
+            // rendering verbatim as UI).
+            const srcEl = el('span', `xr-chip__src xr-chip__src--${src}`, IDENTITY_SOURCE_LABELS[src] || src);
+            srcEl.title = src;
+            chip.appendChild(srcEl);
         }
         if (id.sources.includes('manual')) {
             const btn = el('button', 'xr-chip__remove', '✕');
@@ -164,10 +190,8 @@ function renderTabs() {
     const counted = applyFilters(state.items, { ...state.filters, type: 'all' });
     const counts = typeCounts(counted);
 
-    const defs = [{ key: 'all', label: 'All' }, ...TYPE_DEFS];
-    for (const def of defs) {
+    const tabButton = (def) => {
         const count = counts[def.key] || 0;
-        if (count === 0 && def.key !== 'all' && state.filters.type !== def.key) continue;
         const btn = el('button', 'xr-tab', `${def.label} `);
         btn.type = 'button';
         btn.appendChild(el('span', 'xr-tab__count', String(count)));
@@ -177,7 +201,45 @@ function renderTabs() {
             state.rowLimit = ROW_PAGE_SIZE;
             renderLibrary();
         });
-        host.appendChild(btn);
+        return btn;
+    };
+
+    // The strip: All + the core types. A core tab holds its place even at
+    // zero — a stable strip is the point; a shifting one was half the
+    // complaint.
+    const core = TYPE_DEFS.filter((d) => CORE_TAB_KEYS.includes(d.key));
+    for (const def of [{ key: 'all', label: 'All' }, ...core]) host.appendChild(tabButton(def));
+
+    // Everything else: reachable, counted, folded. Empty types stay out
+    // of the menu (as they always did), but a type you are CURRENTLY
+    // filtered to is never hidden from you — it renders as a real tab
+    // beside the menu so the active selection is always visible.
+    const overflow = TYPE_DEFS.filter((d) => !CORE_TAB_KEYS.includes(d.key));
+    const activeInOverflow = overflow.find((d) => d.key === state.filters.type);
+    if (activeInOverflow) host.appendChild(tabButton(activeInOverflow));
+
+    const menu = overflow.filter((d) => (counts[d.key] || 0) > 0 || d.key === state.filters.type);
+    if (menu.length) {
+        const moreSel = el('select', 'xr-tab xr-tab-more');
+        moreSel.title = 'The remaining event types — same live counts, one menu';
+        const head = el('option', null, activeInOverflow ? 'More \u25be' : `More \u25be (${menu.length})`);
+        head.value = '';
+        moreSel.appendChild(head);
+        for (const def of menu) {
+            const opt = el('option', null, `${def.label} (${counts[def.key] || 0})`);
+            opt.value = def.key;
+            moreSel.appendChild(opt);
+        }
+        moreSel.value = '';
+        moreSel.addEventListener('change', () => {
+            const picked = moreSel.value;
+            moreSel.value = '';
+            if (!picked) return;
+            state.filters.type = picked;
+            state.rowLimit = ROW_PAGE_SIZE;
+            renderLibrary();
+        });
+        host.appendChild(moreSel);
     }
 }
 
@@ -258,6 +320,9 @@ function buildRow(item) {
     titleEl.title = 'Inspect — raw event, relays holding it, ledger status';
     titleEl.addEventListener('click', () => openInspector(item));
     head.appendChild(titleEl);
+    // PR-5 (C2): the opener was a hover-only secret — a visible ⓘ bound
+    // to the same handler; the title click stays.
+    head.appendChild(inspectButton(() => openInspector(item)));
 
     const badges = el('span', 'xr-row__badges');
     const status = state.reconciliation && state.reconciliation.statusByEventId[item.id];
@@ -325,7 +390,7 @@ function buildRow(item) {
             && item.event.pubkey && state.creatorBinding) {
         const level = state.creatorBinding.get(item.event.pubkey);
         if (level === 'full') {
-            const b = el('span', 'xr-badge xr-badge--agree', '✓ creator-bound');
+            const b = el('span', 'xr-badge xr-badge--agree', '✓ key ownership proof');
             b.title = 'Listed in your signed OwnedKeys manifest AND carries a valid NIP-26 delegation token';
             badges.appendChild(b);
         } else if (level === 'partial') {
@@ -339,7 +404,7 @@ function buildRow(item) {
             item.typeKey === 'case' ? '☰ Dashboard' : '✳ Spokes');
         btn.type = 'button';
         btn.title = item.typeKey === 'case'
-            ? 'Open this case\'s published-artifact dashboard'
+            ? 'Open this case\'s published-items dashboard'
             : 'Open this entity\'s spokes graph';
         btn.addEventListener('click', () => {
             if (item.typeKey === 'case') viewCallbacks.onOpenCase(item.event.pubkey);
@@ -488,7 +553,7 @@ function renderPredictionsStrip(host) {
                     } catch (err) {
                         Utils.error('Portal: resolution refresh failed', err);
                     }
-                    setStatus(`Resolution filed (${record.outcome}) — publishes with the 13.8 batch.`);
+                    setStatus(`Resolution filed (${record.outcome}) — publishes with your next audit publish.`);
                     renderLibrary();
                 }
             });
@@ -597,6 +662,13 @@ function renderTimeline() {
     svg.addEventListener('mouseleave', () => { dragStart = null; });
 
     host.appendChild(svg);
+    // PR-5 (B3): time-scoping is a founding door and was invisible —
+    // the affordance lived in mouse handlers and an HTML comment. One
+    // caption while unbrushed; once a range is active the ✕ chip in the
+    // head carries the affordance instead.
+    if (!brushed) {
+        host.appendChild(el('div', 'xr-portal__timeline-hint', TIMELINE_HINT));
+    }
 }
 
 // ------------------------------------------------------------------
@@ -737,20 +809,36 @@ function renderReconPanel() {
     const locals = state.localArtifacts || [];
     if (locals.length > 0) {
         const details = el('details');
-        details.appendChild(el('summary', null, `Unpublished local artifacts (${locals.length})`));
+        details.appendChild(el('summary', null, `Unpublished local items (${locals.length})`));
         const ul = el('ol', 'xr-portal__list');
         for (const it of locals.slice(0, 200)) {
             const row = el('li', 'xr-row');
             const head = el('div', 'xr-row__head');
             head.appendChild(el('span', 'xr-row__kind', it.type));
-            head.appendChild(el('span', 'xr-row__title', truncate(it.label || it.id, 140)));
+            // Field-found 2026-08-23: this row used to RENDER the
+            // instruction "open this article in the reader" as plain
+            // text with no way to do it — imported book chapters were
+            // unreachable. A row that names an archived article opens
+            // it; the prose describes what opening is FOR.
+            if (it.url) {
+                const link = el('a', 'xr-row__title xr-row__title--link', truncate(it.label || it.id, 140));
+                link.href = '#';
+                link.addEventListener('click', async (ev) => {
+                    ev.preventDefault();
+                    const out = await openArchivedInReader(it.url);
+                    if (!out.ok) Utils.error('open artifact:', out.error);
+                });
+                head.appendChild(link);
+            } else {
+                head.appendChild(el('span', 'xr-row__title', truncate(it.label || it.id, 140)));
+            }
             if (it.created) {
                 head.appendChild(el('span', 'xr-row__date', new Date(it.created * 1000).toLocaleDateString()));
             }
             row.appendChild(head);
             if (it.url) {
                 row.appendChild(el('div', 'xr-row__sub',
-                    `${it.url} — open this article in the reader and Publish to emit it (and its judgments).`));
+                    `${it.url} — opens in the reader; Publish there emits it (and its judgments).`));
             }
             ul.appendChild(row);
         }
@@ -854,23 +942,45 @@ function setAnalysisState(running, token) {
     }
 }
 
+// PR-6 (docs/PORTAL_UX_REVIEW.md B1): navigation MEMORY. Every "back"
+// used to hard-code the library, so case → person → dossier → back lost
+// the case and the dominant casework loop paid a re-find on every
+// exploration. Forward navigation pushes the view being left;
+// navigateBack retraces it; the empty-stack floor is the library — the
+// old behavior, now the floor instead of the whole story.
+const navStack = createNavStack();
+
+function navigateTo(view, { resetExpanded = false } = {}) {
+    navStack.push(state.view);
+    state.view = view;
+    if (resetExpanded) state.expandedTypes = new Set();
+    closeInspector();
+    render();
+}
+
+function navigateBack() {
+    state.view = navStack.pop();
+    closeInspector();
+    render();
+}
+
 const viewCallbacks = {
-    onBack: () => { state.view = { name: 'library' }; closeInspector(); render(); },
-    onFocusEntity: (pubkey) => { state.view = { name: 'entity', pubkey }; state.expandedTypes = new Set(); closeInspector(); render(); },
-    onOpenCase: (pubkey) => { state.view = { name: 'case', pubkey }; closeInspector(); render(); },
+    onBack: () => { navigateBack(); },
+    onFocusEntity: (pubkey) => { navigateTo({ name: 'entity', pubkey }, { resetExpanded: true }); },
+    onOpenCase: (pubkey) => { navigateTo({ name: 'case', pubkey }); },
     // 20.2: re-render the current case view after a local membership
     // change (add/remove sources). An explicit edit, so it defers during
     // a run and flushes on completion (scheduleUserRender) rather than
     // orphaning the run (direct render) or being dropped (scheduleRender).
     onReloadCase: () => { scheduleUserRender(); },
-    onOpenGraph: (pubkey) => { state.view = { name: 'entity', pubkey }; state.expandedTypes = new Set(); closeInspector(); render(); },
+    onOpenGraph: (pubkey) => { navigateTo({ name: 'entity', pubkey }, { resetExpanded: true }); },
     onExpand: (type) => { state.expandedTypes.add(type); render(); },
     onOpenItem: (item) => { openInspector(item); },
     // 19.4: the entity dossier is LOCAL-id addressed (local-first view
     // — the subject need not be published).
-    onOpenEntityDossier: (entityId) => { state.view = { name: 'entity-dossier', entityId }; closeInspector(); render(); },
+    onOpenEntityDossier: (entityId) => { navigateTo({ name: 'entity-dossier', entityId }); },
     // E5: the wire-first corpus view — works on any pubkey.
-    onOpenEntityCorpus: (pubkey) => { state.view = { name: 'entity-corpus', pubkey }; closeInspector(); render(); },
+    onOpenEntityCorpus: (pubkey) => { navigateTo({ name: 'entity-corpus', pubkey }); },
     // The synthesis block signals its run boundaries (with a per-run
     // token) so background re-renders defer while it runs (scheduleRender).
     onAnalysisState: (running, token) => setAnalysisState(running, token),
@@ -1021,7 +1131,7 @@ function rebuildItems(records) {
 function setBusy(busy) {
     state.loading = busy;
     $('#xr-refresh').disabled = busy;
-    $('#xr-resync').disabled = busy;
+    $('#xr-more-menu').disabled = busy;   // Full resync lives in the overflow (PR-8)
     // The identity form re-boots on submit; mid-refresh that submit
     // would silently no-op (boot() early-returns while loading), so
     // make the unavailability visible instead (12.7 review fix).
@@ -1078,7 +1188,8 @@ async function boot({ full = false } = {}) {
                     : 'No signing identity, sync key, publish history, or manual identity found.';
                 renderEmpty('No identity resolved', [
                     reason,
-                    'Paste your npub above, configure signing in Settings, or publish a capture once — then refresh.'
+                    'No archive identity yet. Configure signing in Settings, or publish a capture once — then Refresh. '
+                    + '(The viewer box — under "Showing events signed by…" above — is for LOOKING AT someone else\u2019s archive by their npub; pasting your own there only views it read-only.)'
                 ]);
             } else {
                 setStatus(`${state.items.length} cached item(s) — no identity resolved, refresh skipped`, true);
@@ -1217,57 +1328,108 @@ async function renderCaseSwitcher() {
     }
 }
 
+// One switch over the shared #xr-import-host (PR-3): same button
+// toggles, a different button swaps in one click. Created on first use
+// so it binds after the DOM exists.
+let _importPanels = null;
+function importPanels() {
+    if (!_importPanels) _importPanels = createImportPanelSwitch($('#xr-import-host'));
+    return _importPanels;
+}
+
+/** Mount the importer a menu value names. onDone reboots the library. */
+function mountImporter(name, host, caseEntityId) {
+    const onDone = () => { boot(); };
+    if (name === 'transcript') return mountTranscriptImport(host, { caseEntityId, onDone });
+    if (name === 'media') return mountMediaTranscribe(host, { caseEntityId, onDone });
+    if (name === 'book') return mountBookImport(host, { caseEntityId, onDone });
+    if (name === 'urls') return mountUrlImport(host, { caseEntityId, onDone });
+    return undefined;
+}
+
+// The "Add ▾" menu (PR-8, docs/PORTAL_UX_REVIEW.md D1) — the four
+// header import buttons folded into one select, the case view's
+// "Sources ▾" idiom. Split out from wireChrome because "Transcribe a
+// URL" is flag-gated (localTranscription) and the options must be
+// composed AFTER flags load: a gate read before they load would read
+// the default (off) and hide the option even when the user turned it
+// on. Every option mounts through the PR-3 switch, so picking the same
+// entry again closes its panel and a different entry swaps in one
+// click. Imports INHERIT the active case (PR-4).
+async function wireAddMenu(activeCaseId) {
+    await loadFlags();
+    const sel = $('#xr-add-menu');
+    if (!sel) return;
+    clear(sel);
+    for (const o of addMenuOptions({ transcribeEnabled: isEnabled('localTranscription') })) {
+        const opt = new Option(o.label, o.value);
+        opt.title = o.title;
+        sel.appendChild(opt);
+    }
+    sel.value = '';
+    sel.addEventListener('change', async () => {
+        const picked = sel.value;
+        sel.value = '';
+        if (!picked) return;
+        const caseEntityId = await activeCaseId;
+        // Named per entry (not a single dynamic call) so the seam guards
+        // can see every importer still routes through the switch.
+        if (picked === 'transcript') importPanels().open('transcript', (host) => mountImporter('transcript', host, caseEntityId));
+        else if (picked === 'media') importPanels().open('media', (host) => mountImporter('media', host, caseEntityId));
+        else if (picked === 'book') importPanels().open('book', (host) => mountImporter('book', host, caseEntityId));
+        else if (picked === 'urls') importPanels().open('urls', (host) => mountImporter('urls', host, caseEntityId));
+    });
+}
+
 function wireChrome() {
     renderCaseSwitcher();
+    // PR-4 (docs/PORTAL_UX_REVIEW.md A2, maintainer ruling 2026-08-23):
+    // header imports INHERIT the active case. The header announces
+    // "🗂 <caseName>" — chrome asserting a context the actions must
+    // honor. Resolved ONCE per page: a case switch always reloads
+    // (renderCaseSwitcher → location.reload()), so this cannot go
+    // stale. Fails closed to null (unbound workspace = the old
+    // untagged behavior, byte-identical).
+    const activeCaseId = resolveActiveCaseRef()
+        .then((ref) => (ref ? ref.caseId : null))
+        .catch(() => null);
     $('#xr-refresh').addEventListener('click', () => { boot(); });
 
-    // 21.2 — import a podcast transcript into the archive (standalone;
-    // it appears in case views + the local-artifacts list, not the relay
-    // library, so no corpus reload). Toggle: a second click closes it.
-    $('#xr-import-transcript').addEventListener('click', () => {
-        const importHost = $('#xr-import-host');
-        if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
-        mountTranscriptImport(importHost, { onDone: null });
-    });
+    // The importers — one "Add ▾" menu (PR-8). Async because the menu
+    // waits for flags; nothing else here depends on it.
+    wireAddMenu(activeCaseId);
 
-    // Import an EPUB book — each chapter becomes a capture grouped under a
-    // book `thing` entity. Toggle-close like the transcript import; a
-    // successful import refreshes the library so the book appears.
-    $('#xr-import-book').addEventListener('click', () => {
-        const importHost = $('#xr-import-host');
-        if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
-        mountBookImport(importHost, { onDone: () => { boot(); } });
-    });
-
-    // 28.1 — batch-import a pasted URL list (standalone; the case-view
-    // mount tags into the case). Toggle-close like the others.
-    $('#xr-import-urls').addEventListener('click', () => {
-        const importHost = $('#xr-import-host');
-        if (importHost.childElementCount > 0) { importHost.replaceChildren(); return; }
-        mountUrlImport(importHost, { onDone: null });
-    });
-
-    // 28.6 — the read-only cross-workspace graph.
-    $('#xr-cross-ws').addEventListener('click', () => {
-        state.view = { name: 'cross-workspace' };
-        closeInspector();
-        render();
-    });
-
-    $('#xr-resync').addEventListener('click', async () => {
-        if (state.loading) return;
-        try {
-            await clearAll();
-        } catch (err) {
-            // A failed clear means the refetch would MERGE into the stale
-            // cache and render the old corpus as if the resync worked —
-            // say so on the page and stop, never silently (console-only
-            // was how a fresh workspace kept showing the prior project).
-            Utils.error('Portal resync: cache clear failed', err);
-            setStatus('Cache clear failed — close every other X-Ray tab and retry Full resync', true);
-            return;
+    // The "⋯" overflow (PR-8): the two actions that are neither daily
+    // nor first-paint. 28.6's read-only cross-workspace graph joins the
+    // nav stack (PR-6); Full resync keeps its clear-then-refetch
+    // contract and its fail-loud path.
+    const more = $('#xr-more-menu');
+    for (const o of moreMenuOptions()) {
+        const opt = new Option(o.label, o.value);
+        opt.title = o.title;
+        more.appendChild(opt);
+    }
+    more.value = '';
+    more.addEventListener('change', async () => {
+        const picked = more.value;
+        more.value = '';
+        if (picked === 'cross-ws') {
+            navigateTo({ name: 'cross-workspace' });
+        } else if (picked === 'resync') {
+            if (state.loading) return;
+            try {
+                await clearAll();
+            } catch (err) {
+                // A failed clear means the refetch would MERGE into the stale
+                // cache and render the old corpus as if the resync worked —
+                // say so on the page and stop, never silently (console-only
+                // was how a fresh workspace kept showing the prior project).
+                Utils.error('Portal resync: cache clear failed', err);
+                setStatus('Cache clear failed — close every other X-Ray tab and retry Full resync', true);
+                return;
+            }
+            boot({ full: true });
         }
-        boot({ full: true });
     });
 
     $('#xr-identity-form').addEventListener('submit', async (e) => {

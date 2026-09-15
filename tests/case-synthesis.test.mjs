@@ -16,12 +16,35 @@ const { orchestrateModuleRuns } = await import('../src/shared/audit/run-orchestr
 
 test('case-synthesis: validateCorpusExtract accepts a good extract, rejects a bad one', () => {
     const good = { position: { summary: 'argues X', side_label: 'X' },
-        key_assertions: [{ quote: 'a verbatim span', claim_ref: null, why_load_bearing: 'core' }] };
+        key_assertions: [{ quote: 'a verbatim span', text: 'a claim', load_bearing: true, claim_ref: null, why_load_bearing: 'core' }] };
     assert.equal(CS.validateCorpusExtract(good).ok, true);
     const bad = { position: { summary: 5 } };  // summary must be string
     assert.equal(CS.validateCorpusExtract(bad).ok, false);
     const noPos = { key_assertions: [] };      // position required
     assert.equal(CS.validateCorpusExtract(noPos).ok, false);
+});
+
+test('case-synthesis: an extract whose atoms ALL omit load_bearing is malformed v8 output (never cached)', () => {
+    // One omitted flag is tolerated (absent = not load-bearing) …
+    const oneMissing = { position: { summary: 's' }, key_assertions: [
+        { quote: 'q1', load_bearing: true }, { quote: 'q2' }
+    ] };
+    assert.equal(CS.validateCorpusExtract(oneMissing).ok, true);
+    // … an all-false extract is a real model judgment and stays valid …
+    const allFalse = { position: { summary: 's' }, key_assertions: [
+        { quote: 'q1', load_bearing: false }, { quote: 'q2', load_bearing: false }
+    ] };
+    assert.equal(CS.validateCorpusExtract(allFalse).ok, true);
+    // … but NO atom carrying the key at all would cache an article as
+    // permanently position-only for every reduce — refuse so it re-runs.
+    const noneCarry = { position: { summary: 's' }, key_assertions: [
+        { quote: 'q1' }, { quote: 'q2', text: 't' }
+    ] };
+    const v = CS.validateCorpusExtract(noneCarry);
+    assert.equal(v.ok, false);
+    assert.match(v.errors.join(' '), /load_bearing/);
+    // An empty assertion list stays valid (a stub capture has no claims).
+    assert.equal(CS.validateCorpusExtract({ position: { summary: 's' }, key_assertions: [] }).ok, true);
 });
 
 test('case-synthesis: validateCaseBrief enforces shape + proposal enum', () => {
@@ -330,8 +353,72 @@ test('case-synthesis: corpusExtractKey is stable on identical inputs, changes on
         'scope question never invalidates the map cache');
     // Each real input flips the key — these are the invalidation triggers.
     assert.notEqual(await CS.corpusExtractKey({ ...base, memberText: 'Edited body.' }), k, 'body edit');
-    assert.notEqual(await CS.corpusExtractKey(base, 'corpus-v9'), k, 'prompt-version bump');
+    assert.notEqual(await CS.corpusExtractKey(base, 'corpus-vNEXT'), k, 'prompt-version bump');
     assert.notEqual(await CS.corpusExtractKey({ ...base, memberMeta: { title: 'T2', url: 'https://x/a' } }), k, 'title change');
+});
+
+// ---- UA.1 guard rail 1: the cache-key PREIMAGE is pinned -------------------
+
+test('GUARD (UA.1 rail 1): corpusExtractKey hashes EXACTLY {v, text, title, url} — nothing may ride back in', async () => {
+    const { Crypto } = await import('../src/shared/crypto.js');
+    const request = { member_id: 'm1', memberText: 'The body.',
+        memberMeta: { title: 'A title', url: 'https://x/y' } };
+    // The preimage, built independently: if the implementation ever adds
+    // a field (vocabulary, claims, frame, model — anything), removes
+    // one, or reorders the JSON, this known answer stops matching and
+    // the pay-once economics regression is caught here, not in a wallet.
+    const preimage = JSON.stringify({
+        v: 'corpus-vTEST', text: 'The body.', title: 'A title', url: 'https://x/y'
+    });
+    assert.equal(await CS.corpusExtractKey(request, 'corpus-vTEST'),
+        await Crypto.sha256(preimage),
+        'the hashed field set is {v, text, title, url}, in that order');
+    // And the request builder feeds it exactly those fields.
+    const unit = { article_hash: 'h', url: 'https://x/y', title: 'A title',
+        text: 'The body.', truncated: false, total_chars: 9, claims: [{ id: 'c1' }] };
+    const req = CS.corpusMapRequest(unit);
+    assert.deepEqual(Object.keys(req).sort(), ['memberMeta', 'memberText', 'member_id']);
+    assert.deepEqual(Object.keys(req.memberMeta).sort(), ['title', 'url'],
+        'claims, flags, and counts never reach the request');
+});
+
+// ---- UA.1 guard rail 5: the reduce reads the load-bearing subset -----------
+
+test('loadBearingSubset: strict === true filter; pass-through when nothing filters', () => {
+    const extract = {
+        position: { summary: 's' },
+        key_assertions: [
+            { quote: 'q1', text: 't1', load_bearing: true, why_load_bearing: 'w' },
+            { quote: 'q2', text: 't2', load_bearing: false },
+            { quote: 'q3', text: 't3' },                    // unflagged ⇒ not load-bearing
+            { quote: 'q4', text: 't4', load_bearing: 'yes' } // truthy-but-not-true ⇒ dropped
+        ],
+        open_questions: ['oq']
+    };
+    const out = CS.loadBearingSubset(extract);
+    assert.deepEqual(out.key_assertions.map((a) => a.quote), ['q1']);
+    assert.deepEqual(out.open_questions, ['oq'], 'non-assertion fields ride untouched');
+    // All-flagged input returns the SAME object (no pointless copy).
+    const allLb = { key_assertions: [{ quote: 'q', load_bearing: true }] };
+    assert.equal(CS.loadBearingSubset(allLb), allLb);
+    assert.deepEqual(CS.loadBearingSubset(null), null);
+});
+
+test('GUARD (UA.1 rail 5): the live extract is subset-filtered BEFORE the record union in the Analyze runner', async () => {
+    // Order matters twice over: filtering AFTER unionExtractWithRecord
+    // would drop the record's recovered atoms (they carry no flag), and
+    // forgetting the filter fails OPEN (a comprehensive v8 extract flows
+    // whole into the reduce). Source-literal pin, the trigger-site-guard
+    // idiom (tests/auto-preanalyze.test.mjs).
+    const { readFile } = await import('node:fs/promises');
+    const src = await readFile(new URL('../src/portal/synthesis-block.js', import.meta.url), 'utf8');
+    assert.match(src, /loadBearingSubset\(modules\[hash\]\)/,
+        'the Analyze runner filters the LIVE extract through loadBearingSubset');
+    assert.ok(src.indexOf('loadBearingSubset(modules[hash])') < src.indexOf('unionExtractWithRecord('),
+        'the filter applies to the live extract BEFORE the record union — after would drop record extras');
+    const pageSrc = await readFile(new URL('../src/portal/entity-page-block.js', import.meta.url), 'utf8');
+    assert.match(pageSrc, /loadBearingSubset\(e\.extract\)/,
+        'the entity-page runner filters its reduce extracts too');
 });
 
 test('case-synthesis: corpusInputHash is order-insensitive but sensitive to membership + prompt', async () => {
@@ -477,4 +564,191 @@ test('case-synthesis: foldMemberAliases collapses same-hash captures to one entr
     assert.equal(distinct.size, 2, 'same URL with differing content stays two artifacts');
     // hashless/null units are skipped, never grouped together.
     assert.equal(CS.foldMemberAliases([{ url: 'https://x.example' }, null]).size, 0);
+});
+
+// ---- UA.2 review round: v9 decorations are lenient; systematic blindness refuses ----
+
+test('v9 decorations: one malformed entity row or a wrong-typed about NEVER voids a paid extract', () => {
+    const extract = {
+        position: { summary: 's' },
+        key_assertions: [
+            { quote: 'q1', text: 't1', load_bearing: true, about: 'not-an-array' },
+            { quote: 'q2', text: 't2', load_bearing: false, about: ['E1', 42] }
+        ],
+        entities: [
+            { ref: 'E1', name: 'Alice', type: 'person', mention: 'Alice' },
+            { name: '', type: 'person', mention: 'x' },     // nameless → pruned, not fatal
+            null,                                            // junk row → pruned
+            'not-an-object'
+        ]
+    };
+    assert.equal(CS.validateCorpusExtract(extract).ok, true,
+        'decorations prune; the core contract alone decides validity');
+});
+
+// REVERSED 2026-08-13, after the harm was observed live. This file used
+// to assert the opposite — "even entities-as-non-array degrades to 'no
+// entities', not failure" — which reads reasonable until you follow it
+// through the cache:
+//
+//   model emits a non-array `entities` → decorationTolerantView coerced
+//   it to [] FOR VALIDATION → the walk passed → the RAW wrong-typed
+//   extract was cached under its content key and folded into the
+//   durable record → the converter then threw
+//   (".map is not a function"), and once that crash was guarded, every
+//   later Suggest served the poisoned cache entry instantly with zero
+//   entities. The article reads as "names nobody" rather than "this
+//   extract is broken", forever.
+//
+// That is precisely the outcome the blindness refusal below exists to
+// prevent — its own comment says "permanently entity-blind for this
+// article behind a forever cache hit. Refuse; re-run." The two rules
+// were in contradiction; a WRONG-TYPED list is at least as broken as a
+// list of unusable rows, so it gets the same answer.
+//
+// The distinction that survives: per-ROW leniency (a nameless row, a
+// junk row, a wrong-typed `about`) still prunes and never voids a paid
+// extract. Only a wrong-typed LIST is fatal.
+test('v9 blindness refusal EXTENDS to a wrong-typed list — not just unusable rows', () => {
+    const core = { position: { summary: 's' }, key_assertions: [] };
+    for (const [label, bad] of [
+        ['object', { E1: { name: 'Alice' } }],
+        ['string', 'Alice, Bob'],
+        ['number', 7],
+        ['boolean', true]
+    ]) {
+        const v = CS.validateCorpusExtract({ ...core, entities: bad });
+        assert.equal(v.ok, false, `entities as ${label} must not validate`);
+        assert.match(JSON.stringify(v.errors), /expected array/,
+            `entities as ${label} names the type problem`);
+    }
+
+    // `null` and absent stay VALID — a model saying "entities": null is
+    // reporting that it found none, which is a real answer, not damage.
+    assert.equal(CS.validateCorpusExtract({ ...core, entities: null }).ok, true);
+    assert.equal(CS.validateCorpusExtract(core).ok, true);
+    assert.equal(CS.validateCorpusExtract({ ...core, entities: [] }).ok, true);
+});
+
+// ------------------------------------------------------------------
+// Stringified-array repair (field-found 2026-08-22).
+//
+// A live Suggest failed with "$.entities expected array, got string" —
+// the model DOUBLE-ENCODED the field, emitting the JSON text of the
+// array instead of the array. Tool schemas are advisory to the model,
+// so this arrives occasionally on long outputs, and rejecting it burns
+// a paid call whose payload is sitting right there, losslessly
+// recoverable by one JSON.parse.
+//
+// This does NOT reopen the 2026-08-13 reversal above. That harm was
+// coercing a wrong-typed list to [] — VALIDATION-VIEW blindness over a
+// raw cached value. Repair is the opposite shape: the parsed rows
+// replace the string IN THE EXTRACT ITSELF (the caller validates and
+// caches the repaired object, never the raw one), and every parsed row
+// then faces the same walk, pruning and blindness refusals as a
+// natively-typed list. A string that does not parse to an array is
+// left alone and still rejected with the type error.
+// ------------------------------------------------------------------
+
+test('repairCorpusExtract: a JSON-stringified array field is recovered losslessly', () => {
+    const rows = [{ ref: 'E1', name: 'Alice', type: 'person', mention: 'Alice said' }];
+    const { extract, repaired } = CS.repairCorpusExtract({
+        position: { summary: 's' },
+        key_assertions: [{ quote: 'q', text: 't', load_bearing: true }],
+        entities: JSON.stringify(rows)
+    });
+    assert.deepEqual(extract.entities, rows, 'the parsed rows replace the string');
+    assert.deepEqual(repaired, ['entities'], 'the repair is reported, not silent');
+    assert.equal(CS.validateCorpusExtract(extract).ok, true);
+});
+
+test('repairCorpusExtract: every top-level list field gets the same recovery', () => {
+    const { extract, repaired } = CS.repairCorpusExtract({
+        position: { summary: 's' },
+        key_assertions: JSON.stringify([{ quote: 'q', text: 't', load_bearing: false }]),
+        entities: JSON.stringify([]),
+        source_references: JSON.stringify([{ quote: 'q2', target_hint: 'h' }]),
+        open_questions: JSON.stringify(['why?'])
+    });
+    assert.deepEqual(repaired.sort(),
+        ['entities', 'key_assertions', 'open_questions', 'source_references']);
+    assert.equal(CS.validateCorpusExtract(extract).ok, true);
+    assert.equal(extract.key_assertions[0].quote, 'q');
+    assert.deepEqual(extract.open_questions, ['why?']);
+});
+
+test('repairCorpusExtract: what cannot be recovered losslessly is left for the validator', () => {
+    // Prose, JSON that is not an array, junk — no guessing. The string
+    // stays, the walk still rejects it, and the user still sees the
+    // honest type error rather than a silently emptied field.
+    for (const bad of ['Alice, Bob and Carol', '"just a string"', '{"E1":{}}', '[unclosed', 7, true]) {
+        const { extract, repaired } = CS.repairCorpusExtract({
+            position: { summary: 's' }, key_assertions: [], entities: bad
+        });
+        assert.deepEqual(repaired, [], `no repair claimed for ${JSON.stringify(bad)}`);
+        assert.equal(extract.entities, bad, 'the raw value is preserved for the rejection');
+        assert.equal(CS.validateCorpusExtract(extract).ok, false);
+    }
+    // And parsed rows face the SAME refusals a native list would: a
+    // stringified list of unusable rows is still the blindness refusal.
+    const { extract } = CS.repairCorpusExtract({
+        position: { summary: 's' }, key_assertions: [],
+        entities: JSON.stringify([{ junk: true }, { alsoJunk: 1 }])
+    });
+    assert.equal(CS.validateCorpusExtract(extract).ok, false,
+        'repair must not smuggle unusable rows past the blindness refusal');
+});
+
+test('repairCorpusExtract: a healthy extract passes through untouched', () => {
+    const good = {
+        position: { summary: 's' },
+        key_assertions: [{ quote: 'q', text: 't', load_bearing: true }],
+        entities: [{ ref: 'E1', name: 'A', type: 'person', mention: 'A' }]
+    };
+    const { extract, repaired } = CS.repairCorpusExtract(good);
+    assert.deepEqual(repaired, []);
+    assert.deepEqual(extract, good);
+});
+
+test('a poisoned cache entry SELF-HEALS: the cache-hit path revalidates', async () => {
+    // Why the reversal is retroactive and needs no migration: the
+    // already-stored bad extract now fails validation on READ, so
+    // ensureArticleExtract falls through to a fresh pass instead of
+    // serving it. Without this, tightening the validator would fix new
+    // captures and leave every poisoned entry in place.
+    const { ensureArticleExtract } = await import('../src/shared/article-pass.js');
+    const POISONED = { position: { summary: 's' }, key_assertions: [{ quote: 'q', load_bearing: true }],
+                       entities: { E1: { name: 'Alice' } } };
+    const GOOD = { position: { summary: 's' }, key_assertions: [{ quote: 'q', load_bearing: true }],
+                   entities: [{ ref: 'E1', name: 'Alice', type: 'person', mention: 'Alice' }] };
+    let called = 0;
+    const out = await ensureArticleExtract(
+        { article: { title: 'T', content: '<p>Body text long enough to matter.</p>', url: 'https://e.com/a' },
+          articleHash: 'a'.repeat(64), url: 'https://e.com/a', title: 'T',
+          sendMessage: async () => { called += 1; return { ok: true, extract: GOOD, model: 'm' }; } },
+        { getExtract: async () => ({ extract: POISONED, model: 'old' }),
+          saveExtract: async () => {}, record: async () => ({ status: 'unchanged' }), now: () => 0 });
+    assert.equal(called, 1, 'the poisoned hit was rejected and the pass re-ran');
+    assert.equal(out.status, 'ran');
+    assert.deepEqual(out.extract.entities, GOOD.entities);
+});
+
+test('v9 blindness refusal: a non-empty entities list with NO usable row is malformed (never cached)', () => {
+    // All rows mention-less → Suggest would be permanently entity-blind
+    // for this article behind a forever cache hit. Refuse; re-run.
+    const blind = { position: { summary: 's' }, key_assertions: [], entities: [
+        { ref: 'E1', name: 'Alice', type: 'person', mention: '  ' },
+        { ref: 'E2', name: 'Bob', type: 'person' }
+    ] };
+    const v = CS.validateCorpusExtract(blind);
+    assert.equal(v.ok, false);
+    assert.match(v.errors.join(' '), /entities/);
+    // One usable row among bad ones → valid (the bad ones prune).
+    const mixed = { position: { summary: 's' }, key_assertions: [], entities: [
+        { ref: 'E1', name: 'Alice', type: 'person', mention: 'Alice' },
+        { ref: 'E2', name: 'Bob', type: 'person' }
+    ] };
+    assert.equal(CS.validateCorpusExtract(mixed).ok, true);
+    // An EMPTY list stays valid — an article can name nothing.
+    assert.equal(CS.validateCorpusExtract({ position: { summary: 's' }, entities: [] }).ok, true);
 });

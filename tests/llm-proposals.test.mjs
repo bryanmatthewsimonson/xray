@@ -37,9 +37,8 @@ globalThis.chrome = {
 
 const { seedPrimary } = await import('./seed-primary.mjs');
 const P = await import('../src/shared/llm-proposals.js');
-const { buildSuggestTool, buildSystemPrompt, resolveModel, DEFAULT_LLM_MODEL } =
+const { resolveModel, DEFAULT_LLM_MODEL, outputBudget, modelOutputCeiling, SAFE_OUTPUT_CEILING } =
     await import('../src/shared/llm-prompts.js');
-const { extractProposals } = await import('../src/shared/llm-client.js');
 const { EntityModel } = await import('../src/shared/entity-model.js');
 const { ClaimModel } = await import('../src/shared/claim-model.js');
 const { AssessmentModel } = await import('../src/shared/assessment-model.js');
@@ -401,13 +400,12 @@ test('captureAutomation defaults OFF — the #xray:capture marker is opt-in (27 
         'the navigation-marker capture trigger must be explicitly enabled');
 });
 
-test('findings are RETIRED from Suggest — even asked for, no forensic content enters the prompt (2026-07-20)', () => {
-    // The per-subject forensic corpus pass (FA.1) owns findings now;
-    // per-article suggestion could never see the cross-source pattern.
-    const sys = buildSystemPrompt({ tasks: ['findings'] });
-    assert.doesNotMatch(sys, /MANEUVER GUIDE/);
-    assert.doesNotMatch(sys, /PERFORMED the move/);
-});
+// (The prompt-surface pins — findings-retired, extraction-only system
+// prompt, quote-contract wording, the propose_capture schema scan, and
+// extractProposals — retired in UA.3 with the standalone suggest pass.
+// The map pass's equivalents live in tests/corpus-prompts.test.mjs;
+// the no-verdict discipline on FINDING INPUTS survives below.)
+
 
 test('buildFindingInput/buildBaselineInput: subject carries identity_id when the ref resolved (27 F.3)', () => {
     const entityIdByRef = { E1: 'identity_abc123' };
@@ -443,12 +441,7 @@ test('buildFindingInput: anchor quotes are re-canonicalized to the article\'s te
 // No verdict / no intent — by construction
 // ---------------------------------------------------------------------
 
-test('tool schema + finding mapping carry no intent/score/confidence field', () => {
-    const tool = buildSuggestTool();
-    const props = Object.keys(tool.input_schema.properties.proposals.items.properties);
-    for (const banned of ['intent', 'score', 'confidence', 'lying', 'verdict']) {
-        assert.ok(!props.includes(banned), `schema must not expose "${banned}"`);
-    }
+test('finding mapping carries no intent/score/confidence field', () => {
     const input = P.buildFindingInput(
         { role: 'apologist', maneuver: 'darvo/deny', counter_note: 'c', anchors: [{ quote: 'q' }] },
         { articleText: ARTICLE_TEXT, sourceRef: { url: URL }, suggestedBy: SUGGESTED_BY, subjectLabel: 'X' }
@@ -458,66 +451,77 @@ test('tool schema + finding mapping carry no intent/score/confidence field', () 
     }
 });
 
-// ---------------------------------------------------------------------
-// extractProposals (llm-client, pure)
-// ---------------------------------------------------------------------
 
-test('extractProposals: pulls the propose_capture tool input', () => {
-    const data = {
-        content: [
-            { type: 'text', text: 'here you go' },
-            { type: 'tool_use', name: 'propose_capture', input: { proposals: [{ kind: 'entity', name: 'A', entity_type: 'person' }] } }
-        ]
-    };
-    const out = extractProposals(data);
-    assert.equal(out.length, 1);
-    assert.equal(out[0].name, 'A');
-});
 
-test('extractProposals: null when no tool call present', () => {
-    assert.equal(extractProposals({ content: [{ type: 'text', text: 'no tool' }] }), null);
-});
 
-// ---------------------------------------------------------------------
-// prompt invariants
-// ---------------------------------------------------------------------
-
-test('system prompt is extraction-only: anchoring stays, judgment content is gone (2026-07-20)', () => {
-    const sys = buildSystemPrompt({ task: 'all', url: URL, title: 'Test' });
-    assert.match(sys, /VERBATIM/);                            // anchoring instruction survives
-    assert.match(sys, /EXTRACT|Extraction only/i);            // the pass names its job
-    assert.doesNotMatch(sys, /defense\/usefulness-pivot/);    // no maneuver guide
-    assert.doesNotMatch(sys, /counter-indicators/);           // no forensic discipline block
-});
-
-test('system prompt + schema state the machine-checked quote contract', () => {
-    const sys = buildSystemPrompt({ task: 'all' });
-    assert.match(sys, /machine-checked/i);
-    assert.match(sys, /quote is REQUIRED/);                   // claims rule
-    const tool = buildSuggestTool();
-    const props = tool.input_schema.properties.proposals.items.properties;
-    assert.match(props.quote.description, /REQUIRED for kind=claim/);
-    assert.match(props.quote.description, /machine-checked/);
-    assert.match(props.anchors.description, /machine-checked/);
-});
 
 test('resolveModel defaults unknown ids to the latest capable model', () => {
     assert.equal(resolveModel('totally-made-up'), DEFAULT_LLM_MODEL);
     assert.equal(resolveModel('claude-sonnet-4-6'), 'claude-sonnet-4-6');
 });
 
-test('the model picker offers Fable 5 and Sonnet 5, and every id resolves', async () => {
+test('the model picker offers Opus 5, Fable 5 and Sonnet 5, and every id resolves', async () => {
     const { LLM_MODELS } = await import('../src/shared/llm-prompts.js');
     const ids = LLM_MODELS.map((m) => m.id);
     assert.deepEqual(ids, [
-        'claude-fable-5', 'claude-opus-4-8', 'claude-opus-4-7',
+        'claude-fable-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-opus-4-7',
         'claude-sonnet-5', 'claude-sonnet-4-6', 'claude-haiku-4-5'
     ]);
+    // The default is chosen for the dominant workload (long-form
+    // transcripts, where input price dominates), not by roster position.
+    assert.equal(DEFAULT_LLM_MODEL, 'claude-sonnet-5');
     // Every offered id must survive resolveModel — a picker entry that
     // silently falls back to the default is a lie to the user.
     for (const id of ids) assert.equal(resolveModel(id), id);
     for (const m of LLM_MODELS) assert.ok(m.label && m.label.length > 3, m.id);
     assert.ok(ids.includes(DEFAULT_LLM_MODEL), 'the default is offered');
+});
+
+// The clamp is what stops a raised pass cap from becoming a 400 on the
+// model with the smallest window. Over-asking kills the call outright;
+// under-asking only risks a truncation the pass already reports. So the
+// clamp must bind, and an UNKNOWN id must fall to the safe floor rather
+// than the optimistic ceiling.
+test('outputBudget clamps every pass cap to the model that will serve it', async () => {
+    const { LLM_MODELS } = await import('../src/shared/llm-prompts.js');
+
+    // Every offered model declares a ceiling, and none is below the floor.
+    for (const m of LLM_MODELS) {
+        assert.ok(Number.isInteger(m.max_output) && m.max_output > 0, `${m.id} declares max_output`);
+        assert.ok(m.max_output >= SAFE_OUTPUT_CEILING, `${m.id} is not below the safe floor`);
+    }
+
+    // SAFE_OUTPUT_CEILING really is the roster minimum — a pass cap at or
+    // below it can never 400 on a model switch.
+    assert.equal(SAFE_OUTPUT_CEILING, Math.min(...LLM_MODELS.map((m) => m.max_output)));
+
+    // The clamp binds on the smallest window and passes through elsewhere.
+    assert.equal(outputBudget(128000, 'claude-haiku-4-5'), 64000, 'clamped to Haiku 4.5');
+    assert.equal(outputBudget(128000, 'claude-sonnet-5'), 128000, 'Sonnet 5 takes the full ask');
+    assert.equal(outputBudget(8192, 'claude-haiku-4-5'), 8192, 'a cap under the ceiling is untouched');
+
+    // An unknown id (a stale stored preference, a model we retired) must
+    // not optimistically assume 128k — that is the request that 400s.
+    assert.equal(modelOutputCeiling('claude-from-the-future'), SAFE_OUTPUT_CEILING);
+    assert.equal(outputBudget(128000, 'claude-from-the-future'), SAFE_OUTPUT_CEILING);
+});
+
+test('every pass asks for a budget that fits the smallest model in the roster', async () => {
+    // A cap above SAFE_OUTPUT_CEILING is legal (outputBudget clamps it),
+    // but a cap that RELIES on the clamp silently gives Haiku users a
+    // different analysis. This pins what each pass asks for so that
+    // divergence is a deliberate, visible edit.
+    const corpus = await import('../src/shared/corpus-prompts.js');
+    const caps = {
+        map:       corpus.MAX_MAP_OUTPUT_TOKENS,
+        reduce:    corpus.MAX_REDUCE_OUTPUT_TOKENS,
+        hypEdges:  corpus.MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS,
+        links:     corpus.MAX_CLAIM_LINKS_OUTPUT_TOKENS
+    };
+    for (const [name, cap] of Object.entries(caps)) {
+        assert.ok(cap <= SAFE_OUTPUT_CEILING,
+            `${name} asks ${cap}, above the ${SAFE_OUTPUT_CEILING} every model can serve`);
+    }
 });
 
 test('a model refusal is its own disclosed state, never a malformed-output error', async () => {
@@ -552,18 +556,7 @@ test('llmAssist flag defaults OFF', async () => {
     assert.equal(FLAGS_DEFAULTS.llmAssist, false);
 });
 
-test('system prompt scopes by task within the extraction kinds', () => {
-    const entities = buildSystemPrompt({ task: 'entities' });
-    assert.doesNotMatch(entities, /MANEUVER GUIDE/);
-    assert.match(entities, /people \/ organizations/i);
-});
 
-test('tool schema exposes exactly the extraction kinds (retired kinds cannot be emitted)', () => {
-    const tool = buildSuggestTool();
-    const kinds = tool.input_schema.properties.proposals.items.properties.kind.enum;
-    assert.deepEqual([...kinds].sort(), ['claim', 'entity'],
-        'facts retired 2026-07-20 with the fact layer');
-});
 
 // ---------------------------------------------------------------------
 // End-to-end "mock client" pass through the REAL models
@@ -620,7 +613,11 @@ test('end-to-end: a canned pass creates every artifact tagged llm:<model>', asyn
     assert.equal(c1.suggested_by, SUGGESTED_BY);
     assert.deepEqual(c1.about.sort(), [entityIdByRef.E1, entityIdByRef.E2].sort());
     assert.ok(Array.isArray(c1.anchor) && c1.anchor.some((s) => s.type === 'TextQuoteSelector'));
-    assert.equal(c1.is_key, true);
+    // UA.1 guard rail 6: the ARTICLE pass never writes claim.is_key —
+    // the mock proposal's is_key:true (deliberately kept in the fixture)
+    // must NOT persist. Keyness is case-scoped: the reduce's promotion
+    // and the corpus-level human checkbox are the only writers.
+    assert.equal(c1.is_key, false);
     assert.equal(c1.quote, '"I care about the truth, not what the church says," he insisted.');
     assert.equal(c1.article_hash, 'e'.repeat(64));
 

@@ -99,8 +99,8 @@ extension approves in-context.
 (e.g. `xray:capture`, `xray:capture:transcribe`, `xray:capture:publish`,
 `xray:relay:publish`, `xray:relay:query`, `xray:sign`,
 `xray:youtube:fetchTranscript`, `xray:screenshot:capture`,
-`xray:llm:suggest`, `xray:audit:run`, `xray:transcribe:{start,status,
-config,ping,claims}`, `xray:vision:describe`). When adding a cross-context
+`xray:llm:corpus-map`, `xray:audit:run`, `xray:transcribe:{start,status,
+config,ping,claims}`, `xray:transcribe:direct:{start,status}`, `xray:vision:describe`). When adding a cross-context
 call, add an `xray:*` message rather than reaching across contexts directly.
 
 ### Shared layer (`src/shared/`)
@@ -110,12 +110,17 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
 
 - **`storage.js`** — `chrome.storage.local` wrapper; the **canonical source
   of truth**. Preserves the userscript's outer API (`Storage.get/set/...`
-  plus `publications`/`people`/`organizations`/`preferences`/`keypairs`
-  sub-objects) so callers didn't change during the port. Values are
-  JSON-serialized for export/import compatibility. Note: the **primary
-  signing identity (Local mode) lives under a separate
-  `local_primary_identity` key**, deliberately *outside* the keypair
-  registry, so exporting entity keys never leaks the user's nsec.
+  plus `preferences`/`primaryIdentity`/`platformAccounts`/`relays`
+  sub-objects) so callers didn't change during the port; the
+  userscript-era `publications`/`people`/`organizations`/`keypairs`
+  sub-objects are gone (removed 2026-07-01), and captured articles live
+  in `archive-cache.js`'s IndexedDB, not here — `entities`/`articleCache`
+  survive only as dead v4-compat stubs (kill candidate K14 in
+  ROAD_TO_1_0). Values are JSON-serialized for export/import
+  compatibility. Note: the **primary signing identity (Local mode) lives
+  under a separate `local_primary_identity` key**, deliberately *outside*
+  the per-entity key registry (`local_keys`), so exporting entity keys
+  never leaks the user's nsec.
 - **`signer.js`** — unified signing façade over Local / NIP-07 /
   NSecBunker, dispatched on `preferences.signing_method`. NIP-07 only works
   where a `nip07Client` is injected (`Signer.configure({ nip07Client })`),
@@ -211,6 +216,23 @@ it; CI's `node --check`/tests never touch it). Setup + API contract:
 `companion/transcriber/README.md`. The extension must behave exactly
 as before whenever the service is absent — that degradation is a
 tested contract, not an aspiration.
+
+Since DC.1 (`docs/DIRECT_CLOUD_TRANSCRIBE_KICKOFF.md`) that sentence
+carries TWO meanings, and both hold. The old one: with no companion and
+no direct flag, every transcription surface degrades exactly as before.
+The new one: with the default-off `directCloudTranscription` flag on,
+`shared/direct-transcribe.js` transcribes with **no companion at all** —
+the service worker hands AssemblyAI the media URL and they fetch the
+audio themselves. That module is a SIBLING of `transcriber-client.js`,
+never an extension of it: it imports only the credential key NAME, since
+`companionFetch` attaches the companion's shared token to every request.
+Its provider origin is a pinned https literal (guard:
+`tests/provider-host-pin.test.mjs`), and its result normalizer
+(`shared/provider-normalize.js`) is a JS twin of the companion's
+`providers/normalize.py` held in parity by a fixture BOTH suites read
+(`tests/fixtures/normalizer-parity.json`; regenerate with
+`tests/tools/regen-normalizer-fixture.py`). Changing either normalizer
+without the other is the design's named long-term risk.
 
 ## Conventions
 
@@ -359,7 +381,9 @@ tested contract, not an aspiration.
   passes FA.1–FA.3 (`docs/CORPUS_AUDIT_KICKOFF.md`), Suggest narrowed to
   the EXTRACTION pass (entities+claims; judgment kinds live at corpus
   level) + case-dashboard workflow declutter, known-entity vocabulary
-  injection, the opt-in `autoPreAnalyze` capture prepay, the fact-layer
+  injection, the opt-in `autoPreAnalyze` map prepay (both later retired
+  — vocabulary in UA.2, the prepay in UA.3, once the unified pass made
+  them redundant), the fact-layer
   retirement, and **Entity Pages** (`docs/ENTITY_PAGE_KICKOFF.md` —
   EP.1–EP.5, the claims-first knowledge artifacts). A **map-artifact
   wave** (2026-07-24/25, `docs/MAP_ARTIFACT_KICKOFF.md`) then made the
@@ -377,7 +401,29 @@ tested contract, not an aspiration.
   (MA.6 — the NEW kind `30070` ExtractionAnalysis behind
   `extractionAnalysisPublishing`; the maintainer's 2026-07-29 posture
   publishes the WHOLE unit, every review state plus the model's prose,
-  so the per-row `status` marking is the only safeguard). The FLF Epistack
+  so the per-row `status` marking is the only safeguard). The **One
+  Article Pass** (`docs/UNIFIED_ARTICLE_PASS_KICKOFF.md`, approved
+  2026-08-12) then began unifying Suggest with the corpus map — UA.1
+  (corpus-v8) made the map COMPREHENSIVE (every atom: verbatim quote +
+  authored `text` paraphrase + `load_bearing` flag), the reader's
+  Suggest serves its claim half from that cached-or-fresh extract
+  (`shared/article-pass.js` — same unit builder, byte-identical cache
+  keys) with the remaining LLM call slimmed to entities +
+  claim→entity links, the reduce/entity page read only the
+  load-bearing subset, and the article pass NEVER writes
+  `claim.is_key` (keyness is case-scoped; the reduce promotion and the
+  human checkbox are the only writers) — then UA.2 (corpus-v9) made it
+  literally ONE call: entities + native about-refs joined the extract,
+  the separate entities call left the live path, the Phase-28 prompt
+  vocabulary retired (it would poison the content-only cache key), and
+  naming consistency moved to the accept-time resolution ladder
+  (`shared/entity-resolution.js` — identity rungs pre-select, near-name
+  rungs only rank; no scores, never-merge per Art. 6) — and UA.3 swept
+  the residue: `autoPreAnalyze` retired, the standalone
+  `xray:llm:suggest` pass + tool schema (and its `is_key` field)
+  retired, analyze-after-import runs the article pass per page instead
+  of parking proposals, and every human surface says "claim proposal"
+  ("assertion" survives only as the layer's storage and wire term). The FLF Epistack
   entry has been submitted (deadline was 2026-07-19); the tool continues
   to be tailored **maintainer-driven from real casework (COVID first)**.
   The 0.8.0 smoke walk passed (2026-07-20; Phases 11–15

@@ -14,9 +14,12 @@
 // transaction opens, which is what this module does.
 //
 // It also chunks. A corpus import can carry hundreds of records, and a
-// grounding index over a 60k body is ~1.9 MiB; holding every body plus
-// every index at once would be the difference between a working import
-// and an out-of-memory one. Chunking bounds peak memory to one chunk's
+// grounding index over a 60k body is ~1.9 MiB (scaling with the body —
+// at the 400k map bound a full long-form transcript indexes to ~13 MiB);
+// holding every body plus every index at once would be the difference
+// between a working import and an out-of-memory one. Indexes stay
+// transient: mergeExtractionRecords builds one per record and drops it,
+// so peak is a chunk's bodies plus a single index, not 25 of them. Chunking bounds peak memory to one chunk's
 // bodies and shortens each transaction. Cross-chunk atomicity is not
 // lost in any meaningful sense: `mergeBackup` already disclaims
 // cross-stage rollback, and re-importing the same file is idempotent

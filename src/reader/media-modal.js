@@ -26,6 +26,10 @@ import {
     SOURCE_TYPES, SOURCE_TYPE_LABELS, suggestSourceType,
     EVIDENCE_ROLES, EVIDENCE_ROLE_LABELS
 } from '../shared/truth-taxonomy.js';
+// The same https-only predicate the Transcribe button and runTranscribeFlow
+// enforce (transcribe-flow.js is deliberately import-free, so this is safe)
+// — the modal must never promise a job the flow will immediately refuse.
+import { isFetchableMediaUrl } from './transcribe-flow.js';
 
 // Cap the per-link role editor so an article with hundreds of links
 // doesn't build a runaway modal. External links only.
@@ -89,7 +93,7 @@ function linksSection(article) {
       </details>`;
 }
 
-function buildHtml(article) {
+function buildHtml(article, canTranscribe) {
     const media = article.media || '';
     const pod = article.podcast || {};
     const hasTranscript = !!article.transcript_meta;
@@ -172,6 +176,10 @@ function buildHtml(article) {
         <footer class="xr-media__foot">
           <span class="xr-media__foot-gap"></span>
           <button type="button" class="xr-media__btn" data-action="cancel">Cancel</button>
+          ${canTranscribe ? `<button type="button" class="xr-media__btn" id="xr-media-transcribe"
+                  title="Save this metadata, then fetch the media at this URL and transcribe it">
+            🎙 Transcribe from source
+          </button>` : ''}
           <button type="button" class="xr-media__btn xr-media__btn--primary" data-action="save">Save</button>
         </footer>
       </div>`;
@@ -179,21 +187,30 @@ function buildHtml(article) {
 
 /**
  * @param {object} article  the open article (prefills; never mutated here)
- * @param {object} [opts]   { autoFind } — reveal the podcast identity
- *   block and run 🔍 Find identity immediately. Only the Media-button
- *   nudge passes it: the user clicked "identity found — confirm?", and
- *   that click IS the consent gesture for the lookup.
- * @returns {Promise<{media: string|null, sourceType: string|null, linkRoles: object, podcast: object|null, parse: object|null}|null>}
+ * @param {object} [opts]   { autoFind, canTranscribe } — `autoFind`
+ *   reveals the podcast identity block and runs 🔍 Find identity
+ *   immediately. Only the Media-button nudge passes it: the user
+ *   clicked "identity found — confirm?", and that click IS the consent
+ *   gesture for the lookup. `canTranscribe` gates the "Transcribe from
+ *   source" footer button — the caller resolves the localTranscription
+ *   flag BEFORE opening the modal (the flag can only flip in Options,
+ *   never mid-render here) so the flag-off invariant every other
+ *   surface in this feature honors ("flag off ⇒ no surface exists")
+ *   holds for this one too; omitted/false renders no button at all.
+ * @returns {Promise<{media: string|null, sourceType: string|null, linkRoles: object, podcast: object|null, parse: object|null, transcribe: boolean}|null>}
  *   null on cancel. `parse` is a parseTranscript result (turns present)
- *   when the user pasted a transcript, else null.
+ *   when the user pasted a transcript, else null. `transcribe` is true
+ *   when the user pressed "Transcribe from source" — the caller applies
+ *   the metadata first, then starts the companion job.
  */
 export function openMediaModal(article, opts = {}) {
     ensureStyles();
+    const canTranscribe = !!(opts && opts.canTranscribe);
 
     return new Promise((resolve) => {
         const host = document.createElement('div');
         host.className = 'xr-media';
-        host.innerHTML = buildHtml(article || {});
+        host.innerHTML = buildHtml(article || {}, canTranscribe);
         document.body.appendChild(host);
         const $ = (sel) => host.querySelector(sel);
 
@@ -210,6 +227,9 @@ export function openMediaModal(article, opts = {}) {
         };
 
         let lastParse = null;
+        // "Transcribe from source" sets this, then delegates to the ONE
+        // save path so metadata and intent travel in a single result.
+        let transcribeRequested = false;
         let previewTimer = null;
         // sel → machine-prefilled value (🔍 Find identity); consulted by
         // Save when the identity fieldset is hidden.
@@ -329,8 +349,45 @@ export function openMediaModal(article, opts = {}) {
         $('[data-action="cancel"]').addEventListener('click', () => close(null));
         document.addEventListener('keydown', onKey);
 
+        // "Transcribe from source": the same save, plus a request to
+        // run the companion job on this capture's URL. Deliberately
+        // exclusive with a pasted transcript — attaching one transcript
+        // while fetching another is a contradiction the user should
+        // resolve, not something to silently order.
+        // The button itself is absent when canTranscribe is false
+        // (buildHtml never renders it) — this listener only wires up
+        // when there's something to wire.
+        const transcribeBtn = $('#xr-media-transcribe');
+        if (transcribeBtn) {
+            transcribeBtn.addEventListener('click', () => {
+                if ($('#xr-media-text').value.trim()) {
+                    showError('Attach a pasted transcript OR transcribe from source — not both in one save.');
+                    return;
+                }
+                if (!isFetchableMediaUrl((article && article.url) || '')) {
+                    showError('This capture has no https:// URL to fetch media from — the companion only fetches https sources.');
+                    return;
+                }
+                // Stamp the intent BEFORE delegating: the save handler is
+                // the only path that calls close(), so the flag must
+                // already be set when it builds its result. Delegating
+                // (rather than duplicating the save body) keeps one
+                // validation path.
+                transcribeRequested = true;
+                $('[data-action="save"]').click();
+            });
+        }
+
         $('[data-action="save"]').addEventListener('click', () => {
             $('.xr-media__err').hidden = true;
+
+            // Single-use: consume the intent immediately so a Save that
+            // bails on validation cannot leave it armed for a later,
+            // ordinary Save click. Any of this handler's early returns
+            // below (bad feed URL, bad iTunes id, unparseable transcript)
+            // must land on a Save that no longer carries the request.
+            const wantsTranscribe = transcribeRequested;
+            transcribeRequested = false;
 
             const media = $('#xr-media-type').value || null;
             // The confirm gate: machine-discovered values are only a
@@ -391,7 +448,8 @@ export function openMediaModal(article, opts = {}) {
                 sourceType,
                 linkRoles,
                 podcast: Object.keys(podcast).length ? podcast : null,
-                parse
+                parse,
+                transcribe: wantsTranscribe
             });
         });
     });

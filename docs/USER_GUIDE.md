@@ -148,12 +148,13 @@ so no single operator can drop your corpus. `[SCREENSHOT-03]`
 ### 2.4 LLM assist and the API key
 
 Several X-Ray features can call a large language model on your behalf —
-the **Suggest** pass (extracts entities and claims for review), the
-**epistemic audit**, the **moral lens**, and the corpus-level passes on
-the case dashboard and dossiers: the **corpus synthesis** brief, the
-**cross-article link** suggester, the batch **suggest-after-import**
-pass, the **corpus audit** and **forensic** sweeps, the **entity audit**,
-and the **entity page**. Every one needs an **Anthropic API key**,
+the **Suggest** pass (ONE reading per article: claim and entity
+proposals for review, cached so a case Analyze or entity page never
+re-pays for it), the **epistemic audit**, the **moral lens**, and the
+corpus-level passes on the case dashboard and dossiers: the **corpus
+synthesis** brief, the **cross-article link** suggester, the batch
+**analyze-after-import** pass, the **corpus audit** and **forensic**
+sweeps, the **entity audit**, and the **entity page**. Every one needs an **Anthropic API key**,
 set in **Settings → Advanced → LLM assist**, *and* its own feature flag
 (§2.5): the flag reveals the control, the key lets it run. You can also
 pick the model (Fable 5 / Sonnet 5 / Opus). The key is stored in its own
@@ -164,10 +165,11 @@ review — nothing auto-saves or auto-publishes. `[SCREENSHOT-04]`
 Cost note: a **quick** audit is **one** API call; a **thorough** audit is
 **eight** (one per dimension). A lens reading is one call per
 jurisdiction. A corpus synthesis is roughly one call per member article
-plus a reduce — and the per-article analyses are **cached**, so
-Pre-analyze / the opt-in per-capture prepay (`autoPreAnalyze`) make later
-corpus runs and entity pages nearly reduce-only. You pay your own
-Anthropic bill; X-Ray never proxies.
+plus a reduce — and the per-article analyses are **cached** under a
+content-only key, so every surface shares one reading: a Suggest click,
+a Pre-analyze, an analyze-after-import, a case Analyze, and an entity
+page all reuse the same cached extract, and an article is paid for
+once, ever. You pay your own Anthropic bill; X-Ray never proxies.
 
 ### 2.5 Feature flags
 
@@ -187,14 +189,15 @@ gate your **publish** paths and some panel tabs, not what you can read.
 | `truthAdjudicationPublishing` | off | Publishing verdicts (30063) + integrity findings (30064) |
 | `platformAccountPublishing` | off | Publishing platform-account identity links (32126) — discloses your account↔entity graph |
 | `entityCorpusPublishing` | off | Publishing entity kind-0 profiles + per-article kind-1 mention notes (entity-signed; publication is irrevocable in practice), and the user-signed entity page (kind 30023) |
-| `llmAssist` | off | The reader "Suggest…" pass + audit / synthesis / hypothesis / cross-article-link LLM *execution* (needs the API key) |
+| `llmAssist` | off | The reader "Suggest…" pass (the one article reading) + audit / synthesis / hypothesis / cross-article-link LLM *execution* (needs the API key) |
 | `moralLens` | off | The reader's lens-reading surface (needs the API key; independent of `llmAssist`) |
 | `caseSynthesis` | off | The corpus-level LLM passes: "Analyze corpus…", "Pre-analyze", "Suggest links", hypothesis-edge suggestions, and entity-page generation (needs `llmAssist` + the API key) |
-| `autoPreAnalyze` | off | Auto pre-analyze each capture into its bound case — a STANDING per-capture spend authorization (one analysis call per capture; cache-first) |
 | `networkPage` | off | The whole Network client surface (Feed / Queue / Follows page + its menu item and links) |
 | `reviewCoordination` | off | The portal "Request review" label + the Network "re-broadcast follows" button |
 | `followListPublishing` | off | Publishing a NIP-02 kind-3 mirror of who you follow (global scope only; consent dialog on first enable) |
 | `captureAutomation` | off | The `#xray:capture` URL marker a driving agent can navigate to (capture only) |
+| `localTranscription` | off | The "Transcribe" surfaces: a "Capture & transcribe" right-click item on https pages, the reader's 🎙 button on captures with media, and the portal's "Transcribe a URL" panel. All of them talk to the loopback companion service (`companion/transcriber/`), which downloads audio with yt-dlp and transcribes it locally (WhisperX) or — only if you pick a cloud engine and save its key — by uploading the audio to AssemblyAI or Deepgram. |
+| `transcriptClaimDrafts` | off | The optional LM Studio pass over a finished transcript: drafts claim candidates through a loopback endpoint (localhost:1234). Local-only and free; every suggestion still needs your Accept. |
 
 The rule of thumb: **local analysis is never gated** (capturing,
 tagging, claims, verdicts, audits you import, the dossier) — flags gate
@@ -350,8 +353,10 @@ The portal header adds import entry points that don't need a live tab:
   archive without a tab per page. On a case view it also tags every
   import into that case. Re-runs are idempotent; a page it can only
   thinly extract (paywalled) is imported and honestly flagged **thin**,
-  not dropped. You can optionally seed each imported page with LLM
-  Suggest proposals that park for later review
+  not dropped. You can optionally **analyze** each imported page as it
+  lands (one LLM reading, cached) — the reader's Suggest button then
+  serves its claim and entity proposals instantly, and a later case
+  Analyze finds every imported member prepaid
   ([§9](#9-cases-the-investigation-workspace)).
 
 All of these produce markdown-canonical captures, identical in every
@@ -1036,13 +1041,17 @@ offers two LLM passes:
 **Pre-analyze** runs just the per-article half of Analyze (the map
 stage) ahead of time, so the eventual Analyze — and any entity page —
 starts from a warm cache; the per-article analyses are keyed to the
-article text + case frame, so extracting claims later never invalidates
-them. The opt-in `autoPreAnalyze` flag does this automatically after
-every capture into a bound case (a standing per-capture spend — the
-Options disclosure says so). The Suggest pass also carries your case's
-existing entity names into the prompt as **naming vocabulary**, so a
-re-mentioned entity is proposed under its established name instead of
-minting a near-duplicate.
+article text alone (no case frame, no claims), so extracting claims
+later never invalidates them and one analysis serves every case.
+Since the One Article Pass, every **Suggest** click IS that same map
+call (cache-first), so Suggesting an article analyzes it — there is
+nothing separate left to prepay. Naming consistency is handled at
+accept time by the **resolution ladder**: when a proposed entity
+matches an existing record (same name and type, a recorded alias, an
+overlapping name, or an initial + surname), the review modal offers
+the existing record as a ranked "use existing" choice — identity
+matches pre-select, near-name matches wait for your pick, and nothing
+ever links without your Accept.
 
 Accepted proposals become ordinary `kind 30040` / `30055` events through
 the normal publish path; the brief is stored **locally**. You can also

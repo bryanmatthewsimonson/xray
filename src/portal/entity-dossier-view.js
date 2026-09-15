@@ -9,6 +9,8 @@
 // DISTRIBUTIONS — no score, no person-grade, nothing fused.
 
 import { el, clear } from './dom.js';
+import { openArchivedInReader } from './open-archived.js';
+import { bandISO } from '../shared/dossier-time.js';
 import { assembleEntityDossier } from '../shared/entity-dossier.js';
 import { renderIntegrityBlock } from './integrity-block.js';
 import { Utils } from '../shared/utils.js';
@@ -34,7 +36,7 @@ export function renderEntityDossierView(host, params) {
     // Skeleton first (the router's render() is synchronous); fill when
     // the assembler resolves; the caller guards stale view-state.
     const head = el('div', 'xr-view__head');
-    const back = el('button', 'xr-portal__btn xr-portal__btn--ghost', '← Library');
+    const back = el('button', 'xr-portal__btn xr-portal__btn--ghost', '← Back');
     back.type = 'button';
     back.addEventListener('click', () => callbacks.onBack());
     head.appendChild(back);
@@ -267,8 +269,19 @@ function renderContentBlock(host, dossier) {
     block.appendChild(el('h3', 'xr-case__heading', 'Captured content'));
     for (const row of articles) {
         const line = el('div', 'xr-view__dossier-line');
-        line.appendChild(el('span', '', `${row.title || hostOf(row.url)} · ${row.claims.length} claim(s)`
-            + (row.published ? ` · ${bandText(row.published.at, row.published.precision)}` : '')));
+        // Clickable into the reader (field-found 2026-08-23: a book's
+        // whole chapter list was inert text).
+        const link = el('a', 'xr-view__dossier-link', `${row.title || hostOf(row.url)} · ${row.claims.length} claim(s)`
+            + (row.published ? ` · ${bandISO(row.published.at, row.published.precision).slice(0, 10)}` : ''));
+        link.href = '#';
+        link.addEventListener('click', async (ev) => {
+            ev.preventDefault();
+            const out = await openArchivedInReader(row.url);
+            // Surface the refusal — a click that silently does nothing
+            // is the exact bug this link replaces.
+            if (!out.ok) { Utils.error('open chapter:', out.error); alert(out.error); }
+        });
+        line.appendChild(link);
         block.appendChild(line);
     }
     if (unprocessed.length > 0) {

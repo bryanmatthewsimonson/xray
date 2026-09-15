@@ -19,6 +19,1727 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-09-05 — `(x || []).filter` is not an array guard: the known-unknowns block's stored-string crash
+
+**Tags:** bug, pattern
+
+Maintainer diagnostics, 2026-08-30, three occurrences: "Known-unknowns
+block failed (f.primary_documents || []).filter is not a function".
+One stored module-04 (source_quality) finding carried a STRING in
+`primary_documents` — a record that predates or slipped past
+`findings-schemas.js` validation — and `known-unknowns.js`'s
+`(f.primary_documents || []).filter(...)` threw on it. `|| []` only
+covers falsy values; any truthy non-array sails through, and the
+portal block's catch-all removed the whole block. The one malformed
+member cost the case every other member's unknowns, three times.
+
+Fix is data tolerance, not a schema change (stored malformed records
+must render degraded, never crash a block — the portal's own rule):
+every list read in `shared/audit/known-unknowns.js` goes through
+`Array.isArray(v) ? v : []`, every displayed scalar through a
+string-only coercion (the renderer slices quotes), and the findings
+payload is narrowed to a plain object. The same sweep covered
+`shared/reference-resolver.js` — whose destructuring defaults cover
+only `undefined`, so a string `primary_documents` iterated as
+characters and an object would have thrown "not iterable" — and the
+identical `moduleResults`/`findings` read in
+`portal/references-block.js`. The renderer
+(`portal/known-unknowns-block.js`) is untouched: it is a 1:1
+projection of the model record, and the tolerance belongs at that one
+seam, not duplicated in the DOM layer.
+
+Tests: `tests/known-unknowns.test.mjs` (the hostile fixture — the
+observed string plus every other list slot in a wrong-but-truthy
+shape — beside a well-formed unknown that must survive, and a
+no-drift check on the healthy shape), `tests/known-unknowns-block.
+test.mjs` (drives the REAL renderer through a DOM stub and asserts
+the block stays and shows the surviving unknown — the failure path
+removes it, so an absent block is the observable crash), and the
+resolver / references-block suites.
+
+The pattern for future readers: **`|| []` is a null guard, not a type
+guard.** Anything read from IndexedDB, chrome.storage, a relay event,
+or a model's tool output that will be iterated or `.filter`ed needs
+`Array.isArray` — the repo already does this in `article-pass.js`,
+`entity-feed.js`, and the transcribe normalizers; this is the same
+rule applied to the runs ledger.
+## 2026-08-28 — a missing session record stopped being a publish refusal
+
+**Tags:** bug, capture
+
+Field-found mid-corpus-capture: a reader tab holding hours of extracted
+claims failed with "Publish failed: Session record missing". The
+record had been evicted by the quota discipline PR #359 added three days
+earlier — correct behaviour for a full session area, wrong consequence.
+
+When that eviction shipped I wrote the tradeoff down as "an evicted
+record's reader tab publishes as 'Session record missing' and recovers
+by re-capture — strictly better than every NEW capture failing." The
+first half was accurate and the second half was lazy: re-capture is not
+a recovery when the tab carries a session's claim work, and the premise
+was wrong anyway. The record is not load-bearing. `handleCapturePublish`
+reads exactly ONE field from it — `record.sourceTabId` — and that field
+matters for exactly one signing method, NIP-07, whose `window.nostr`
+lives in the source page. Local and NSecBunker sign in the worker
+through the Signer façade, which is precisely why PDFs, imported EPUB
+chapters, transcript imports and portal reconstructions have always
+published with `sourceTabId: null`.
+
+So both handlers refused on a missing record and then, two lines later,
+branched correctly on `sourceTabId == null`. The refusal was redundant
+for every method but NIP-07, and for NIP-07 the null branch already
+raises the actionable "needs a web page — switch to Local" error. A
+missing record now degrades to that tabless path in both
+`handleCapturePublish` and the `xray:capture:getPubkey` handler.
+
+The lesson is about the earlier entry, not this one: when a design note
+says a failure mode is acceptable, the note has to be re-read once the
+failure actually happens to someone. Eviction was the right call; the
+price I priced it at was not the price it charged.
+
+## 2026-09-05 — the designer reviews the governance corpus (and the first attempt had it backwards)
+
+**Tags:** design, process
+
+Maintainer directive, 2026-08-28: *"We also need to have the designer
+look at the constitution and all governance docs."* Recorded here with
+its reversal, because the reversal is the instructive half.
+
+**The misreading.** The first attempt (this branch, since reverted)
+read "look at" as *answer to*: it gave `ux-designer` an eight-item
+governance checklist citing CONSTITUTION Arts. 3–8 and TS H-5/H-7/S-4,
+ranked governance violations above every usability class, and routed
+corpus interpretation to the `governance` skill. Its JOURNAL entry was
+titled "the designer answers to the constitution." The maintainer
+corrected it on 2026-09-05: **governance docs are to be grounded in
+the design skill, not the other way around.** The skill and the skills
+README are reverted to their pre-change state; nothing of that
+direction ships.
+
+**Why it was wrong, in the corpus's own terms.** A discipline's
+standards are *derived* from its own first principles (DISCIPLINES
+§0 — the method that produced PHILOSOPHY.md); its authority does not
+come from citing a document one rank up. A design skill whose content
+is restated constitutional law is the College-of-Personas error in
+another costume: the scaffolding reified, the standards missing. The
+first attempt even named that failure mode ("corpus cosplay") while
+committing it.
+
+**What ships instead.** `docs/GOVERNANCE_UX_REVIEW.md` — the
+`ux-designer` protocol run ON the corpus, treating CONSTITUTION,
+PHILOSOPHY, TRUTH_SYSTEMS and TRUTH_INFRASTRUCTURE as artifacts people
+must read and act from. Eight findings, ranked by user harm, each with
+the reader task it damages and one additive fix; no renumbering and no
+principle touched. The load-bearing one (B1) is that no page assembles
+"what may a surface render" — it is spread over nine locations in two
+documents, so MARGIN_DESIGN had to build its own §10 provenance table
+and then needed a maintainer ruling for the coverage-count carve-out
+the corpus left ambiguous. That index belongs in the corpus, which is
+the directive's actual content: the governance docs absorbing what the
+design discipline knows. Two findings are authority-signalling defects
+the first attempt itself fell into — TS's `I-n`/`S-n` clauses are
+evidence, not law, and were cited as binding; and "red line n" resolves
+to two different rules across Art. 12 and PHILOSOPHY §10.
+
+Advisory, Art. 11 — the review amends nothing and the maintainer
+disposes of each finding.
+
+
+## 2026-08-25 — Suggest's shape failures get ONE paid repair round; the dossier's bandText ghost
+
+**Tags:** bug, llm
+
+Two from the maintainer's diagnostics ring — its first real catches
+since it shipped (PR #343).
+
+**1. Six Suggest failures in ~30 minutes, all shape errors.**
+"$.position required field missing", "$.key_assertions expected array,
+got string", "$.entities expected array, got string" — the map call's
+tool input schema declares all of that, but input schemas are ADVISORY
+to the model, and `runCorpusMapPass` took the first answer or failed.
+The error text said "Try Suggest again", and because the same content
+produces the same wrong shape, the human WAS the retry loop — the
+maintainer clicked six times. Now a complete-but-invalid extract earns
+one repair round: the model's own tool_use goes back with an
+`is_error` tool_result naming the exact violations, the tool stays
+forced, and the second answer is adopted only if it validates (or is
+honestly partial). Never on a truncated/salvaged payload — that is the
+output ceiling, cause 1, and a retry would pay full price for the same
+cut. Never more than once. The lossless double-encoding repair
+(2026-08-22) stays free — validation probes the repaired view, so only
+shapes it cannot fix reach the paid round. tests/corpus-map-retry.
+test.mjs pins all five behaviors, including no-retry-on-happy-path.
+
+**2. "Entity dossier render failed bandText is not defined."**
+`bandText` was deleted with the Phase-19 fact layer (7fe79df), but one
+call survived in `renderContentBlock`, so any dossier whose captured-
+content rows carried a published date threw a ReferenceError and the
+whole content block vanished. `node --check` cannot see a
+ReferenceError; nothing else exercised that branch (it needs a row
+with `published` set). Fixed with `dossier-time.js`'s surviving
+`bandISO` (sliced to the date — byte-identical display to the deleted
+helper), and a grep guard now holds the ghost out. The lesson is the
+map-artifact one again: a partial deletion leaves live callers of dead
+names, and only a runtime path or a source guard notices.
+
+## 2026-08-25 — the session-record leak: every capture registered, nothing ever evicted
+
+**Tags:** bug
+
+Field find via the maintainer's screenshots: "Could not register this
+capture for publishing (Session storage quota bytes exceeded) — publish
+will fail until the browser is restarted."
+
+Every capture writes `xray:article:<id>` into chrome.storage.session
+(the reader and the sign-time flows look the capture up by id), and NO
+code path ever removed one — grep found writes and reads, zero removes.
+The record must outlive its reads (a reader reload re-reads it; publish
+reads it again at sign time), so nobody could delete on read, and
+nobody ever deleted at all. The ~10MB session area absorbed a heavy
+casework day — long diarized transcripts, an EPUB, court-filing PDFs —
+until it was full, after which every NEW capture failed to register
+while looking perfectly captured on screen.
+
+`shared/session-articles.js` owns the rule now: write; on a QUOTA
+failure only, evict oldest-first within the one namespace (never the
+newest KEEP_NEWEST=5, never another namespace — the lens session cache
+shares the area), retry ONCE, then fail honestly. An evicted record's
+reader tab (necessarily hours old) publishes as "Session record
+missing" and recovers by re-capture — strictly better than the leak,
+which failed every new capture instead. Both write sites (the
+background capture handler and the reader's tabless PDF registration)
+route through it, seam-guarded; the reader's failure toast no longer
+prescribes a browser restart as the only cure.
+
+## 2026-08-23 — Portal case view: "People & organizations" made local-first
+
+**Tags:** bug, design
+
+**Field report (PR #347 soak walk, step 4):** a case with several
+people entities — tagged on its member articles the normal way — showed
+NO "People & organizations" section at all. The section was built ONLY
+from `p` tags on PUBLISHED claim events (`case-view.js`, the old
+`members` Map), so nobody appeared until a claim naming them had been
+published. A local-first case dashboard with a relay-only people
+section: `docs/PORTAL_UX_REVIEW.md` finding C1's local-vs-relay split in
+another form, and the two-hop person path (case → person → dossier →
+Back) could not be walked.
+
+**Fix (`src/portal/case-people.js`):** one row per entity, unioned from
+two readings and counted SEPARATELY so the number never lies about where
+it came from — `sources` (how many of the case's member sources the
+entity appears on) and `mentions` (how many published claim events
+p-tag it). Chip text speaks one vocabulary, matching the "Local corpus:
+N sources" line and the "Published claims (N)" section: `Dr P · 3
+sources · 1 published claim` — never a bare count.
+
+**Two second-guessable choices:**
+
+- *"Appears on a source" is the case GRAPH's presence rule, verbatim* —
+  tagged on the archive record ∪ named by an orbit claim on it (about /
+  source). Extracted from `buildCaseGraph` as
+  `sourceEntityPresence(data)` (`shared/case-graph.js`) and consumed by
+  both, so the graph's entity degree and the people section's "N
+  sources" cannot disagree. The brief asked for entity TAGS only; claim
+  about-refs were included because a person named only by an extracted
+  claim is just as locally real and just as invisible otherwise.
+- *Degradation by what the portal can actually do:* the name chip opens
+  the spokes graph by pubkey (local key, else foreign key); the entity
+  view already owns the "nothing published yet → Open dossier" empty
+  state, so no new state was added here. A KEYLESS entity has no spokes
+  graph to draw, so its name is a plain chip whose tooltip points at
+  "dossier →" — which works for every local entity (it needs only an
+  entity id). Wire-only cases (no local record) degrade to exactly the
+  old published-only reading; `buildCasePeople` with `data: null` is
+  the old loop.
+
+**So-what:** the People section now renders for a freshly tagged case
+with zero publishes — the 1.0 reality, not the relay-first 12.5
+assumption. Seam-tested (`tests/portal-case-people.test.mjs`): the
+builder over tag-only data, the rendered chip strings through a DOM
+stub, and the case-view wiring actually passing the local `data`.
+Positioned for the walk the maintainer filed; not self-merged.
+
+## 2026-08-23 — Paid-Substack transcription works, and the blocker was invisibility, not capability
+
+**Tags:** external, design
+
+A members-only Substack post (custom domain, wethefifth.com) now
+transcribes end to end through the companion: browser cookie export →
+`TRANSCRIBER_COOKIES_FILE` + both host forms in
+`TRANSCRIBER_COOKIES_HOSTS` → yt-dlp fetches the page as the subscriber
+→ Deepgram, ~26s. For future capture targets: custom-domain Substack
+rides yt-dlp's GENERIC extractor (the Substack extractor matches
+*.substack.com only), and that is sufficient once authenticated; the
+audio lands on substackcdn.com with a per-user `podcast_rss_token` in
+the query string, needing no cookies of its own. The README's
+use-Firefox caveat is Windows-specific — a Chrome/Edge cookies.txt
+export extension works on macOS.
+
+The two failed rounds on the way in were both INVISIBILITY, not
+capability. `url must be a string` (yt-dlp raising on the None a
+paywalled page yields) looked identical whether the cookie env was
+loaded or not, and nothing anywhere showed which state the service was
+in — the isolation test (`yt-dlp --cookies` directly) succeeded while
+the companion path failed, and the delta could not be observed. The
+companion now announces its cookie config at startup (path, readability,
+hosts — with a NOT FOUND warning) and reports presence/readability/hosts
+in /health, never values.
+
+Same session, same lesson one layer up: the maintainer's failed attempt
+produced a visible error banner and an EMPTY diagnostics copy — the
+ring's first real use found that the reader's error surfaces (banners,
+error toasts) never fed it. Fixed; verified by the maintainer's own
+paste showing both failures captured. The pattern now has five
+instances in the JOURNAL: build the recorder AND walk every surface
+that should feed it.
+
+---
+
+## 2026-08-23 — Imported book chapters were unreachable, and the row said so itself
+
+**Tags:** bug, design
+
+Field report: a 31-chapter EPUB imported cleanly and then could not be
+opened at all. The "Unpublished local artifacts" rows rendered the
+INSTRUCTION — "open this article in the reader and Publish to emit it" —
+as plain text with no affordance, and the book entity's "Captured
+content" list was equally inert. The only working opener was a private
+function inside case-view.js. A row that tells the user to do something
+the UI cannot do is a broken promise, not a hint.
+
+Fix: one shared opener (`portal/open-archived.js`, injectable deps, the
+transcribe-flow io pattern), routed through by the artifacts rows, the
+dossier chapter lines, and case-view. Guarded at the seam: the tests
+grep that every surface naming an archived article calls it, and that
+the instruction-as-prose string is gone.
+
+**The "duplicates" were not duplicates.** Import identity is
+content-derived end to end — same bytes → same epubHash → same chapter
+URLs (archive rows overwrite in place), and `EntityModel.create` is
+idempotent by type+name, so re-importing the same file updates rather
+than duplicates; a test now pins the structure. What LOOKED like
+duplicates: pirated EPUBs carry junk spine pages (SS_recommendpage,
+adcard) with no title, and the fallback invented "Chapter 28" for them —
+colliding with real chapters. The fallback now uses the spine id, which
+is what the thing actually is.
+
+**Naming:** bare "Chapter 2" identifies nothing in a 600-item archive
+list, so chapter titles now lead with the book name ("The Truth
+Detector — Chapter 2: Building Rapport"). Title feeds the hash, so this
+shapes new imports; a re-import updates existing rows in place and picks
+the new names up.
+
+---
+
+## 2026-08-22 — Suggest rejected a paid extract whose payload was sitting inside a string
+
+**Tags:** bug, external
+
+A live Suggest on a transcript failed with "The model returned an
+extract X-Ray cannot use: $.entities expected array, got string." The
+model had DOUBLE-ENCODED the field — the JSON text of the entities
+array where the array should be. Tool input schemas are advisory to the
+model, so this arrives occasionally on long outputs; rejecting it burns
+a paid map call whose payload is losslessly recoverable with one
+JSON.parse.
+
+`repairCorpusExtract` now recovers exactly that case, for all four
+top-level list fields, and nothing else: a string that parses to an
+array is replaced by the parsed rows; prose, non-array JSON, and junk
+are left alone for the validator's honest type error. Every recovered
+row then faces the same walk, pruning and blindness refusals as a
+native list.
+
+**Why this does not reopen the 2026-08-13 reversal**, and the
+distinction is the entire design: that harm was validation-VIEW
+leniency — a wrong-typed list coerced to [] for the walk while the RAW
+value was cached and folded, leaving the article permanently
+entity-blind behind a forever cache hit. Repair is the opposite shape.
+It rewrites the EXTRACT ITSELF before validation, and the caller caches
+and folds the repaired object; the string never survives into storage.
+The new article-pass test asserts the SEAM — the cached row carries the
+parsed array — because this session already produced three bugs where
+the helper was tested and the seam was not.
+
+---
+
+## 2026-08-16 — "url must be a string" is yt-dlp with no session, and one claim of ours was unbacked
+
+**Tags:** external, bug
+
+A companion-routed Deepgram job on a paid Substack post
+(`wethefifth.com/p/special-dispatch-77-…`) failed two seconds in with
+`url must be a string` in the reader banner.
+
+**Not ours.** The string is
+`yt_dlp/networking/common.py:431` — `raise TypeError('url must be a
+string')` — thrown when yt-dlp builds a `Request` with a non-string URL.
+Fetching the post unauthenticated confirms why: the public HTML carries
+**no audio URL at all**, and the page is marked
+`"audience":"only_paid"`. The Substack extractor found no media, passed
+`None` onward, and yt-dlp raised inside its own networking layer.
+
+Same shape as the YouTube 403 the day before, and the same root: **the
+browser has a session and the companion does not.** The remedy is also
+the same — `TRANSCRIBER_COOKIES_FILE` — except that cookies only go to
+hosts in `TRANSCRIBER_COOKIES_HOSTS`, which defaults to the five YouTube
+hosts, so reaching a Substack post means deliberately adding that host
+and accepting what the README says about handing a session to whatever
+you transcribe from it.
+
+Worth stating for the DC-4 ledger: this is NOT evidence against kill
+criterion 2. Nothing was refused by a CDN; there was no media to fetch.
+
+**What WAS ours, found while investigating.** `directSubmissionProblem`
+told every KNOWN_PLATFORM that "media URLs are signed and expire". True
+of YouTube, Instagram, TikTok, Facebook and X. Not true of Substack, PMC
+or arXiv — those send a page URL because they have a capture handler,
+not because their media expires. Putting an unbacked technical claim in
+front of the user is the same defect class as the consent dialog naming
+the wrong vendor: both assert something the code cannot support. Now
+split by `SIGNED_MEDIA_PLATFORMS`, with a second reason that is true for
+the rest, and both branches pinned.
+
+The pattern that keeps producing these: a sentence written while one
+case existed, generalized to a set it was never checked against.
+
+---
+
+## 2026-08-16 — A transcript was replacing the article, and it was never the transcript's fault
+
+**Tags:** bug
+
+Field report: a transcribed podcast episode showed only the transcript —
+the show notes were gone from the **Markdown tab**, not merely the
+render, which ruled out a display problem.
+
+`buildDiarizedBody` was innocent; a direct test confirmed it preserves
+the captured body and appends the section. The cause is upstream of
+every transcript path and older than all of them.
+`content-extractor.js:376` says it plainly in its own comment: *"content
+stays HTML at capture time (markdown happens downstream)"*. So a GENERIC
+capture — Readability, which is every podcast page — carries `content`
+HTML and **no `.markdown` at all**. `adoptDiarizedTranscript` read
+`a.markdown || ''`, composed the transcript onto an EMPTY base, and the
+article was silently replaced by its own transcript.
+
+The reader already knew about this: `state.markdownDraft` falls back to
+`article.markdown || article.content || ''`. Adoption simply never got
+the same fallback. Now shared through `capturedBodyFor()`, with
+`htmlToMarkdown` injected so it stays pure and testable.
+
+**Why it hid for so long.** The companion path was YouTube-first, and
+the YouTube handler composes its own markdown, so `a.markdown` was
+always populated there. Direct cloud transcription made podcast pages
+the primary case, and the bug surfaced on the first real one. It was
+never a DC.1/DC.2/DC.3 bug — those waves only changed which pages people
+pointed it at.
+
+**A second thing in the same report, and a mistake worth naming.** The
+"a previous submission may have been charged" warning was implemented as
+`toast()`. The reader has exactly ONE toast element and every call
+overwrites the last, so the warning was posted and then obliterated by
+the success toast milliseconds later. The maintainer reported seeing
+nothing and was exactly right. It is now a dismissible BANNER rendered
+LAST on both paths — which it should have been regardless, since a
+notice about money possibly spent has no business auto-clearing after
+twelve seconds.
+
+Both of these were found because a maintainer looked at the result and
+said "that doesn't look right", twice, about things every test was green
+on. The composer had tests. The warning had tests. Neither had a test
+that observed what a person would see.
+
+---
+
+## 2026-08-16 — The consent dialog named the wrong recipient
+
+**Tags:** bug, security
+
+Field report on the first working Deepgram run: the picker row, the
+in-flight banner and — worst — the CONSENT DIALOG all said "AssemblyAI"
+while the run went to Deepgram. The user was asked to approve sending a
+media address to one company and it was sent to another.
+
+That is not a wording bug. A consent surface that names the wrong
+recipient is worse than no dialog at all: it manufactures a record of
+informed approval for a disclosure that did not happen as described.
+Guard-rail 4 of the kickoff is about honest ENGINE naming in published
+provenance; this is the same principle one step earlier, at the moment
+of consent.
+
+Three strings had the vendor baked in. `ENGINE_META` now carries a
+`vendor` field per direct engine — deliberately separate from `label`,
+which holds the "(direct)" transport suffix and reads wrong mid-sentence
+— and the dialog, the banner and the picker's cost line all render from
+it. The guard asserts the CLASS rather than the three instances: no
+vendor name may appear as a literal in any of those strings, and every
+`direct: true` engine must declare a vendor.
+
+**A second defect in the same report, and the same root as yesterday's.**
+`runTranscriptionJob` returns `priorSubmission` when a pre-flight record
+survived — the one case where a synchronous Deepgram run may have been
+charged with nothing to show. Nothing consumed it. The flag was built,
+unit-tested, and wired to no UI, so the case it exists for was reported
+to no one; the maintainer closing the tab mid-run correctly got no
+warning because there was no code to give one. The unit test asserted
+the FLAG; nothing asserted the SEAM. It is now surfaced on both
+outcomes — a later success does not undo an earlier charge — and the
+guard counts both call sites.
+
+**And a third instance of the snapshot-guard problem**, one day after
+writing it up: the DC.2 guard pinned the literal `'Contacting
+AssemblyAI…'`, so it went red when that string correctly became
+`Contacting ${vendor}…`. A guard that fails when you fix the thing it
+was meant to protect was testing the implementation. Rewritten to assert
+that no vendor is hardcoded.
+
+The pattern across all three: **a test that names today's only value
+stops being a test the moment there are two.** Worth checking the
+remaining source-grep guards in this repo against that question rather
+than waiting for each to be found by use.
+
+---
+
+## 2026-08-16 — A guard that pins a string passes while the behavior is wrong
+
+**Tags:** bug, pattern
+
+Deepgram shipped broken and the maintainer found it in the first click:
+selecting "Deepgram (direct)" did nothing at all. Two bugs, one root
+cause, and the second was worse than the one reported.
+
+`runTranscribeFlow` compared against a single engine id in two places.
+The click guard read `(provider || _transcribeCfg.engine) !==
+DIRECT_ENGINE_ID`, so on a direct-only profile a Deepgram selection
+failed the test and simply re-opened the picker — the observed "nothing
+happens". And the consent block read `provider === DIRECT_ENGINE_ID`, so
+Deepgram skipped BOTH the page-URL refusal and the confirm dialog: it
+would have submitted a YouTube page with no refusal and sent a URL to a
+third party with no confirmation. That one was only hidden because the
+first bug blocked the path before it.
+
+**The part worth remembering is why the tests did not catch it.** The
+guard written the day before asserted the LITERAL source string:
+
+    assert.match(READER_CODE, /!== DIRECT_ENGINE_ID/)
+
+That passes with a second engine present and every gate wrong for it,
+because it pins the IMPLEMENTATION rather than the INVARIANT. It was
+written while there was exactly one direct engine, when the literal and
+the invariant were indistinguishable — and it silently stopped being a
+test of anything the moment that stopped being true.
+
+The replacement asserts the property instead: **no `=== DIRECT_ENGINE_ID`
+comparison may appear in the flow at all** — comparisons go through
+`isDirectEngine()` over a `DIRECT_ENGINE_IDS` set — plus a cross-check
+that `ENGINE_META`'s `direct: true` entries and that set name the same
+engines, so an engine can never render as companion-free while skipping
+the gates that exist because it is. A third provider inherits every gate
+for free. Negative-controlled: reintroducing the single-id comparison
+reds the suite.
+
+The general rule, and it applies to every source-grep guard in this
+repo: **grep for the shape that generalizes, not the shape that is
+currently there.** If a guard would still pass after adding a second
+member to the set it describes, it is testing a snapshot, not a rule.
+(A smaller instance of the same lesson landed in the same fix: an
+unscoped `ENGINE_META` regex matched a computed key from an unrelated
+object and then scanned forward for `direct: true`.)
+
+---
+
+## 2026-08-16 — DC.3: the second provider is synchronous, and that is the whole design
+
+**Tags:** design, external
+
+Deepgram direct, behind the same `directCloudTranscription` flag. The
+gate in §4 was opened by maintainer ruling: the `product-manager` review
+had found DC.3 lacked a problem statement in the maintainer's terms, and
+the maintainer supplied one — a Deepgram key they want to use. Price
+parity and provider redundancy were not that; wanting to spend a key you
+hold is.
+
+**Two measurements decided the design, and neither was a research
+question.** Deepgram's pre-recorded call takes a remote URL — confirmed
+— and it is SYNCHRONOUS: the HTTP response IS the transcript, there is
+no job id, no polling endpoint, and their documentation states they do
+not store transcripts, so the response is the only chance to receive it.
+That inverts the property DC.1 spent its budget establishing, and smoke
+row DC-3 had just observed working: an AssemblyAI run survives a
+service-worker teardown because the transcript id is on disk.
+
+The obvious fear was a multi-minute synchronous fetch inside an MV3
+worker — the shape that gets killed mid-flight. So it was measured
+rather than argued: **a live 48-minute episode returned in 12.9 seconds,
+HTTP 200 — about 225x realtime**, against the companion's assumed 10x.
+That collapsed the concern and, with it, an entire apparatus of
+keepalives, abort timers and hidden-tab warnings that had been proposed
+for a problem that does not exist at this speed.
+
+What survives is proportionate: a **pre-flight record** written before
+the request and cleared on any resolved outcome — success or failure
+alike, because an answered request is not a lost one. Only an
+*unresolved* request leaves the marker, which is exactly the teardown
+case, and the next run then says a previous submission may have been
+charged. It never auto-retries. The maintainer's own framing set the
+bar here: X-Ray already stores adopted transcripts and already refuses
+to re-transcribe an episode it has, so the residual is one episode, one
+charge, once — annoying, not dangerous, and the earlier "loses money
+invisibly" framing was overstated.
+
+**Written as a SIBLING module, not an abstraction.** §8 forbids a
+provider-agnostic layer until a third provider arrives, so
+`direct-transcribe-deepgram.js` carries its own request shape, mapping
+and error strings, and duplicates two small helpers. Exactly one thing
+is shared: `blockedDirectMediaUrl`. It is genuinely provider-neutral and
+it is a security gate, and a second copy of a security gate drifts.
+
+**The mapping layer turned out to be the untested seam.** The parity
+fixture covered only the SHARED normalizer; each provider's payload
+mapping — where the units actually differ — was tested independently in
+each language and cross-checked nowhere. Deepgram sends FLOAT SECONDS
+where AssemblyAI sends integer milliseconds, so copy-pasting
+`msToSeconds` would have put every segment at a thousandth of its true
+offset. The fixture now carries `provider_cases` generated from the
+reference, and the first one is a **real slice of the live 48-minute
+response** rather than an invention — float seconds with visible
+precision noise (`1.1999999`), an integer speaker `0`, a
+`punctuated_word`. Four traps are pinned that hand-built payloads had
+not exercised: the truthiness branch on `utterances` (an empty array
+falls through to the channels stream), `punctuated_word || word` where
+`??` would keep an empty string and silently drop the word, `transcript`
+rather than `text`, and language read from `channels[0]` even on the
+utterances branch.
+
+Two deliberate non-improvements, both because parity beats currency:
+`diarize=true` is sent although Deepgram deprecated the flag — it routes
+to their v1 diarizer, which is what the companion gets, and switching
+would change speaker segmentation for identical audio. And `asr_model`
+stamps the REQUESTED model, matching `deepgram.py`, although the live
+response reports `general-nova-3` for a requested `nova-3`. Reading the
+reported model here would publish a different `extraction-method` than
+the companion twin for the same audio — the fork DC.1 exists to prevent.
+Preferring the reported model is a joint change to both implementations,
+recorded here so it is a known divergence rather than a discovered one.
+
+**The staleness pin got sharper.** It hashes only `_common_utterances`
+and `_detected_language`, extracted by a TEXTUAL rule both languages
+implement identically — not `inspect.getsource`, which JavaScript cannot
+reproduce. An edit to the request URL or the progress ticker no longer
+reds the JS suite spuriously; an edit to the mapping still does.
+
+---
+
+## 2026-08-16 — DC.2: the companion-free state stops being an error
+
+**Tags:** design
+
+DC.2's brief was one sentence — make "no companion installed, direct
+cloud configured" a coherent, self-explaining state rather than a wall
+of setup errors. The work list came from asking one question of every
+user-visible transcription string: **is it reachable when
+`localTranscription` is OFF and `directCloudTranscription` is ON, and is
+it TRUE in that state?** Only strings failing both got touched. That
+question is also what bounded the slice, because "self-explaining" has
+no natural limit and this does.
+
+**The Options status panel was the worst of it, and the first thing such
+a user reads.** `setupCompanionStatus` has no flag gate at all — it
+polls on load for everyone — and its absent-companion state was red
+"Not running", opening with terminal instructions and the claim that
+"Transcribing stays unavailable until the service is started —
+including for the AssemblyAI and Deepgram engines". For a direct-only
+user every clause of that is false. `deriveCompanionState` now takes
+`directEnabled` and reports amber "Not installed": expected if you never
+installed it, the direct route works without it, and here is what
+installing it would ADD (local/private transcription, and the platform
+pages a cloud provider cannot fetch). Every OTHER state is byte-identical
+— a companion that is running, outdated, rejecting auth or missing
+`HF_TOKEN` is misbehaving whether or not another route exists, and a
+test pins that the flag perturbs none of them. The panel reads the live
+CHECKBOX, not the stored flag, so it tracks an unsaved toggle the way
+the rest of the form does.
+
+**The shared job driver's failure strings were route-blind.**
+`runTranscriptionJob` serves both transports and its text was written
+when only the companion existed: "The transcription service no longer
+knows this job (it may have restarted)", "try again once the service is
+back". On the direct route that names something the user does not run.
+Now a small route-keyed vocabulary, with the companion strings preserved
+byte-for-byte behind a regression test — a companion user must keep
+reading exactly what they always read.
+
+**One fix worth naming separately, because it kills a class of bug
+rather than a string.** The reader attached companion setup advice
+("install the companion, `uv run xray-transcriber`") by testing whether
+the error text contained `not reachable`. That left the advice one
+careless string away from firing on the one route whose premise is that
+nothing is installed. It is now gated on the ROUTE. Substring-triggered
+UI is a latent coupling between wording and behavior; the route is the
+fact being tested, so test the fact.
+
+**Deliberately out of scope**, recorded so the omission is a decision
+and not an oversight: making the direct engine a STORABLE default. It is
+a persisted-enum widening needing a schema-evolution review, a
+round-trip migration test, and a coordinated edit across seven sites — a
+schema slice wearing a UI slice's clothes. It would also spend a banked
+safety property: while the engine is picker-only, the right-click
+auto-start path structurally cannot reach a third party. Three
+transcripts went through the picker on the DC.1 walk with no friction
+recorded, so there is no observed problem to solve. If it is wanted it
+belongs after DC.2, with its own criteria.
+
+---
+
+## 2026-08-16 — A choice that cannot succeed should not look like a choice
+
+**Tags:** bug, design
+
+Field report on the first post-merge use of direct cloud transcription:
+the user opened a YouTube capture, the picker offered "AssemblyAI
+(direct)", they chose it, and got a refusal explaining that YouTube
+serves signed, expiring media URLs. The refusal was CORRECT — kickoff §8
+lists YouTube as an explicit non-goal for this route — and it was still
+a bad experience, for two independent reasons.
+
+**1. The engine was offered where it structurally cannot work.** The
+picker already had an availability idiom for exactly this: a cloud
+engine with no saved key routes to Settings instead of failing later,
+and Local is marked unavailable when the companion has no `HF_TOKEN`.
+The direct engine's structural limit — it cannot resolve a page — is the
+same shape of fact and was simply not wired into it, so the only place
+the limit appeared was after the click. `openEnginePicker` now computes
+`directSubmissionProblem` per capture and marks the row unavailable with
+the reason, which is why that function now returns `{short, detail}`:
+`short` is a menu row, `detail` is the toast.
+
+**2. The advice was true in general and wrong on the page in front of
+the user.** The DC.1 message offered two remedies — paste a direct file
+URL in the Media modal, or run it through the companion. On YouTube
+BOTH are wrong. You cannot paste a stable direct file URL, because the
+signed ones expire (that is the same fact the refusal opens with). And
+"use the companion" is empty advice to the direct-only user this whole
+feature exists for. What is actually true on YouTube is better news than
+the error implied: the captions are already fetched with the capture
+(`platforms/youtube.js` fetchTranscript), so nothing is missing except
+diarized speaker labels. The message now says that, and the off-platform
+case keeps the Media-modal advice, where it is both true and reachable.
+
+**The general lesson**, and it is not about YouTube: an error can be
+accurate, well-worded, and still be a design failure, because the design
+question is not "is this message true" but "should the user ever have
+been able to get here". Refusals that are reachable by a click the UI
+invited are a signal that an availability check is missing upstream.
+DC.2's brief is exactly this — make "no companion installed, direct
+cloud configured" a coherent state rather than a wall of errors — and
+this is the first item of it, found by use rather than by review.
+
+Two smaller things fixed by READING the rendered output rather than
+asserting substrings: the platform id leaked raw into user-visible text
+("cannot transcribe a instagram page"), so there is now a
+`PLATFORM_LABELS` map, and the sentence was rephrased to "this
+<Platform> page" to remove the a/an problem structurally rather than
+trying to spell-check English articles — a naive vowel rule flags "a
+URL", which is correct.
+
+---
+
+## 2026-08-15 — DC.1 field failure: the media URL was on the page, in JSON-LD
+
+**Tags:** bug, external
+
+First real run of the direct cloud path, on a PodBean-hosted episode
+(`architectureofabuse.com/e/episode1`), came back with AssemblyAI's own
+error: *"Transcoding failed. File type text/html (HTML document…)"*.
+The provider had been handed the PAGE url and dutifully downloaded the
+HTML.
+
+**Root cause, and it is not the transport.** `detectMediaHints` records
+a `fileUrl` only from a direct media-file `<a href>` — the
+PowerPress/Blubrry shape the Transcribe Anywhere wave was built
+against. This page has no such anchor, no `<audio>`, and no `og:audio`.
+The mp3 was on the page the whole time, in schema.org JSON-LD:
+
+    "associatedMedia": {"@type": "MediaObject",
+                        "contentUrl": "https://mcdn.podbean.com/mf/web/…/AoA-Episode1-Jun9.mp3"}
+
+With no `fileUrl`, `transcribeSourceUrl` fell back to the page URL —
+correct behavior, and exactly what it is documented to do.
+
+**Fix 1 — read the places that actually carry a URL.** `detectMediaHints`
+now also reads JSON-LD `contentUrl` (walking `@graph`/arrays,
+depth-bounded, malformed JSON skipped), the `src` of `<audio>`/`<video>`
+and their `<source>` children, and the `content` of `og:audio`/`og:video`
+— all of which it previously detected as BOOLEANS while throwing the URL
+away. Every candidate must still pass the media-extension test, so a
+`contentUrl` pointing at a page (some publishers do that) can never be
+submitted as if it were audio. The download anchor keeps priority, so no
+page that already worked can regress. JSON-LD is the standards-based
+place to look, so this fixes the class rather than one host. Verified
+against the live page's real bytes, not a fixture.
+
+**Fix 2 — the direct path must never submit a page at all.** This is the
+durable half, because no detector will cover every site. The asymmetry
+had been sitting in plain sight: the companion resolves pages *because
+yt-dlp does*, so the page-URL fallback is right for it and
+guaranteed-useless for a provider that only fetches URLs. New
+`directSubmissionProblem()` refuses locally, before the API call, when
+the URL about to be submitted is the captured page's own address —
+non-heuristic, with the one exception of a capture that IS a media file.
+It names the escape hatch (paste the file URL in the 🎙 Media modal) and
+the alternative (the companion, which can resolve the page).
+
+**For the DC-4 ledger — this was NOT a hotlink-protection failure**, and
+the SMOKE_TEST row exists to keep the two apart. The CDN file was checked
+directly: `mcdn.podbean.com` answers a non-browser user agent with a 302
+to a signed URL and no 403, so it is fetchable by a third party. Kill
+criterion 2 ("providers cannot fetch a majority of real episode URLs")
+has no evidence against it yet; what failed was our URL DISCOVERY.
+
+**The general lesson**, worth more than either fix: the first slice
+shipped with a URL-discovery path tested against exactly one podcast
+host's markup, and a provider-side error message was the thing that
+found the gap. A page that says "Download" is one publishing convention
+among several, and the machine-readable one was there all along.
+
+---
+
+## 2026-08-15 — Two gaps the direct-transcribe work surfaced elsewhere
+
+**Tags:** bug, security
+
+Both were found while building DC.1 and both live in code DC.1 does not
+own. They were flagged rather than fixed inside that slice — changing
+another feature's security surface under a transcription change is how
+review gets skipped — and are fixed here on their own.
+
+**1. A trailing root label bypassed `blockedImageUrl`'s host checks**
+(`shared/vision-image.js`). That function keeps the `xray:vision:describe`
+service-worker fetch off the operator's own network, and its image ref
+comes from untrusted captured article HTML. The WHATWG URL parser
+normalizes the numeric host forms for us — `https://2130706433/`,
+`https://0x7f000001/` and `https://127.1/` all arrive as `127.0.0.1`,
+and an IPv4 literal with a trailing dot is normalized too — so the
+dotted-quad matcher was never the weak spot. But the parser does NOT
+strip a trailing root label from a NAMED host, so `localhost.` and
+`box.local.` reached `host === 'localhost'` as misses and were
+admitted, while resolving to exactly the hosts the check exists to
+refuse. One line, normalizing the hostname before the comparisons.
+
+The general lesson, worth more than the fix: the check was written
+against the threats someone imagined (private ranges, v4-mapped v6) and
+the hole was in the part that looked too simple to check — string
+equality on a name. It was found by running candidate URLs through the
+real parser rather than reading the function.
+
+**2. `transcript_lang` joined three untrusted components with `:`**
+(`shared/event-builder.js`). The tag is `<lang>:<kind>:<role>`, and all
+three originate outside this codebase — the language from a
+transcription provider, the kind from a provider id, the role from a
+track record a backup import or a network incorporation can carry in.
+A component containing a colon forged tag structure for anyone
+filtering on it: a language of `en:forged:role` produced a tag that
+satisfies `startsWith("en:")` while meaning something else. Now routed
+through an exported `transcriptLangValue()` that clamps each component
+to `[A-Za-z0-9._-]`. `extractionMethodFor`'s LOCAL branch got the same
+treatment — its cloud branch had always clamped, and one rule is better
+than two.
+
+**Wire format: none.** Every genuine value already lies inside that
+charset — BCP-47 subtags (`pt-BR`, `zh-Hans`), engine ids, role names —
+so the clamp is byte-identical for real data and no published event
+changes shape. `docs/NIP_DRAFT.md` now states the charset so consumers
+can rely on the separators being unambiguous, which documents existing
+behavior rather than constraining producers.
+
+Note what was NOT done: `shared/provider-normalize.js` (the JS twin of
+the companion's `normalize.py`) was deliberately left alone. Narrowing
+it would have made the same audio compose a different body on the
+direct path than on the companion path, forking the `x` content
+address — the twin's job is parity with its reference, and sanitization
+belongs at the emitter, which is where it now is.
+
+---
+
+## 2026-08-15 — Direct cloud transcription: the transport is not wire-visible
+
+**Tags:** design, security
+
+DC.1 of `docs/DIRECT_CLOUD_TRANSCRIBE_KICKOFF.md` — transcribe with
+nothing installed. AssemblyAI's `audio_url` field takes a URL they fetch
+themselves and `speaker_labels` gives provider-side diarization, so the
+companion service is unnecessary for cloud engines given a direct media
+URL (which the Transcribe Anywhere wave made available). New module
+`shared/direct-transcribe.js`, new default-off flag
+`directCloudTranscription`, new `xray:transcribe:direct:{start,status}`
+pair. Four decisions worth recording, because each was contested or
+counter-intuitive.
+
+**1. The published provenance id does NOT name the transport.** The
+picker's selection id is `assemblyai-direct`; `model_info.provider` is
+the plain literal `assemblyai`. This is the slice's one irreversible
+choice. `model_info.provider` flows into `diarizedHeading()`, which is
+composed into `article.markdown` BEFORE the content hash is taken
+(`reader/index.js` `adoptDiarizedTranscript` flips `contentType` to
+`transcript` first), so a transport-suffixed id would have permanently
+forked every direct transcript's `x` content address from its
+companion-routed twin **for the same audio**, and published an
+`extraction-method` token no consumer has seen. The rule: the tag
+documents how the text was PRODUCED, not who downloaded the bytes.
+Pinned at both the module (`tests/direct-transcribe.test.mjs`) and the
+wire (`tests/diarized-wire.test.mjs`, which now asserts the two
+transports compose byte-identical markdown). This is precedent for DC.3
+and for any future transport change.
+
+**2. `host_permissions` was NOT a one-way door, and the kickoff was
+wrong to price it as one.** `manifest.json` has declared `<all_urls>`
+since long before this wave, and three of the four third-party hosts the
+service worker already fetches (ar5iv, api.crossref.org, arbitrary image
+hosts) have no manifest entry at all and work fine. Adding
+`https://api.assemblyai.com/*` changes the granted host set by zero and
+adds no install-prompt warning. It is kept anyway as DOCUMENTATION for
+the `ROAD_TO_1_0` T5 permission-narrowing sweep, which would otherwise
+have to rediscover the dependency from source — and
+`tests/provider-host-pin.test.mjs` now asserts the manifest entry and
+the module's allowlist agree in both directions. The real technical gate
+is the code-side pinned host constant; the real consent gates are the
+flag and the key. This is the third time this correction has been
+recorded (see `EPISTEMIC_AUDIT_DESIGN.md`); it keeps being re-derived
+because "adding a permission is scary" is a good instinct attached to
+the wrong mechanism here.
+
+**3. The privacy trade is two-sided, not an improvement.** Better: the
+audio never touches this machine, and the origin site never sees the
+operator's IP or cookies (B12's cookie-jar exposure does not arise).
+Worse: the provider learns the ADDRESS of what is being transcribed,
+which uploading bytes never revealed. The picker sub-line says both
+halves, and the old cloud disclosure ("the episode audio leaves this
+machine") is simply false here and was rewritten rather than reused.
+
+**4. A gap found while writing the threat model, not while writing the
+code.** `THREAT_MODEL.md` G8 claimed "the URL is always one the user
+personally chose to transcribe." That was **already false** before this
+wave: off the known platforms, `transcribeSourceUrl` prefers a
+`mediaHints.fileUrl` scraped from the captured page's DOM, and the
+reader never displays it — so a hostile page chooses the address. On the
+direct path that address goes to a third party under the operator's paid
+key, so the direct submit now shows a confirm dialog with the exact URL
+and host whenever it differs from the page URL (new gap G9). The
+companion path still has no such prompt; that is recorded, not fixed
+here.
+
+**Also:** the JS twin of `providers/normalize.py`
+(`shared/provider-normalize.js`) is the design's most likely long-term
+defect — two implementations of one contract in two languages. Both
+suites now read `tests/fixtures/normalizer-parity.json`, whose expected
+values were OBSERVED by running the Python (not transcribed by hand),
+the JS side pins the reference's sha256, and CI runs the Python half on
+bare `python3`. Six of fifteen rounding cases diverge from a naive
+`Math.round` port — Python's `round()` is round-half-to-even over the
+exact double, so `round(1.0625, 3)` is `1.062` and the naive JS answer
+is `1.063`. Latent for AssemblyAI (integer ms) and live for Deepgram's
+float seconds, and those values are published inside kind-30040 claim
+anchors, so it is settled now rather than at DC.3.
+
+**Three defects an adversarial review of the finished diff found, all
+in the seams rather than in the new module:**
+
+1. **A companion run destroyed the record of an in-flight, already-PAID
+   direct job.** The job record was keyed by media alone, so the two
+   transports shared one slot. `decideResume`'s new cross-route clause
+   correctly refused to RESUME a direct record on the companion
+   transport — but the companion job's own record write then overwrote
+   it, and the provider transcript id is the only handle to a job the
+   user has been billed for. Refusing to resume was never enough; the
+   handle has to survive. Fixed by scoping the key to the transport
+   (`jobRecordKey(mediaKey, route)`), with the companion form left
+   unsuffixed so every pre-DC.1 record still resolves. Reproduced
+   before and after.
+2. **A leftover engine preference bricked the Transcribe button for a
+   direct-only user.** The guard that routes an implicit run to the
+   picker tested `!provider` alone, so a stored `'assemblyai'` (the
+   Options engine `<select>` is independent of the localTranscription
+   checkbox and is never cleared when that flag goes off) sailed past
+   it into the companion path and failed with "Local transcription is
+   off" — pushing a user who deliberately installed nothing toward
+   installing a companion. The guard now tests the RESOLVED engine, and
+   the tooltip widened the same way rather than promising a local run
+   it cannot perform.
+3. **The flag shipped with no Options control.** `SMOKE_TEST.md`'s own
+   setup line and the runtime refusal string both said "Options →
+   Advanced", and there was nothing there — the feature was reachable
+   only by hand-editing `xray:flags` from a devtools console. There is
+   in-repo precedent for console-only flags (`storeFirstPublish`), but
+   writing a walk against a control that does not exist is a different
+   thing, so the checkbox was built. Guard added; note that four other
+   flags still have no control, which is pre-existing and not addressed
+   here.
+
+The pattern worth keeping: every one of these lives where two correct
+pieces meet, and none is visible from inside either piece. The unit
+tests for the new module were green throughout.
+
+**Scope cut, on the record:** the direct engine is PICKER-ONLY in DC.1 —
+never written to `xray:transcriber:engine`. `normalizeEngine` collapses
+any unrecognized id to `'local'` and Options re-persists the result, so a
+stored `assemblyai-direct` would be silently destroyed on the next
+Settings save. Making it a storable default needs all six vocabulary
+copies moved together with a round-trip migration test; that is DC.2's
+job. Side effect worth having: the right-click auto-start path
+structurally cannot reach a third party in DC.1.
+
+---
+
+## 2026-08-15 — Transcribe Anywhere: the YouTube lock was gating, not machinery
+
+**Tags:** design, security
+
+The local-transcription companion (`companion/transcriber/`) always ran
+yt-dlp generically — `download.py` called `extract_info(url)` with no
+site-specific code. The YouTube-only restriction lived entirely in
+admission checks layered on top: the companion's URL validator, and
+five independent extension-side gates that all had to open before a
+non-YouTube URL could ever reach it (the context menu's
+`documentUrlPatterns`, `content/ui.js`'s menu-availability check, the
+background service worker's pre-POST gate, the reader's `hasMediaSignal`
+button-visibility gate, and `isFetchableMediaUrl` as the last-mile guard
+inside `runTranscribeFlow` — reused unchanged by the Media-modal escape
+hatch and the portal panel). Widening the funnel (`docs/
+TRANSCRIBE_ANYWHERE_KICKOFF.md`) was therefore a gating change, not new
+plumbing: `transcriber/media_url.py` replaced the YouTube host allowlist
+with https-only + public-unicast-only admission, and each extension gate
+opened in its own task with its own tests.
+
+**Job identity, kept back-compatible.** `media_key_for(url)` keeps
+YouTube's bare video id — exactly what `xray:transcribe:job:<videoId>`
+records and the companion's own dedupe already keyed on — so an
+in-flight job survives the funnel widening untouched. Everything else
+gets a normalized-URL hash (`u_<16 hex>`). The extension mirrors the same
+rule in `shared/media-key.js`; a JS/Python encoding divergence
+(`encodeURIComponent` vs. Python's `quote_plus` differ on `! * ' ( )` and
+space) was caught and fixed before it could fork the two sides' idea of
+"the same media."
+
+**Wire format: none, on purpose.** A non-YouTube diarized capture writes
+its transcript into a neutral, LOCAL-ONLY `article.transcripts` slot that
+no event builder reads — `transcript_lang` continues to emit only from
+`article.youtube.transcripts`. That's the whole reason this wave is
+"Wire format: none": nothing about how a claim's provenance is published
+changes, and `tests/diarized-wire.test.mjs` machine-checks that a
+generic-media capture never grows a `transcript_lang` tag.
+
+**The residual risk, stated plainly: blind SSRF, not closed.**
+`media_url.py`'s admission check resolves the hostname once and denies
+any private/loopback/reserved address — including addresses embedded in
+an RFC 6052 NAT64 or IPv4-mapped IPv6 wrapper, so a NAT64-wrapped
+`169.254.169.254` (cloud metadata) is caught. But yt-dlp re-resolves DNS
+and follows redirects on its own, entirely after admission, so DNS
+rebinding is NOT closed by this check. Accepted, bounded by: the service
+is loopback-only and single-user, no response body ever reaches a third
+party, and the URL is always one the user personally chose to
+transcribe. Recorded in `docs/THREAT_MODEL.md` (B10, gap G8) rather than
+argued away.
+
+**The finding this wave produced on its own: the cookie jar was a
+second, undocumented gate.** `download.py` handed
+`TRANSCRIBER_COOKIES_FILE` to yt-dlp for *every* URL, unconditionally —
+safe only because the YouTube-only host allowlist meant "every URL" was
+in practice always YouTube. `TRANSCRIBER_COOKIES_FILE` is typically a
+full browser cookie export; widening admission without also scoping it
+would have silently turned that export into a credential offered to
+whatever host a user pasted. `TRANSCRIBER_COOKIES_HOSTS` (new, default:
+the five YouTube hosts, exact-match, no subdomain wildcard) landed in
+the same change as the admission widening, not as a follow-up. Worth
+recording past this one instance: it's the general shape of the trap — a
+control that was load-bearing for a second, undocumented reason, invisible
+until the first reason it was built for goes away.
+
+Related: `docs/TRANSCRIBE_ANYWHERE_KICKOFF.md`, `docs/THREAT_MODEL.md`
+(B10/B12, gap G8), `docs/SMOKE_TEST.md` §Local transcription
+(LT.1–LT.14, not yet walked), `companion/transcriber/README.md` ("What
+URLs are accepted").
+
+---
+
+## 2026-08-15 — Normalize-at-the-boundary was tried and WITHDRAWN; the fixture set is what survived
+
+**Tags:** design, pattern
+
+The audits below recommended closing the model-output boundary by
+normalizing once on entry, rather than guarding each consumer. It was
+implemented — `coerceToSchema` driven by each pass's own declared
+`input_schema`, applied at the single point where model output enters —
+and an adversarial review (24 agents, findings verified by EXECUTING the
+code) returned **16 confirmed defects, four blockers**. It is withdrawn.
+Recording why, because the idea is attractive and someone will propose
+it again.
+
+**1. Coercion before validation destroys the evidence validation exists
+to detect.** This is the SAME error as the original bug, inverted. That
+one validated a normalized copy and used the raw value; this one coerced
+the raw value and validated the copy. Both leave the validator looking at
+something other than what the model sent. Concretely: an `entities` list
+whose rows were all non-objects coerced to `[]`, and the blindness
+refusal is gated on `ents.length > 0` — computed AFTER the emptying — so
+it could never fire, and the article cached entity-blind forever. That is
+precisely the defect of 2026-08-13, reintroduced by a different route.
+The same mechanism killed the `key_assertions` refusal and made three
+pre-existing `!Array.isArray(...)` malformed-response guards unreachable.
+
+**2. The declared schemas disagree with their consumers, in at least two
+places, and nothing enforced them so nobody noticed.** Making the
+declaration authoritative turned documentation into behavior:
+- **Table cells are POSITIONAL.** `llm-extract-prompts.js` declares row
+  cells as strings; `llm-extract.js` deliberately maps a non-string cell
+  to `''` to HOLD ITS COLUMN. Coercion deleted the cell instead, shifting
+  every cell right of it one column left — a verified
+  `| Brazil |  | 42% |` becoming `| Brazil | 42% |  |`, publishing a
+  death rate under the Cases column. The scalar-drop rule reasoned about
+  lists as SETS; a table row is a TUPLE, where index is identity.
+- **The audit `score` was declared `integer`** while `validateFindings`
+  walks it as `number` and `clampScore` exists so "a recoverable model
+  quirk must degrade a number, never discard the whole eight-module
+  audit". A model answering `82.5` was always meant to be clamped and
+  kept. Coercion dropped it, the module imported as FAILED at weight 0,
+  and the reader's re-run SKIPS it — sticky until the draft is cleared.
+
+**The declaration fix is kept** (`score` is now `number`), because that
+one was simply wrong regardless. The coercer is not.
+
+**What survives, and is the point:** `tests/helpers/hostile.mjs` — one
+shared fixture set of malformed output, now applied to the model-output
+consumers (the article-pass converters, entityYield) AND to the peer
+import boundary (mergeExtractionRecords, both sides). The suite had
+~2,540 tests when this class was found and not one fed a malformed
+response; the fixtures are the permanent observer. A fixture set used
+only by its own test would have been a fixture set in name only.
+
+**The transferable lesson:** a normalizer and a validator must never
+disagree about what they are looking at. Either the normalized value is
+the one that gets validated AND used, or the raw value is. Any design
+where one layer sees a repaired copy and another sees the original will
+reproduce this class, in whichever direction it is arranged.
+
+## 2026-08-13 — Two audits over model-output consumers: 17 confirmed wrong-type defects, mostly SILENT
+
+**Tags:** bug, pattern
+
+After the entities crash, two multi-agent audits (115 agents, every
+finding adversarially verified — several reproduced by executing the
+real modules) swept every consumer of model-produced or peer-imported
+data for the same class. The crash was the least of it: most instances
+corrupt silently.
+
+**Fixed here (the reachable-now set):**
+
+- **claim→entity links were being dropped silently, two ways.**
+  (1) TYPE ASYMMETRY: the `about` side stringified refs while the
+  `knownRefs` side stored raw values, so a model emitting `"ref": 1` —
+  legal, the tool is not strict — put the NUMBER 1 in the set and
+  `has("1")` failed for every atom pointing at it. `filter(Boolean)`
+  additionally swallowed a `ref: 0`. (2) PREDICATE DISAGREEMENT:
+  `knownRefs` admitted any row with a truthy ref, while the entity
+  converter keeps only rows with a usable name AND mention — so a
+  dropped row's ref stayed admissible, the chip vanished at render, and
+  the link died at accept with no message. Both sides now normalize
+  through one `refKey()`, and `knownRefs` is built FROM THE PROPOSALS,
+  so the two predicates cannot drift again.
+- **One malformed field could lose an entire review batch.**
+  `summarize()` in llm-review.js did `(p.about || []).map` (also
+  `labels`, `anchors`) — and it runs inside `render()`, which runs
+  synchronously inside `openLlmReview`'s Promise executor. A truthy
+  non-array therefore REJECTED the promise: the modal never opened and
+  every proposal in the batch was lost. The inline editor in the same
+  file already used `Array.isArray`; the summary path never got it.
+- **"Run Suggest again" was advice that could not work** — shipped
+  hours earlier in this same session. An entity-less extract is
+  schema-valid, so the content-keyed cache re-serves it forever; only
+  the wrong-type case self-heals. Added `force` to
+  `ensureArticleExtract` and wired **Alt-click on Suggest** to discard
+  the cached reading. Without it, a valid-but-poor extract was permanent.
+
+**Open, ranked** (audit output in the run transcripts):
+
+1. **Import/restore is the least-guarded surface in the codebase, and
+   it is the peer-data trust boundary.** `map-artifacts.js` does
+   `for...of` over incoming `assertions`/`positions` — a wrong type
+   throws INSIDE an IndexedDB `onsuccess` handler, aborting the whole
+   `xray-audits` transaction with a bare AbortError; `backup.js`
+   `clearAndFill` has no row normalizer for `article-extractions` at
+   all; `extraction-import.js` validates nothing beyond `articleHash`.
+2. `map-artifacts.js` `Math.max(…|| 0)` writes **NaN** to IndexedDB,
+   after which `changed` is true on every re-import forever.
+3. `corpus-publish.js` — `JSON.parse('null')` returns null without
+   throwing, so a peer's kind-30068 CaseBrief with `content: "null"`
+   throws past the try/catch.
+4. `extraction-block.js` — a string `first_seen.at` gives
+   `new Date(NaN).toISOString()` → RangeError mid-paint, half-rendered
+   panel, no error shown.
+5. `llm-client.js` vision — `transcription_complete !== false` turns the
+   STRING `"false"` into `true`, silently corrupting an honesty
+   disclosure.
+
+**Two structural findings worth more than any single fix.** (a)
+`entities` is OPTIONAL in the map tool (`required: ['position']`), so
+omitting it entirely is a legal, cacheable, non-self-healing response —
+making it required only forces the key to exist, not to be populated.
+(b) `strict: true` would close this whole class at the API, but it is
+NOT a one-line change: `buildMapTool` sets no `additionalProperties:
+false`, and the roster still offers models outside the structured-outputs
+set. Worth doing deliberately, with a MAP_PROMPT_VERSION bump.
+
+**The pattern, stated once:** `(x || [])` is not a type guard, and every
+place this codebase treats model or peer output as trusted-by-shape is a
+defect waiting for one unusual response. The tell is an asymmetry — one
+side normalizing, the other not.
+
+## 2026-08-13 — A validator that NORMALIZED what it would not REJECT poisoned the extract cache
+
+**Tags:** bug, pattern
+
+Suggest on a 48-minute YouTube capture crashed with
+`((extract && extract.entities) || []).map is not a function`, then —
+once the crash was guarded — returned 38 claims and zero entities
+instantly, forever. Root cause, confirmed by a clean re-run after the
+fix:
+
+The model returned `entities` as a truthy NON-ARRAY on one call. Three
+things then compounded:
+
+1. **`(x || [])` is not a type guard.** It rescues only FALSY values; a
+   truthy wrong type sails through to `.map` / `for...of`. Note
+   `atom.about` was already guarded with `Array.isArray` in the same
+   function — the hazard was known and simply never applied to the
+   top-level lists.
+2. **The validator normalized instead of rejecting.**
+   `decorationTolerantView` coerced the non-array to `[]`, `walk` passed
+   the sanitized COPY, and the RAW wrong-typed extract was what got
+   cached and folded into the durable record. Validation said yes to an
+   object no consumer could read.
+3. **The cache is content-keyed and permanent.** So one malformed
+   response made that article entity-blind for good, and the loss read
+   as "this article names nobody" rather than "this extract is broken".
+
+**The general lesson, worth more than the fix:** a validator that
+sanitizes its input for checking and then hands the RAW value onward
+has not validated anything — it has only moved the failure downstream
+and vouched for it on the way. Either the normalized value is what gets
+used, or the wrong type is an error. Doing neither is the worst of both.
+
+Fixes: `listField()` guards the converters (a wrong-typed list must not
+take valid atoms down with it — pinned by test); a wrong-typed LIST is
+now a validation error while per-ROW leniency is untouched; and because
+the cache-hit path re-validates, that tightening retroactively
+invalidates entries already poisoned — no migration, verified by test.
+
+**A tested decision was REVERSED here**, deliberately and with the
+maintainer told: `tests/case-synthesis.test.mjs` asserted "even
+entities-as-non-array degrades to 'no entities', not failure". Its
+sibling test refuses an all-unusable entities list because that would be
+"permanently entity-blind for this article behind a forever cache hit.
+Refuse; re-run." Those are the same harm; the rules contradicted, and
+the wrong-type case now follows the sibling's rule. The reasoning lives
+in the test, not in a commit message.
+
+**Also landed: entity loss is never silent.** "No entity suggestions"
+had four causes wearing one silence — kind switched off in Options,
+malformed list, model named nobody, rows arrived but every one lacked
+the verbatim `mention` the converter requires. `entityYield()` counts
+them and the reader names the actual one. The last case stays a live
+risk for transcripts specifically: `mention` must be a contiguous
+verbatim span, and the body is timestamp-decorated markdown
+(`[0:05](…&t=5s) Jane Doe said…`), so a typed name fails where a
+carefully copied long quote succeeds.
+
+See `src/shared/article-pass.js`, `src/shared/case-synthesis.js`,
+`src/reader/index.js`, `tests/article-pass.test.mjs`,
+`tests/case-synthesis.test.mjs`.
+
+## 2026-08-13 — Every LLM call streams; a cut-off map extract is salvaged instead of discarded
+
+**Tags:** design, pattern
+
+Follows the cap raise below. Raising a ceiling against a whole-response
+`fetch` + `await resp.json()` only moves the failure: the response must
+arrive complete before the promise resolves, so a bigger cap raises the
+odds of a timeout with nothing to show for the spend. `postMessages` now
+sends `stream: true` and reassembles the SSE events.
+
+**Shape compatibility is the whole design constraint.**
+`shared/llm-stream.js` rebuilds the events into the SAME object the
+non-streaming endpoint returns — `{id, model, content, stop_reason,
+stop_details, usage}` — so `extractToolInput`, every `stop_reason`
+check, and `refusalResult` are untouched. Streaming is a transport
+change, not a contract change. The module is pure (no chrome, no fetch)
+because the reassembly is where the edge cases live: chunk boundaries
+land mid-line and mid-UTF8, and a forced tool call arrives as a stream
+of JSON fragments that mean nothing until concatenated.
+
+**Salvage — the part that changes economics.** A forced `tool_choice`
+plus `stop_reason: 'max_tokens'` used to mean total loss: partial,
+unparseable tool JSON, so the pass reported failure and a fully paid
+call was thrown away. `salvagePartialJson` walks the partial text
+tracking string/escape state and the open-container stack, truncates at
+the last point where every value is complete, and closes the still-open
+containers. It never repairs a value — only drops an incomplete one.
+
+**Enabled for the MAP pass only, deliberately.** The extract is a LIST
+of independent atoms, so "the first N of them" is a true statement about
+the article. A truncated audit or case brief would instead read as a
+complete judgment, so those keep the honest failure. The loss is
+disclosed end to end: `partial` rides the SW result → `ensureArticleExtract`
+→ the reader toast, and it is STORED with the cached extract, because a
+salvaged extract is short forever and a cache hit that dropped the flag
+would present it as the whole article on every later view. Note the two
+different losses now surfaced separately: `truncated` = we read less of
+the article (input bound); `partial` = we reported less of what we read
+(output ceiling).
+
+**Test-stub consequence worth remembering.** Four suites stubbed fetch
+with `{ok, json()}`. Those stubs would now exercise a path production
+never takes — green and meaningless. They were converted to
+`tests/helpers/sse.mjs`, which frames a canned response as real SSE and
+delivers it in small chunks, so the stubs exercise the same framing and
+reassembly the live call does. A stub that outlives the transport it
+mocked is a false green, not a passing test.
+
+**Same-day follow-up — salvage made an error message WORSE before it
+made anything better.** First live run came back "Suggest failed:
+Invalid Extract". Reassembly was innocent (a realistic extract with a
+thinking block round-trips byte-exact and validates); the cause is that
+a salvaged object is valid **only if the schema's required fields
+happened to be emitted before the cut**. `MAP_SCHEMA` requires
+`position`, and nothing forces the model to emit it before
+`key_assertions` — so a truncated call can hand back complete atoms and
+no position, and the strict validator rejects the lot. A truncation was
+being reported as a shape problem, which sends the reader hunting a
+parser bug that does not exist.
+
+Two fixes, and the second is the more general lesson. (1) The truncation
+case now says so, with the count of assertions actually recovered and
+the field the cut lost. (2) `article-pass.js` was calling
+`validateCorpusExtract` and **discarding `v.errors`** to emit the
+constant string `'invalid extract'` — a validator that knows exactly
+which field is wrong, wired to a message that says nothing. That cost a
+full debugging round trip. Any error path that throws away a reason it
+already holds is a latent round trip; `describeExtractErrors` now
+renders both error shapes (walker entries and whole-extract refusal
+strings) into the message.
+
+**Not yet verified live.** SSE over CORS with
+`anthropic-dangerous-direct-browser-access` inside an MV3 service worker
+is exactly the combination that can pass unit tests and fail in the
+browser. `dist/` carries it; a real capture is the check.
+
+See `src/shared/llm-stream.js`, `src/shared/llm-client.js`,
+`src/shared/article-pass.js`, `tests/llm-stream.test.mjs`,
+`tests/helpers/sse.mjs`.
+
+## 2026-08-13 — Output caps were quality ceilings, not budgets — raised, clamped per model, timeouts derived
+
+**Tags:** bug, design, pattern
+
+Suggest on a **50-minute YouTube video** failed with "hit its output
+limit". Not an edge case — 50 minutes is not long — which exposed the
+whole class of bug rather than one number.
+
+**What the caps actually were.** Each `MAX_*_OUTPUT_TOKENS` was a guess
+at "how much will this pass need", written when passes were sized for
+articles. Three things make that shape wrong:
+
+1. **`max_tokens` is a ceiling, never a target.** Unproduced tokens are
+   not billed, so a cap set too high costs nothing. The caps were never
+   buying anything.
+2. **A binding cap does not shorten the analysis — it DISCARDS a fully
+   paid call.** With a forced `tool_choice`, `stop_reason: 'max_tokens'`
+   leaves partial, unparseable tool JSON; the pass reports failure and
+   the spend is gone. Too-low costs everything, too-high costs nothing.
+3. **The map's atomization instruction is unbounded by construction.**
+   "ATOMIZE COMPREHENSIVELY: every discrete assertion" scales linearly
+   with content, so no *fixed* cap can be correct — it can only be
+   correct for a given length. A 50-minute talking-head video is ~7.5k
+   words of continuous assertion; ~150-400 atoms at ~90 tokens each
+   overran 8192 without being anywhere near "long".
+
+**The fix, three parts.** Caps raised (map/reduce/entity-page/extract to
+64000; audit/module/lens/vision/forensic/entity-audit/hypothesis-edges/
+links to 32768). Every pass now sends `outputBudget(cap, model)`, which
+clamps to a per-model `max_output` declared on the roster — **Haiku 4.5
+caps output at 64k where every other offered model allows 128k**, and
+over-asking is a 400 that kills the call outright, so an unknown id
+falls to the safe floor rather than assuming the optimistic ceiling.
+Timeouts are now **derived** from the cap they guard
+(`timeoutForBudget`, ~50 tok/s + slack) instead of hand-set beside it:
+the hand-set pairs are exactly what drifted — the map cap moved twice
+while its 120s timeout sat still, which would have converted a
+token-cap failure into an AbortError (the trade JOURNAL 2026-07-18
+warned about).
+
+**The framing correction that drove this** (maintainer, 2026-08-13): the
+efficiency pressure across X-Ray's design was about eliminating
+**redundancy**, not saving money — the Suggest+map unification mattered
+because the article was being READ TWICE, not because reading twice was
+expensive. Defensive caps were never part of that argument; they are the
+same single reading, done worse. Quality is the objective. Cost
+arguments belong to duplicate work, not to ceilings.
+
+**Still open:** these numbers are still constants, and the maintainer
+should not have to file a request to change one — they are headed for
+Options → Advanced. And the honest limit is now wall-clock, not tokens:
+a full 64k emission is ~21 minutes against a non-streaming `fetch` +
+`await resp.json()`. Streaming (SSE, accumulating `input_json_delta`) is
+what would make high ceilings genuinely safe, let a truncated call be
+salvaged, and give the reader real progress instead of a spinner.
+
+See `src/shared/llm-prompts.js`, `src/shared/llm-client.js`,
+`src/shared/corpus-prompts.js`, `tests/llm-proposals.test.mjs`.
+
+## 2026-08-12 — The article pass sized for four-hour transcripts (and Sonnet 5 as the default)
+
+**Tags:** design, external
+
+Two things landed together because the second is only defensible given
+the first.
+
+**1. Claude Opus 5 joined the roster.** More capable than Opus 4.8 at the
+same $5/$25 per MTok, 1M context, 128k output. Added to `LLM_MODELS`
+second (after Fable 5); Opus 4.8 and 4.7 stay offered. No wire-format
+change — model ids only ever ride as free-form `llm:<model>` provenance
+strings (`isValidSuggestedBy` accepts any non-blank `llm:` value), so a
+new id is additive for every consumer.
+
+**2. The map bound was the real ceiling on long-form work, not the
+output cap.** The maintainer routinely ingests podcast episodes up to
+four hours. A four-hour episode is ~240-265k chars of diarized markdown
+(~36k words at ~150 wpm, plus per-turn speaker labels and timestamp
+deep-links). `MAX_MEMBER_INPUT_CHARS` was 60,000 — so the One Article
+Pass read roughly **the first 55 minutes** of every long episode and
+disclosed the rest as `truncated`. Honest, but a quarter of the
+material. Context was never the constraint: a full episode is ~65k
+tokens against a 1M window. The bound was a spend dial set for
+articles.
+
+The matched set, all four moved together because moving one alone just
+trades failure modes:
+
+- `MAX_MEMBER_INPUT_CHARS` 60,000 → **400,000** (~6.5h end to end;
+  ~100k tokens, 10% of the window, inside Haiku 4.5's 200k)
+- `MAX_MAP_OUTPUT_TOKENS` 8,192 → **32,768**. Sizing: ~80-100 output
+  tokens per assertion atom (verbatim quote + paraphrase + flags +
+  `about` refs), ~40-50 per entity; a comprehensively atomized four-hour
+  episode is ~150-350 atoms and ~60-150 entities ≈ 18-38k tokens, with
+  adaptive thinking sharing the budget on Opus 5 / Sonnet 5 / Fable 5.
+  32,768 is also the largest value valid across the whole roster —
+  Haiku 4.5 caps output at 64k.
+- `CORPUS_MAP_TIMEOUT_MS` 120,000 → **600,000**. At ~55 tok/s Opus-tier
+  a full 32k emission is ~590s; leaving this at 2 min would abort
+  exactly the passes the raised bound exists to serve (the
+  token-cap-for-AbortError trade JOURNAL 2026-07-18 warned about).
+- **SW keepalive on the one article pass.** `ensureArticleExtract` now
+  takes an injected `keepalive` (the module stays chrome-free and
+  testable) and both callers supply one — the reader's Suggest and the
+  portal's analyze-after-import were each firing a single bare
+  `sendMessage`. A cold multi-minute call is precisely the MV3 teardown
+  that reads as "no response".
+
+**Cache consequence, accepted deliberately:** `corpusExtractKey` hashes
+the *sliced* text, so raising the bound orphans the cached extract of
+every capture over 60k chars — they re-pay once. For the long captures
+that is the point (their extracts only ever covered the head). Anything
+under 60k keeps its cache, and the `article-extractions` record merges
+by span-dedup rather than replacing, so no reviewed atom is lost.
+
+**3. `DEFAULT_LLM_MODEL` → `claude-sonnet-5`,** departing from the
+roster header's "latest capable Claude" rule. The default should suit
+the dominant workload, and at the 400k bound that workload is
+input-heavy: a four-hour episode is ~63k input tokens against ~20k
+output, so input price dominates and Sonnet 5's $3/MTok against Opus
+5's $5 is where the saving lands (~$0.50 vs ~$0.80 per episode, paid
+once per article ever). Sonnet 5 is near-Opus on this exact shape —
+extraction against a supplied text, not open-ended reasoning. Opus 5
+and Fable 5 remain one click away for the passes that earn them.
+
+**Still true and still unmeasured:** every pass omits the `thinking`
+param, and what that means varies by model — no thinking on Opus
+4.8/4.7, adaptive thinking ON (sharing `max_tokens`) on Opus 5, Sonnet
+5, and Fable 5. That is what forced `MAX_REDUCE_OUTPUT_TOKENS` to 32768
+(JOURNAL 2026-07-18) and it now applies to the default path. The
+remaining 8192-cap passes — lens, audit module, vision, forensic,
+entity audit, claim links — have not been re-measured against it. The
+symptom would be the existing honest `stop_reason: 'max_tokens'` error,
+never silent truncation. Raise the offending cap first; do **not** reach
+for `thinking: {type:'disabled'}` as a blanket fix — Fable 5 rejects it
+with a 400 at any effort and Opus 5 rejects it above `high` effort, so a
+disable would have to be per-model.
+
+**Where this stops.** Input is not the wall (1M tokens ≈ 60+ hours of
+speech); output is — 128k hard, 64k on Haiku, less with thinking. This
+set reaches ~6 hours. Past that a transcript has to be chunked into
+several map units, which breaks one-extract-per-article keying, the
+span-dedup merge, and the record shape — a kickoff, not a constant bump.
+
+See `src/shared/corpus-prompts.js`, `src/shared/llm-client.js`,
+`src/shared/article-pass.js`, `src/shared/llm-prompts.js`,
+`src/reader/index.js`, `src/portal/import-urls.js`.
+
+## 2026-08-12 — UA.3: the retirements — autoPreAnalyze, the standalone suggest pass, one vocabulary
+
+**Tags:** design
+
+**What retired (Art. 3 — recorded, git-recoverable, re-arguable):**
+
+- **`autoPreAnalyze`** (flag, `auto-preanalyze.js`, the reader's
+  `maybeAutoPreAnalyze`, the Options row): the unified pass made it
+  meaningless — every Suggest click IS the one cache-first map call,
+  so there was nothing left to prepay. Its hard-won trigger-site rule
+  (per-article spend fires from the CLICK, never the reader-open
+  pipeline — JOURNAL 2026-08-11) is preserved as history in the
+  reader comment; `isEnabled` fail-closes on the unknown flag so a
+  stale stored override is inert. Its byte-identical-key test lives
+  on in `tests/article-pass.test.mjs`; the `caseScopeQuestion` unit
+  test migrated to `tests/case-dossier.test.mjs`.
+- **The standalone `xray:llm:suggest` pass**: `runSuggestionPass`,
+  `buildSuggestTool` (and with it the tool-schema `is_key` field),
+  the suggest system/user prompt builders, the SW handler, and the
+  UA.1 slim-mode bridge (`claimIndexForSuggest`,
+  `mergeSuggestProposals`, the supplied-claim-index machinery). The
+  batch import migrated to the article pass: analyze-after-import
+  runs `ensureArticleExtract` per page (cached, shared with every
+  other surface) instead of parking proposals — the
+  pending-suggestions STORE stays (no DB migration; the reader still
+  offers any previously parked batch), it just gains no new records.
+  The map pass in `corpus-prompts.js` is now the ONLY extraction
+  prompt surface (the disciplines scan floor drops 8→7).
+- **The two-vocabulary split**: every human-facing "assertion"
+  surface now says **claim proposal** (extraction bar, case-dashboard
+  block, import rows, USER_GUIDE); "assertion" survives only as the
+  layer's storage term (`article-extractions.assertions`,
+  `key_assertions` — renaming stores wasn't worth a migration, per
+  the kickoff's own carve-out) and in the kind-30070 wire vocabulary,
+  which never renames.
+
+**Kill-surface note, on the record:** UA.3 removes the UA.1
+slim-mode kill-revert surface before the UA.2 fragment-count walk has
+run. If that walk fails, the revert is now a two-slice `git revert`
+(UA.3 then UA.2) instead of one — the maintainer accepted this by
+ordering the slice ("Start UA.3").
+
+**OQ4 settled:** the case dashboard's "Pre-analyze" button keeps its
+name — it is the bulk ahead-of-time map over all members, accurately
+named; only the AUTO variant retired.
+
+---
+
+## 2026-08-12 — UA.2: one call (corpus-v9) — entities join the extract, the vocabulary retires, the ladder ships
+
+**Tags:** design
+
+**What shipped.** The One Article Pass slice UA.2: the map extract
+gains `entities` (ref + display name + type + verbatim mention) and
+native per-atom `about` refs (corpus-v9 — an output-contract bump;
+every v8 cached extract orphans, records survive per MA.1). The
+reader's Suggest is now literally ONE call — `ensureArticleExtract`,
+zero on a cache hit — with the separate `xray:llm:suggest` entities
+call gone from the live path (it still serves the import-time batch
+until UA.3). The Phase-28 prompt vocabulary (`SUGGEST_VOCAB_MAX` /
+`vocabularyFromRegistry`) is RETIRED: prompt-time vocabulary would
+poison the content-only cache key, so naming consistency moved to the
+accept-time **resolution ladder** (`shared/entity-resolution.js`).
+(Scope of the retirement: the SUGGEST surface. The E2 entity-audit
+pass still sends the registry digest — reviewing the registry is that
+pass's whole purpose.)
+
+**The ladder, per never-merge (Art. 6 / kickoff rail 3):** identity
+rungs — `exact` (the deterministic id hash the registry would merge
+with anyway) and `alias` (a recorded alias, offered as its canonical
+root) — pre-select "use existing"; near-name rungs only ever rank.
+A lone `token-subset` candidate pre-selects (that IS the pre-UA.2
+findEntityMatches behavior, exactly); a lone `surname-initial`
+candidate deliberately does NOT — it is a NEW rung with no pre-UA.2
+precedent, and "Accept all entities" ratifies pre-selections without
+a per-item click, so an initial-match pre-link would widen the
+auto-link surface past what rail 3 licenses (the adversarial review
+caught the first draft doing exactly that). No numeric score exists
+anywhere on a candidate (guard-tested); rungs are labels.
+
+**Second-guessable calls, on the record:**
+
+- **Nickname table skipped** (kickoff open question 3): a miss costs
+  one human click and dedupe-review backstops. Revisit only if the
+  UA.2 walk's fragment counts demand it.
+- **Entities-only configs now read the canonical 60k unit** (they
+  used to send the rendered 120k body to the suggest pass) — the
+  same bound-disclosure toast covers them.
+- **The modal's multi-candidate default stays "create new"**: the
+  kickoff's "pre-selected link-to-existing default" is implemented
+  for identity rungs and single candidates; a default guess among
+  MULTIPLE plausible roots is exactly where silent mis-linking would
+  creep in, so the human picks from the ranked list.
+- **`MAP_ENTITY_TYPES` is inlined in corpus-prompts.js** rather than
+  imported: entity-model pulls the chrome.storage bridge at module
+  load and corpus-prompts' "no chrome" purity is load-bearing. A
+  drift guard pins the inline enum to `ENTITY_TYPES` minus `case`.
+- **The UA.1 slim-mode machinery stays** (claimIndex / claim_refs /
+  supplied-claims rules): it is the kill-revert surface if UA.2's
+  fragment measurement fails, and UA.3 sweeps it if UA.2 survives.
+
+**Review-round catches, fixed in the same PR:** (1) the v9
+decorations (entities, about) now validate against a sanitized VIEW —
+one nameless entity row or a wrong-typed `about` prunes instead of
+voiding the whole paid extract (the consumers were already tolerant;
+the validator contradicted them); (2) a NON-EMPTY entities list where
+no row carries a name + mention is refused as malformed rather than
+cached forever entity-blind (the load_bearing refusal's sibling);
+(3) the lone-surname-initial pre-select above; (4) the live prompt
+text carries no "(corpus-vN)" labels (they go stale each bump, and
+editing them later IS a prompt change — pinned).
+
+**Measured at the walk (§5/§6):** re-mention resolution counts and
+new-fragment counts vs the vocabulary era; if meaningfully worse,
+revert to the vocabulary-aware entities call and stop at UA.1
+permanently.
+
+---
+
+## 2026-08-12 — UA.1: one reading per article (corpus-v8), and is_key loses its article-pass writer
+
+**Tags:** design
+
+**What shipped.** The One Article Pass slice UA.1
+(`docs/UNIFIED_ARTICLE_PASS_KICKOFF.md`, approved 2026-08-12): the
+corpus map went comprehensive (corpus-v8 — every atom now carries the
+verbatim quote, an authored `text` paraphrase, and a `load_bearing`
+flag with `why_load_bearing` beside the flagged ones), the reader's
+Suggest serves its CLAIM half from that cached-or-fresh extract
+(`shared/article-pass.js`, unit-built by the same `articleMemberUnit`
+the Analyze path uses, so cache keys are byte-identical — pinned), and
+the remaining suggest call slims to entities + claim→entity links (the
+extract's claim index rides the request; `claim_refs` on entity
+proposals inverts to the claims' `about` lists). The reduce and the
+entity page read only the load-bearing subset (`loadBearingSubset`,
+applied to the LIVE extract before the record union — order pinned).
+
+**The second-guessable calls, on the record:**
+
+- **`is_key` lost its article-PASS writer** (kickoff guard rail 6 —
+  the §1 scope collision fix). `buildClaimInput` now always mints
+  `is_key: false`, the LLM review modal's claim editor dropped its
+  "Key claim" checkbox, and the ⭐ is display-only (`load_bearing`, or
+  the legacy star on parked import batches — which also no longer
+  write). The remaining writers, precisely: the reduce's promotion
+  proposal (case-scoped) and the HUMAN's own checkbox in the reader's
+  MANUAL claim modal + claim edit surfaces (`claim-extractor.js` —
+  article-surface but a deliberate human decision, retained per the
+  kickoff's "the human checkbox remains"; its "central to the piece"
+  label is UA.3 vocabulary-sweep material). If a parked batch's
+  stars silently mattering turns out to be missed, this is the entry
+  to argue with.
+- **Extend `key_assertions` in place** (kickoff open question 1):
+  no rename to `claims[]`. Old cached extracts are unreachable under
+  v8 keys anyway, so a compatibility read had nothing to read; a
+  rename would have touched every consumer and fixture for cosmetics.
+  UA.3 owns vocabulary.
+- **The layer's atom contract is unchanged** (guard rail 4):
+  `load_bearing` lives on the extract only, never stored on
+  `article-extractions` atoms (the fold naturally drops it), so kind
+  30070 publishes the same shape. Record-derived reduce extras keep
+  their own cap semantics, unfiltered — pre-v8 records contribute
+  exactly as before.
+- **Producer stamp stays `'map'`** (open question 2): extract-derived
+  claim rows skip the MA.4 suggest fold (`from_extract` marker) —
+  they already folded through the keyed map-record path. Visible
+  consequence: atoms a user meets via Suggest now show the corpus-map
+  provenance chip, which is accurate under the unified model.
+- **The claim half reads the map's 60k bound**, not the old suggest
+  120k. Kept deliberately (a bound change is corpus economics, not
+  UA.1's mandate) and disclosed with a toast on truncated captures.
+  If the parity walk finds long-capture claim coverage lacking, bump
+  `MAX_MEMBER_INPUT_CHARS` in a v9, don't fork the bound per caller.
+- **The map pass gate relaxed to llmAssist + key** (`assistGate`):
+  since the map IS the Suggest claim half now, gating it on
+  `caseSynthesis` would have broken Suggest for non-synthesis users.
+  Same text, same destination, same click consent as the suggest call
+  it replaces; the reduce and every other corpus pass keep the full
+  gate.
+
+**Two seams the adversarial review caught before ship, closed in the
+same PR:**
+
+- **The unit article comes from the ARCHIVE ROW, not the reader
+  object** (`articleSourceForExtract`). For markdown-canonical
+  captures (PDF/EPUB/transcript, published-then-archived) the
+  reader's `hashableArticle` and the archive row assemble DIFFERENT
+  bodies (`htmlToMarkdown` is not idempotent), so keying off the
+  reader object forked the cache from the Analyze path's and paid the
+  same article twice, silently. The row wins whenever it exists;
+  the reader object is the fallback for unarchived captures only.
+- **One substrate end to end.** The unified pass's slim entities call
+  reads the SAME canonical unit text the extract read, and the review
+  modal grounds against it too (`reviewSuggestions`'
+  `groundingText`) — extract quotes carrying markdown syntax (inline
+  links, emphasis) would otherwise fail exact grounding against the
+  rendered DOM and reject perfectly good rows. The pending-import and
+  legacy paths keep the rendered body, as ever.
+
+Also review-driven: an EMPTY supplied claim index still slims the
+suggest call (presence-gated — "no claims found" must not re-arm a
+second full claims read), and a v8 extract whose atoms ALL omit
+`load_bearing` is refused as malformed rather than cached forever as
+position-only (`validateCorpusExtract`).
+
+**One-time cost:** every corpus-v7 cached extract is orphaned (the
+version bump); durable records survive per MA.1, so re-analysis
+re-pays exact-reuse only. The suite pins: `tests/article-pass.test.mjs`
+(identity, guard rails 4/6), `tests/case-synthesis.test.mjs` (the rail-1
+preimage pin, `loadBearingSubset`, the filter-before-union order),
+`tests/corpus-prompts.test.mjs` (v8 pins), `tests/llm-proposals.test.mjs`
+(the is_key flip).
+
+---
+
+## 2026-08-11 — The capture prepay was really a per-open spend; it now rides the Suggest click
+
+**Tags:** bug, design
+
+**The report.** The maintainer: pre-analysis runs every time a reader
+tab is opened, and the intent was for it to be bundled with LLM
+Suggest, whose button click is the opt-in.
+
+**The bug half.** The Phase-28 `autoPreAnalyze` prepay was wired into
+the reader's archive-save tail (`reader/index.js`, the hash/save
+pipeline) — but that pipeline runs on EVERY writable reader open, not
+just fresh captures: the portal's case view and transcript/book import
+open archive rows through `xray:reader:open` with `readOnly: false`,
+and they land in the same `adoptArticle` path a capture does. So the
+flag's documented "one Anthropic call per capture" standing
+authorization was in practice "one call per writable open of any
+not-yet-analyzed case member" — re-opening an old member from the case
+dashboard could spend without any click. Cache hits masked it for
+already-analyzed articles (status `cached`, no toast), which is why it
+read as noise rather than a leak.
+
+**The consent half.** Rather than narrowing the trigger to genuine
+fresh captures (still a standing authorization, just a smaller one),
+the trigger moved to the reader's **Suggest** click: the click already
+authorizes a per-article Anthropic spend, and with the flag on it now
+covers the one map call too (cache-first, `no-member`/`gated` skips
+unchanged, spend toast kept). This matches the actual workflow the
+prepay exists for — capture → Suggest-tag claims/entities → eventually
+Analyze corpus — so every article that gets Suggest attention is
+prepaid, and the eventual Analyze is nearly reduce-only. Options copy
+now discloses "roughly doubles the click's cost"; the per-click
+Analyze/Pre-analyze confirms remain the no-flag path. Nothing changes
+for Analyze corpus itself: the prepay still goes through
+`autoPreAnalyzeArticle` → `corpusMapRequest` (the one-request-builder
+rule), so cache keys stay byte-identical.
+
+**Pinned.** `tests/auto-preanalyze.test.mjs` gained a trigger-site
+guard: exactly one `maybeAutoPreAnalyze` call site, inside
+`runSuggestPass`, and never in the archive-save tail.
+
+---
 ## 2026-08-11 — Option C ratified: the local primary is the entity root
 
 **Tags:** design
@@ -205,6 +1926,8 @@ ones:
   backup). Options + USER_GUIDE now say "recipient must be current";
   a distinct format id was rejected because it would also make every
   future importer refuse the file.
+
+---
 
 ## 2026-08-11 — NIP-07 silently voids the Phase-24 recoverability promise
 

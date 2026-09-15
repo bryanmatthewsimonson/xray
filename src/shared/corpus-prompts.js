@@ -1,4 +1,8 @@
 // Standards: analysis — docs/DISCIPLINES.md §6.
+// The MAP pass also serves the reader's Suggest since UA.1
+// (comprehensive claim atomization), so its prompt additionally
+// answers to archival — docs/DISCIPLINES.md §12: capture is
+// judgment-free, verbatim-anchored, and only ever proposes.
 // Case-corpus synthesis prompts — Phase 20.4
 // (docs/CASE_SYNTHESIS_DESIGN.md). The pure prompt-and-tool layer for
 // the two-stage map/reduce over a case's member articles:
@@ -24,6 +28,15 @@
 // lens-prompt.js are the pattern.
 
 import { CLAIM_RELATIONSHIPS } from './assessment-taxonomy.js';
+
+// The entity types the MAP may propose (corpus-v9): everything but
+// `case` — the researcher's workspace is never named inside an article
+// (CW.1; the same subset the suggest tool offers). INLINED rather than
+// imported: entity-model.js pulls the chrome.storage bridge at module
+// load, and this file's purity contract ("no chrome") is load-bearing
+// for its consumers and tests. Drift-guarded — a test pins this enum
+// to ENTITY_TYPES minus `case`.
+const MAP_ENTITY_TYPES = Object.freeze(['person', 'organization', 'place', 'thing']);
 
 // DISCIPLINE (the 20.6 lesson, institutionalized 27 S.1): a prompt /
 // tool / digest change must bump a version so stored briefs correctly go
@@ -65,18 +78,72 @@ import { CLAIM_RELATIONSHIPS } from './assessment-taxonomy.js';
 // cost: every corpus-v4 cached extract is orphaned — but since MA.1
 // the knowledge (the durable article-extractions records) survives
 // every bump; only exact-reuse is re-paid.
-export const MAP_PROMPT_VERSION = 'corpus-v7';
-export const CORPUS_PROMPT_VERSION = 'corpus-v7';
+// corpus-v8 (UA.1, the One Article Pass —
+// docs/UNIFIED_ARTICLE_PASS_KICKOFF.md): the assertion list becomes
+// COMPREHENSIVE claim atomization — every discrete claim the article
+// makes, not just the load-bearing few — and each atom gains `text`
+// (an authored standalone paraphrase, the same field the suggest pass
+// authored since MA.4) and `load_bearing` (true only where the
+// position rests on it, `why_load_bearing` beside it). One reading now
+// serves BOTH consumers: the reader's Suggest renders its claim
+// proposals from this extract, and the reduce / entity page read only
+// the load-bearing subset (loadBearingSubset — parity with the old
+// selective list, so the reduce input stays bounded). The map input
+// (text + title/url) and the cache-key shape are UNCHANGED — the
+// guard test pins them — so pay-once economics hold; the version bump
+// is the output-contract change. One-time cost: every corpus-v7
+// cached extract is orphaned (knowledge survives via MA.1, as ever).
+// corpus-v9 (UA.2, one call): ENTITIES join the extract — surface
+// name + type + verbatim mention, with native claim→entity refs
+// (`about` on each atom) — so the ONE reading serves the whole
+// Suggest surface and the separate entities call retires. Naming
+// consistency moves to the ACCEPT-TIME resolution ladder
+// (shared/entity-resolution.js): the registry vocabulary never rides
+// this prompt — it would poison the content-only cache key — and the
+// map input/key shape stay UNCHANGED (same guard tests). Entities
+// ride the cached extract and the review modal ONLY; the durable
+// layer keeps claim-shaped atoms (MA.4 scope, guard rail 4). One-time
+// cost: every corpus-v8 cached extract is orphaned (MA.1, as ever).
+export const MAP_PROMPT_VERSION = 'corpus-v9';
+export const CORPUS_PROMPT_VERSION = 'corpus-v9';
 export const MAP_TOOL_NAME = 'emit_corpus_extract';
 export const REDUCE_TOOL_NAME = 'emit_case_brief';
 export const HYPOTHESIS_EDGE_PROMPT_VERSION = 'hyp-edges-v1';
 export const HYPOTHESIS_EDGE_TOOL_NAME = 'propose_hypothesis_edges';
 
-// Per-article map input bound — half the audit's 120k: 10–30 members
-// make cost linear, and position/assertion extraction doesn't need the
-// tail of a very long capture. Truncation is disclosed per member.
-export const MAX_MEMBER_INPUT_CHARS = 60000;
-export const MAX_MAP_OUTPUT_TOKENS = 8192;
+// Per-article map input bound. Was 60k (half the audit's 120k) on the
+// reasoning that assertion extraction doesn't need the tail of a very
+// long capture. LONG-FORM TRANSCRIPTS broke that: a four-hour podcast
+// episode is ~240-265k chars of diarized markdown (≈36k words of speech
+// at ~150 wpm, plus per-turn speaker labels and timestamp deep-links),
+// so a 60k bound read its first ~55 minutes and disclosed the rest as
+// truncated. 400k covers ~6.5 hours end to end. Context was never the
+// limit — 400k chars is ~100k tokens, 10% of the 1M window and inside
+// Haiku 4.5's 200k — this bound is a SPEND DIAL, and cost is linear in
+// it (~$0.32 input per 4h episode on Opus 5, ~$0.19 on Sonnet 5, paid
+// once per article ever). Truncation is still disclosed per member.
+//
+// KEY CONSEQUENCE: corpusExtractKey hashes the SLICED text, so moving
+// this bound orphans the cached extract of every capture longer than
+// the OLD bound — they re-pay once. That is the point for the long
+// captures (their extracts only ever covered the head); everything
+// under 60k keeps its cache, and the article-extractions record merges
+// by span-dedup rather than replacing, so no reviewed atom is lost.
+export const MAX_MEMBER_INPUT_CHARS = 400000;
+// Sized to the input bound above. Per assertion atom the map emits a
+// verbatim quote + paraphrase + flags + `about` refs ≈ 80-100 tokens;
+// per entity ≈ 40-50. A comprehensively atomized four-hour episode runs
+// ~150-350 atoms and ~60-150 entities ≈ 18-38k tokens, and on Opus 5 /
+// Sonnet 5 / Fable 5 adaptive thinking shares this same budget. 32768
+// covers the typical episode and is the largest value valid across the
+// whole roster: Haiku 4.5 caps output at 64k (every other offered model
+// 128k). A denser episode still clips honestly —
+// `stop_reason: 'max_tokens'` surfaces as "The map call hit its output
+// limit before finishing", never a silent short extract. Past ~6 hours
+// the fix is chunking a transcript into several map units, which is a
+// design change (it breaks one-extract-per-article keying, the
+// span-dedup merge, and the record shape), not a constant bump.
+export const MAX_MAP_OUTPUT_TOKENS = 64000;
 // The reduce emits the WHOLE-corpus brief: every position's holders, ALL
 // cruxes, the load-bearing claims, and the proposal queue (the corpus-v3
 // breadth nudge above). For a large case (~125 members) that legitimately
@@ -86,8 +153,8 @@ export const MAX_MAP_OUTPUT_TOKENS = 8192;
 // 32768 fits the breadth brief with headroom and stays far under every
 // current model's 128k output ceiling. NOT a prompt/tool/digest change, so
 // no version bump — the map cache and brief staleness are unaffected.
-export const MAX_REDUCE_OUTPUT_TOKENS = 32768;
-export const MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS = 8192;
+export const MAX_REDUCE_OUTPUT_TOKENS = 64000;
+export const MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS = 32768;
 
 // ------------------------------------------------------------------
 // MAP — one article's position + load-bearing assertions
@@ -96,9 +163,10 @@ export const MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS = 8192;
 export function buildMapTool() {
     return {
         name: MAP_TOOL_NAME,
-        description: 'Report what THIS ONE article argues — its own position, its '
-            + 'load-bearing assertions (each grounded in a verbatim quote), and the outside '
-            + 'sources it points at. Do NOT adjudicate; report what the article claims.',
+        description: 'Report what THIS ONE article argues — its own position, EVERY discrete '
+            + 'claim it makes (each grounded in a verbatim quote, the load-bearing ones '
+            + 'flagged), and the outside sources it points at. Do NOT adjudicate; report '
+            + 'what the article claims.',
         input_schema: {
             type: 'object',
             properties: {
@@ -112,14 +180,39 @@ export function buildMapTool() {
                 },
                 key_assertions: {
                     type: 'array',
-                    description: 'The load-bearing claims this article makes — the ones its position rests on.',
+                    description: 'COMPREHENSIVE claim atomization: every discrete assertion this '
+                        + 'article makes or reports, one atom per claim. Flag load_bearing ONLY on '
+                        + 'the ones the position rests on — flagging everything makes the flag '
+                        + 'useless.',
                     items: {
                         type: 'object',
                         properties: {
                             quote: { type: 'string', description: 'ONE contiguous VERBATIM span copied from THIS article, character for character. Machine-checked — an unlocatable quote is dropped.' },
-                            why_load_bearing: { type: 'string', description: 'Why this assertion carries weight for the position.' }
+                            text: { type: 'string', description: 'The atomized assertion in clear, standalone words — your paraphrase, not a copy of the quote.' },
+                            load_bearing: { type: 'boolean', description: 'True ONLY if the article\'s position rests on this assertion. Set it on every atom (false for the rest).' },
+                            why_load_bearing: { type: 'string', description: 'Only when load_bearing: why this assertion carries weight for the position.' },
+                            about: {
+                                type: 'array', items: { type: 'string' },
+                                description: 'Refs ("E1") of the entities this assertion concerns, from your entities list.'
+                            }
                         },
-                        required: ['quote']
+                        required: ['quote', 'text', 'load_bearing']
+                    }
+                },
+                entities: {
+                    type: 'array',
+                    description: 'The named entities this article mentions — people, organizations, '
+                        + 'places, things. Reuse the same ref for the same real-world entity across '
+                        + 'assertions.',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            ref: { type: 'string', description: 'A short local id you assign ("E1", "E2", …) so assertions can reference it via about.' },
+                            name: { type: 'string', description: 'Display name. May add disambiguation beyond the article\'s wording ("Elena Vargas", not "the mayor").' },
+                            type: { type: 'string', enum: [...MAP_ENTITY_TYPES], description: 'Papers, lawsuits, books, products, reports, and named studies/cohorts are "thing". If unsure, use "thing".' },
+                            mention: { type: 'string', description: 'REQUIRED: ONE contiguous VERBATIM span where the article names this entity, copied character for character. Machine-checked — an entity whose mention cannot be located is dropped.' }
+                        },
+                        required: ['ref', 'name', 'type', 'mention']
                     }
                 },
                 source_references: {
@@ -155,9 +248,25 @@ export function buildMapSystemPrompt() {
     return [
         'You are analyzing ONE article from an evidence corpus.',
         'Report only what THIS article argues — the position it takes on its own central',
-        'question, the load-bearing assertions that position rests on, and the outside',
-        'sources it cites.',
+        'question, EVERY discrete claim it makes (with the load-bearing ones flagged), the',
+        'named entities it mentions, and the outside sources it cites.',
         'RULES:',
+        '- ATOMIZE COMPREHENSIVELY: key_assertions is every discrete assertion the',
+        '  article makes or reports, one atom per claim — a person reviews each as a claim',
+        '  proposal. If a conclusion rests on several passages, anchor each passage as its own',
+        '  atom rather than stitching quotes together.',
+        '- Each atom carries `text`: the assertion restated in clear, standalone words (your',
+        '  paraphrase — the quote stays verbatim, the text may not just repeat it).',
+        '- Set `load_bearing` on EVERY atom, and set it true ONLY where the article\'s position',
+        '  rests on that assertion — give those a short why_load_bearing. Flagging everything',
+        '  (or nothing that matters) makes the flag useless downstream.',
+        '- ENTITIES: list the people, organizations, places, and things this article',
+        '  names. `mention` is REQUIRED — the single verbatim span where the text names it; the',
+        '  display name may disambiguate, the mention may not. Reuse one ref ("E1") for one',
+        '  real-world entity, and set each atom\'s `about` to the refs it concerns. A scientific',
+        '  paper, lawsuit, book, study, product, or report is a "thing"; when in doubt, "thing".',
+        '  In X-Ray a "case" names the researcher\'s own workspace, never something an article',
+        '  mentions — it is not in your type list; never propose one.',
         '- Every quote must be ONE contiguous span copied VERBATIM from this article, character',
         '  for character (keep punctuation, capitalization, typos). It is machine-checked; a quote',
         '  that cannot be located in the article is dropped.',
@@ -421,7 +530,7 @@ export function buildHypothesisEdgeUserPrompt({ dossierDigest = '', hypotheses =
 
 export const CLAIM_LINKS_PROMPT_VERSION = 'claim-links-v1';
 export const CLAIM_LINKS_TOOL_NAME = 'propose_claim_links';
-export const MAX_CLAIM_LINKS_OUTPUT_TOKENS = 8192;
+export const MAX_CLAIM_LINKS_OUTPUT_TOKENS = 32768;
 // The claims-index cap, matching digestDossier's 150-claim bound.
 export const MAX_CLAIM_LINKS_CLAIMS = 150;
 

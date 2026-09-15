@@ -1,8 +1,10 @@
 // LLM-assist review panel — Phase 14.5.3
 // (docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md).
 //
-// The human-in-the-loop surface. It takes the raw proposals from a
-// `xray:llm:suggest` pass, groups + validates them (llm-proposals), and
+// The human-in-the-loop surface. It takes raw proposals — since UA.3
+// derived from the article extract (shared/article-pass.js), plus the
+// legacy parked-import and local-drafts producers — groups + validates
+// them (llm-proposals), and
 // renders a modal grouped by artifact type. For each proposal the user
 // can Accept / Edit / Reject:
 //
@@ -44,11 +46,33 @@ import { ROLES, BASIS_VALUES } from '../shared/forensic-taxonomy.js';
 import {
     normalizeProposals, validateProposal, subjectLabelOf, PROPOSAL_ORDER,
     buildEntityInput, buildClaimInput, buildAssessmentInput, buildLinkInput,
-    buildFindingInput, buildBaselineInput, findEntityMatches
+    buildFindingInput, buildBaselineInput
 } from '../shared/llm-proposals.js';
+// UA.2 — the resolution ladder: ranked link-or-create candidates
+// (identity rungs pre-select; near-name rungs need the human's pick),
+// replacing both the prompt-time vocabulary and the flat token match.
+import { rankEntityCandidates, defaultEntityChoice, rungLabel } from '../shared/entity-resolution.js';
 import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { pageFragmentSelector } from '../shared/pdf-layout.js';
 import { timeFragmentSelector } from '../shared/diarized-transcript.js';
+
+/**
+ * A proposal's list field, as a list — always.
+ *
+ * `(p.field || [])` rescues only FALSY values, so a truthy wrong type
+ * (the model emitting `about` as an object, `labels` as a string) reaches
+ * `.map`/`.filter` and throws. Here that is the WORST place for it:
+ * summarize() runs inside render(), render() runs synchronously inside
+ * openLlmReview's Promise executor, so the throw REJECTS the promise —
+ * the modal never opens and every proposal in the batch is lost, for one
+ * malformed field on one row. The proposals are model-produced through a
+ * non-strict forced tool, so no layer upstream guarantees the type.
+ *
+ * Note the inline editor further down this file already did
+ * `Array.isArray(...)` for the same fields; the summary path simply
+ * never got the same treatment.
+ */
+function asList(v) { return Array.isArray(v) ? v : []; }
 
 const KIND_TITLES = {
     entity: 'Entities', claim: 'Claims', assessment: 'Assessments',
@@ -72,8 +96,12 @@ const EDIT_FIELDS = {
     ],
     claim: [
         { key: 'text', label: 'Claim text', type: 'textarea' },
-        { key: 'quote', label: 'Verbatim quote (checked against the article)', type: 'textarea' },
-        { key: 'is_key', label: 'Key claim', type: 'checkbox' }
+        { key: 'quote', label: 'Verbatim quote (checked against the article)', type: 'textarea' }
+        // No is_key editor (UA.1 guard rail 6): the article PASS never
+        // writes claim.is_key — the remaining writers are the reduce's
+        // case-level promotion and the human's own checkbox in the
+        // MANUAL claim modal (claim-extractor.js). The ⭐ here only
+        // DISPLAYS the extract's article-relative load_bearing flag.
     ],
     assessment: [
         { key: 'stance', label: 'Stance', type: 'stance' },
@@ -153,12 +181,12 @@ export async function openLlmReview(opts) {
                   entityLabelByRef: norm.entityLabelByRef,
                   entityTypeByRef: norm.entityTypeByRef, grounding };
 
-    // The existing registry, for accept-time dedupe: a proposed entity
-    // whose name token-matches an existing one (same type) is offered
-    // as "use existing" instead of minting a near-duplicate id.
-    let registry = [];
-    try { registry = Object.values(await EntityModel.getAll() || {}); }
-    catch (_) { registry = []; }
+    // The existing registry, for accept-time resolution: the ladder
+    // ranks the records a proposed entity might already be, offered as
+    // "use existing" instead of minting a near-duplicate id.
+    let recordsById = {};
+    try { recordsById = (await EntityModel.getAll()) || {}; }
+    catch (_) { recordsById = {}; }
 
     // Nice summaries: claim text by ref.
     const claimTextByRef = {};
@@ -169,28 +197,29 @@ export async function openLlmReview(opts) {
     const claimIdByRef = {};
 
     // One mutable row per proposal.
-    const rows = norm.all.map((p) => {
-        const row = {
-            pid: p.pid, kind: p.kind, ref: p.ref,
-            prop: { ...p },
-            status: 'pending',         // pending | accepted | rejected
-            suggestedBy: suggestedByLlm,
-            editing: false,
-            message: '',
-            messageKind: ''
-        };
-        if (p.kind === 'entity') refreshEntityMatches(row);
-        return row;
-    });
+    const rows = norm.all.map((p) => ({
+        pid: p.pid, kind: p.kind, ref: p.ref,
+        prop: { ...p },
+        status: 'pending',         // pending | accepted | rejected
+        suggestedBy: suggestedByLlm,
+        editing: false,
+        message: '',
+        messageKind: ''
+    }));
 
-    // Dedupe candidates for an entity row; a SINGLE candidate defaults
-    // the accept action to "use existing" (the accumulation problem),
-    // multiple candidates default to "create new" (the human picks).
-    function refreshEntityMatches(row) {
-        row.entityMatches = findEntityMatches(
-            String(row.prop.name || ''), row.prop.entity_type, registry);
-        row.entityChoice = row.entityMatches.length === 1 ? row.entityMatches[0].id : 'new';
+    // Ladder candidates for an entity row (UA.2). The pre-selection
+    // policy lives in defaultEntityChoice: an identity-rung top
+    // candidate (what the registry would merge anyway) or a single
+    // near-name candidate pre-selects "use existing"; multiple
+    // near-name candidates default to "create new" — the human picks.
+    async function refreshEntityMatches(row) {
+        row.entityMatches = await rankEntityCandidates(
+            { name: String(row.prop.name || ''), type: row.prop.entity_type }, recordsById);
+        row.entityChoice = defaultEntityChoice(row.entityMatches);
     }
+    // The ladder's id rung hashes asynchronously — resolve every entity
+    // row before the first render so pre-selections never pop in late.
+    await Promise.all(rows.filter((r) => r.kind === 'entity').map(refreshEntityMatches));
     const rowByPid = new Map(rows.map((r) => [r.pid, r]));
 
     return new Promise((resolve) => {
@@ -254,28 +283,38 @@ export async function openLlmReview(opts) {
                     const mention = quoteHtml(p.mention, { max: 80 });
                     let dedupe = '';
                     if (row.status === 'pending' && row.entityMatches && row.entityMatches.length) {
+                        // Ranked ladder candidates (UA.2): rung wording
+                        // rides each option's tooltip; the chip reflects
+                        // the TOP rung so an identity match reads
+                        // differently from a near-name guess.
                         const options = [
                             `<option value="new" ${row.entityChoice === 'new' ? 'selected' : ''}>Create new entity</option>`
                         ].concat(row.entityMatches.map((e) =>
-                            `<option value="${escapeHtml(e.id)}" ${row.entityChoice === e.id ? 'selected' : ''}>Use existing: ${escapeHtml(e.name)}</option>`
+                            `<option value="${escapeHtml(e.id)}" ${row.entityChoice === e.id ? 'selected' : ''} title="${escapeHtml(rungLabel(e.rung))}">Use existing: ${escapeHtml(e.name)}</option>`
                         )).join('');
-                        dedupe = `<div class="xr-llm__dedupe"><span class="xr-llm__anchor xr-llm__anchor--warn" title="An entity with a token-matching name of the same type already exists — link it instead of minting a duplicate">≈ may already exist</span> <select data-act="entity-choice">${options}</select></div>`;
+                        dedupe = `<div class="xr-llm__dedupe"><span class="xr-llm__anchor xr-llm__anchor--warn" title="${escapeHtml(rungLabel(row.entityMatches[0].rung))} — link it instead of minting a duplicate">≈ may already exist</span> <select data-act="entity-choice">${options}</select></div>`;
                     }
                     return base + mention + dedupe;
                 }
                 case 'claim': {
-                    const about = (p.about || []).map((r) => norm.entityLabelByRef[r]).filter(Boolean);
-                    const star = p.is_key ? '⭐ ' : '';
+                    const about = asList(p.about).map((r) => norm.entityLabelByRef[String(r)]).filter(Boolean);
+                    // ⭐ is display-only: `load_bearing` from the article
+                    // extract (UA.1) — with its why as the tooltip — or
+                    // the legacy is_key on parked pre-UA.1 batches.
+                    // Neither writes claim.is_key at accept (guard rail 6).
+                    const why = p.load_bearing && p.why_load_bearing
+                        ? ` title="Load-bearing: ${escapeHtml(truncate(p.why_load_bearing, 200))}"` : '';
+                    const star = (p.load_bearing || p.is_key) ? `<span${why}>⭐ </span>` : '';
                     const ab = about.length ? ` <span class="xr-llm__dim">about ${escapeHtml(about.join(', '))}</span>` : '';
                     return `${star}${escapeHtml(truncate(p.text, 160))}${ab}${quoteHtml(p.quote)}`;
                 }
                 case 'assessment': {
                     const st = (p.stance === null || p.stance === undefined) ? '' : `stance: ${escapeHtml(STANCE_LABELS[String(p.stance)] || String(p.stance))}`;
-                    const labels = (p.labels || []).map((l) => l.label).filter(Boolean);
+                    const labels = asList(p.labels).map((l) => l && l.label).filter(Boolean);
                     const lb = labels.length ? `labels: ${escapeHtml(labels.join(', '))}` : '';
                     // Label quotes are optional anchors: an unlocatable one
                     // is saved WITHOUT an anchor (never fabricated) — say so.
-                    const lost = (p.labels || []).filter((l) => l && String(l.quote || '').trim()
+                    const lost = asList(p.labels).filter((l) => l && String(l.quote || '').trim()
                         && grounding.ground(String(l.quote).trim()).status === 'missing').length;
                     const warn = lost ? `<br><small class="xr-llm__anchor xr-llm__anchor--warn">⚓ ${lost} label quote${lost > 1 ? 's' : ''} not found — those labels save without an anchor</small>` : '';
                     return `<span class="xr-llm__dim">on</span> ${escapeHtml(truncate(claimTextByRef[p.claim_ref] || p.claim_ref, 90))}<br><small>${[st, lb].filter(Boolean).join(' · ')}</small>${warn}`;
@@ -284,7 +323,7 @@ export async function openLlmReview(opts) {
                 case 'revision':
                     return `${escapeHtml(truncate(claimTextByRef[p.source_claim_ref] || p.source_claim_ref, 60))} <strong>${escapeHtml(p.relationship)}</strong> ${escapeHtml(truncate(claimTextByRef[p.target_claim_ref] || p.target_claim_ref, 60))}`;
                 case 'finding': {
-                    const anchors = (p.anchors || []).filter((a) => a && String(a.quote || '').trim());
+                    const anchors = asList(p.anchors).filter((a) => a && String(a.quote || '').trim());
                     const quotes = anchors.map((a) => quoteHtml(a.quote)).join('');
                     return `<strong>${escapeHtml(subjectLabelOf(p, ctx) || '(subject)')}</strong> — <span class="xr-llm__man">${escapeHtml(p.maneuver || '?')}</span> <span class="xr-llm__dim">(${escapeHtml(p.role || '?')}, ${escapeHtml(p.basis || '?')})</span>${quotes}<small class="xr-llm__counter">↔ ${escapeHtml(truncate(p.counter_note || '(no counter-read)', 140))}</small>`;
                 }
@@ -443,7 +482,7 @@ export async function openLlmReview(opts) {
                     // record so rows referencing it re-validate.
                     if (row.ref) {
                         const existing = choice.value !== 'new'
-                            ? registry.find((e) => e.id === choice.value) : null;
+                            ? recordsById[choice.value] : null;
                         ctx.entityTypeByRef[row.ref] = existing ? existing.type : (row.prop.entity_type || null);
                         render();
                     }
@@ -451,7 +490,7 @@ export async function openLlmReview(opts) {
             });
         }
 
-        function applyEdit(row, el) {
+        async function applyEdit(row, el) {
             const fields = EDIT_FIELDS[row.kind] || [];
             const changed = new Set();
             for (const f of fields) {
@@ -493,9 +532,10 @@ export async function openLlmReview(opts) {
             const quoteOnly = changed.size > 0
                 && [...changed].every((k) => k === 'quote' || k === 'anchors' || k === 'mention');
             if (changed.size > 0 && !quoteOnly) row.suggestedBy = 'user';
-            // Name/type edits change what the proposal duplicates.
+            // Name/type edits change what the proposal duplicates —
+            // re-run the ladder (async: the identity rung hashes).
             if (row.kind === 'entity' && (changed.has('name') || changed.has('entity_type'))) {
-                refreshEntityMatches(row);
+                await refreshEntityMatches(row);
             }
             row.editing = false;
             row.message = quoteOnly ? 'Quote re-checked against the article.' : '';

@@ -18,7 +18,7 @@ export const FORENSIC_CORPUS_PROMPT_VERSION = 'forensic-corpus-v1';
 export const FORENSIC_CORPUS_TOOL_NAME = 'propose_forensic_findings';
 export const MAX_FINDINGS_PER_SUBJECT = 5;
 export const MAX_SUBJECT_BUNDLE_CHARS = 60000;
-export const MAX_FORENSIC_OUTPUT_TOKENS = 8192;
+export const MAX_FORENSIC_OUTPUT_TOKENS = 32768;
 
 /**
  * The subject's cross-article evidence bundle: every claim naming them

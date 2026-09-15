@@ -62,6 +62,26 @@ jobs:
         # "No tests yet; skipping." under a green checkmark.
         run: npm test
 
+      - name: Normalizer cross-language parity (reference side)
+        # The extension ships a JavaScript twin of the companion's
+        # providers/normalize.py (src/shared/provider-normalize.js),
+        # because direct cloud transcription runs with no companion in
+        # the loop. Both read tests/fixtures/normalizer-parity.json.
+        #
+        # npm test already checks the JS half and fails if normalize.py
+        # is edited (it pins the reference's sha256) — but it can never
+        # OBSERVE the Python behavior, so a fixture the reference no
+        # longer satisfies would sail through. This step is that
+        # observer.
+        #
+        # Deliberately NOT the companion's full suite: the companion is
+        # not part of the extension build or zip, and its siblings
+        # import yt-dlp/torch. The discover pattern is scoped to the one
+        # pure-stdlib file, which needs no uv, no venv, and no install —
+        # it runs on the runner's bare python3 in well under a second.
+        working-directory: companion/transcriber
+        run: python3 -m unittest discover -s tests -p 'test_shared_fixtures.py' -v
+
       - name: web-ext lint
         # Default: warnings non-fatal, errors fail the job.
         run: npx --no-install web-ext lint --source-dir . --self-hosted

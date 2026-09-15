@@ -57,9 +57,11 @@ export const FLAGS_DEFAULTS = Object.freeze({
   truthAdjudicationPublishing: false,
 
   // Phase 14.5 (docs/PHASE_14_5_LLM_ASSIST_KICKOFF.md): gates the
-  // in-extension LLM-assist suggestion pass — the reader "Suggest…"
-  // control + the `xray:llm:suggest` background call to the Anthropic
-  // Messages API. Off by default, AND requires a user-supplied API key
+  // in-extension LLM-assist surface — the reader "Suggest…" control,
+  // which since the One Article Pass rides the `xray:llm:corpus-map`
+  // background call to the Anthropic Messages API (the standalone
+  // suggest pass retired in UA.3). Off by default, AND requires a
+  // user-supplied API key
   // (a second consent gate, since the article text leaves the device).
   // The feature only ever PROPOSES artifacts for human review; nothing
   // auto-saves and nothing auto-publishes — publishing stays behind the
@@ -104,17 +106,13 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // ordinary 30040/30055 through the normal publish paths.
   caseSynthesis: false,
 
-  // Phase 28 — opt-in per-capture map prepay (auto-preanalyze.js): when
-  // a capture saves into a workspace bound to a case, run the synthesis
-  // MAP stage for that one article immediately, so the later "Analyze
-  // corpus" run finds its extract cached (corpus-v4 keys are
-  // claims-independent, so the prepaid extract stays valid however much
-  // claim extraction follows). Default OFF deliberately: turning it on
-  // converts the per-click spend confirm into a STANDING authorization
-  // — one Anthropic call per capture — so the Options disclosure states
-  // the per-capture cost. Effective only with caseSynthesis + llmAssist
-  // + the API key (the SW's corpusGate re-checks all three).
-  autoPreAnalyze: false,
+  // (`autoPreAnalyze` — the Phase-28 opt-in map prepay riding the
+  // Suggest click — RETIRED in UA.3, 2026-08-12: since the One
+  // Article Pass, EVERY Suggest click runs the one cache-first map
+  // call, so "also prepay the map" became the click's ordinary
+  // meaning and the flag gated nothing. Art. 3: recorded in JOURNAL,
+  // git-recoverable, re-arguable. loadFlags drops unknown stored
+  // overrides silently, so stale `xray:flags` entries are inert.)
 
   // AI vision (post-28): gates the reader's "Describe images" surface —
   // per-image OCR transcription + captioning via the Anthropic vision
@@ -162,10 +160,37 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // the why): gates the "Capture & transcribe locally" context-menu
   // item and the reader's Transcribe button, both of which talk to the
   // loopback companion service (companion/transcriber/, yt-dlp →
-  // WhisperX → pyannote on 127.0.0.1). Nothing leaves the machine;
-  // the flag exists because the surface is useless without the
-  // companion installed. Ordinary YouTube captures are never gated.
+  // WhisperX → pyannote on 127.0.0.1). The flag exists because the
+  // surface is useless without the companion installed. Ordinary
+  // YouTube captures are never gated.
+  //
+  // "Nothing leaves the machine" was true when this flag shipped and
+  // is NOT true now: the 2026-08-02 engine picker added AssemblyAI and
+  // Deepgram, which upload the episode audio from the companion. The
+  // engine picker names which one runs; see also
+  // directCloudTranscription below, a different transport again.
   localTranscription: false,
+
+  // Direct cloud transcription (docs/DIRECT_CLOUD_TRANSCRIBE_KICKOFF.md,
+  // slice DC.1): transcribe with NOTHING installed. The service worker
+  // submits the captured page's media URL straight to AssemblyAI, who
+  // fetch the audio themselves and diarize it — no companion, no
+  // Python, no GPU, no HF_TOKEN.
+  //
+  // What this path discloses, stated plainly because it is a DIFFERENT
+  // disclosure from the companion cloud engines rather than a smaller
+  // one: X-Ray sends a third party a MEDIA URL and an API key. The
+  // audio never touches this machine and the origin site never sees the
+  // user's IP — but the provider learns the ADDRESS of what is being
+  // transcribed, which uploading bytes never revealed. Reaches only the
+  // pinned https origin in shared/direct-transcribe.js, and is checked
+  // on the poll as well as the start (an MV3 worker wakes mid-job; a
+  // credentialed request must not outlive the flag that authorized it).
+  //
+  // Independent of localTranscription: either flag alone is enough to
+  // show the Transcribe button, since the whole point is that this one
+  // needs no companion.
+  directCloudTranscription: false,
 
   // The optional LM Studio post-pass over a finished local transcript:
   // drafts claim candidates via a LOOPBACK OpenAI-compatible endpoint

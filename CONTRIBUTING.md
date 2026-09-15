@@ -222,3 +222,23 @@ Art. 13 — the constitution governs where this summary and it disagree.
 - **Guards stay green.** PRs touching normative docs must keep
   `tests/constitution-guards.test.mjs` (and every family's guard
   tests) green. A red guard is a bug or an unratified amendment.
+
+## The soak rule (adopted 2026-08-23, maintainer ruling)
+
+A PR that changes runtime behavior — features and behavioral fixes
+alike — is **not merged the day it is opened**. It sits on its branch
+through at least one real casework session with the branch loaded in
+the maintainer's browser, and merges only after that use.
+
+Why, from the record: during the 2026-08 direct-cloud wave, every
+field-found defect was discovered within hours of real use — five of
+them AFTER same-day merges, each requiring a follow-up PR to main. The
+same discovery one day earlier is the same bug caught pre-merge. The
+suite cannot observe what a person sees (docs/JOURNAL.md 2026-08-16,
+three entries), so real use IS a verification layer, and the soak is
+how it runs before merge instead of after.
+
+Exempt: documentation-only and skill-only changes, and CI-config
+changes — nothing a browser session can observe. The maintainer may
+waive the soak explicitly for an urgent fix; waiving it silently is how
+the wave shipped its bugs.

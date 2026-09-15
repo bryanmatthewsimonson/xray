@@ -4,6 +4,7 @@
 // Values written by the Storage wrapper are JSON-stringified, so we
 // match that here: parse on read, stringify on write.
 
+import { readDiagnostics, clearDiagnostics, formatDiagnostics, recordDiagnostic, flushDiagnostics } from '../shared/diagnostics.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
@@ -14,7 +15,7 @@ import {
     LMSTUDIO_URL_STORAGE, LMSTUDIO_MODEL_STORAGE, sanitizePort, loopbackUrl
 } from '../shared/transcriber-client.js';
 import { deriveCompanionState } from '../shared/companion-status.js';
-import { formatBuildInfo } from '../shared/build-info.js';
+import { formatBuildInfo, getBuildInfo } from '../shared/build-info.js';
 import {
     LLM_MODELS, DEFAULT_LLM_MODEL, resolveModel, LLM_KEY_STORAGE, LLM_MODEL_STORAGE,
     LLM_SUGGEST_KINDS_STORAGE, SUGGEST_KIND_LABELS, normalizeSuggestKinds
@@ -289,7 +290,7 @@ async function loadSigning() {
 
     // First-run banner
     const banner = document.getElementById('signing-firstrun');
-    banner.style.display = prefs.signing_method_configured ? 'none' : '';
+    banner.style.display = (await signingIsConfigured(prefs)) ? 'none' : '';
 }
 
 function selectedMethod() {
@@ -322,13 +323,38 @@ async function saveSigning() {
     await refreshActiveLine();
 }
 
+/** Is signing actually set up? Derived from STATE, not from whether the
+ *  Save button on this tab was ever pressed.
+ *
+ *  `signing_method_configured` records a button press. A user who
+ *  imported an nsec, restored a backup, switched workspaces, or upgraded
+ *  from a build that predates the flag has a working signer and has
+ *  never touched Save — and the page told them "not configured yet" and
+ *  showed the first-run welcome banner, beside an ACTIVE identity with
+ *  published events. Field-found 2026-08-23 on an archive with 68
+ *  published events. (docs/PORTAL_UX_REVIEW.md's A-class: the interface
+ *  lying about its own state.)
+ *
+ *  The flag stays authoritative when set — this only ADDS the cases it
+ *  misses. */
+async function signingIsConfigured(prefs) {
+    if (prefs.signing_method_configured) return true;
+    const method = (prefs.signing_method === 'nip07' || prefs.signing_method === 'nsecbunker')
+        ? prefs.signing_method
+        : 'local';
+    if (method === 'nip07') return true;                     // only ever set deliberately
+    if (method === 'nsecbunker') return !!prefs.nsecbunker_url;
+    const id = await storageGet('local_primary_identity');   // Local: a key IS the configuration
+    return !!(id && id.npub);
+}
+
 async function refreshActiveLine() {
     const el = document.getElementById('signing-active');
     const prefs = (await storageGet('preferences')) || {};
     const method = (prefs.signing_method === 'nip07' || prefs.signing_method === 'nsecbunker')
         ? prefs.signing_method
         : 'local';
-    if (!prefs.signing_method_configured) {
+    if (!(await signingIsConfigured(prefs))) {
         el.textContent = 'Active method: not configured yet — pick one below.';
         return;
     }
@@ -1005,7 +1031,7 @@ async function backupRestoreFromFile(file) {
 
 // Merge-import — accrual, not replacement. A colleague's (or an older)
 // backup folds INTO the current corpus: missing items added by id,
-// extraction records merged at the assertion level, local data never
+// extraction records merged at the claim-proposal (atom) level, local data never
 // deleted or overwritten, config/identities in the file ignored.
 async function backupMergeFromFile(file) {
     const status = document.getElementById('backup-status');
@@ -1021,7 +1047,7 @@ async function backupMergeFromFile(file) {
             `ADDS the file's content to what you already have (${storageKeys} storage keys; ` +
             `databases: ${dbNames}; exported ${parsed.exportedAt || 'unknown'}).\n\n` +
             'Nothing local is deleted or overwritten: items are deduplicated by id, ' +
-            'per-article extraction records merge at the assertion level, and the ' +
+            'per-article extraction records merge at the claim-proposal level, and the ' +
             'file\'s settings/identities are ignored.\n\n' +
             'Imported quotes are re-located in YOUR copy of each article — offsets from ' +
             'another machine are never trusted — so analysis of an article you have not ' +
@@ -1311,14 +1337,15 @@ async function loadAdvanced() {
 
     // Case synthesis (Phase 20.4) — requires llmAssist + the key on top.
     document.getElementById('pref-case-synthesis').checked = isEnabled('caseSynthesis');
-    // Phase 28 — per-capture map prepay (a standing spend authorization).
-    document.getElementById('pref-auto-preanalyze').checked = isEnabled('autoPreAnalyze');
+    // (autoPreAnalyze retired in UA.3 — every Suggest click IS the one
+    // cache-first map call now, so there is nothing left to prepay.)
     document.getElementById('pref-capture-automation').checked = isEnabled('captureAutomation');
 
     // Local transcription (companion service) + the LM Studio post-pass.
     // Port / URL / model live under their own storage keys (the LLM-key
     // pattern); blank fields mean "use the default".
     document.getElementById('pref-local-transcription').checked = isEnabled('localTranscription');
+    document.getElementById('pref-direct-cloud-transcription').checked = isEnabled('directCloudTranscription');
     document.getElementById('pref-transcript-claim-drafts').checked = isEnabled('transcriptClaimDrafts');
     const rawPort = await new Promise((resolve) => {
         browserApi.storage.local.get([TRANSCRIBER_PORT_STORAGE],
@@ -1343,6 +1370,7 @@ async function loadAdvanced() {
     document.getElementById('pref-aai-key').value = '';
     document.getElementById('pref-dg-key').value = '';
     setupCompanionStatus();
+    setupDiagnostics();
     document.getElementById('pref-lmstudio-url').value = await llmRawGet(LMSTUDIO_URL_STORAGE);
     document.getElementById('pref-lmstudio-model').value = await llmRawGet(LMSTUDIO_MODEL_STORAGE);
 
@@ -1459,11 +1487,6 @@ async function saveAdvanced() {
     const synthOn = document.getElementById('pref-case-synthesis').checked;
     await setOverride('caseSynthesis', synthOn ? true : null);
 
-    // Auto pre-analyze on capture (Phase 28) — a standing per-capture
-    // spend authorization; the checkbox hint carries the disclosure.
-    const autoPreOn = document.getElementById('pref-auto-preanalyze').checked;
-    await setOverride('autoPreAnalyze', autoPreOn ? true : null);
-
     // Capture automation (Phase 27 K.4).
     const captureAutoOn = document.getElementById('pref-capture-automation').checked;
     await setOverride('captureAutomation', captureAutoOn ? true : null);
@@ -1473,6 +1496,10 @@ async function saveAdvanced() {
     // with a visible message rather than silently ignored later.
     const transcribeOn = document.getElementById('pref-local-transcription').checked;
     await setOverride('localTranscription', transcribeOn ? true : null);
+    // The companion-free route has its OWN flag: it is reachable with
+    // the companion checkbox off, which is the entire point of it.
+    const directOn = document.getElementById('pref-direct-cloud-transcription').checked;
+    await setOverride('directCloudTranscription', directOn ? true : null);
     const draftsOn = document.getElementById('pref-transcript-claim-drafts').checked;
     await setOverride('transcriptClaimDrafts', draftsOn ? true : null);
     const portField = (document.getElementById('pref-transcriber-port').value || '').trim();
@@ -1664,7 +1691,13 @@ function setupCompanionStatus() {
         renderCompanionStatus(deriveCompanionState({
             resp,
             enginePref: enginePrefEl ? enginePrefEl.value : '',
-            port: port || 8756
+            port: port || 8756,
+            // DC.2: with a companion-free route configured, an absent
+            // companion is a working state, not a fault to shout about.
+            // Read the CHECKBOX, not the stored flag — the panel polls
+            // live and must track an unsaved toggle the way the rest of
+            // this form does.
+            directEnabled: !!document.getElementById('pref-direct-cloud-transcription')?.checked
         }));
     };
 
@@ -1818,9 +1851,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         loadAdvanced()
     ]);
 
-    // Auto-activate Signing tab if not yet configured.
+    // Auto-activate Signing tab if not yet configured. Same derivation
+    // as the banner and the active line — otherwise every visit to
+    // Settings yanks a working user to Signing forever.
     const prefs = (await storageGet('preferences')) || {};
-    if (!prefs.signing_method_configured) activateTab('signing');
+    if (!(await signingIsConfigured(prefs))) activateTab('signing');
 
     // Quick-action header buttons (replace the old popup's role).
     document.getElementById('qa-toggle-capture').addEventListener('click', () => {
@@ -1912,3 +1947,43 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 // Re-export for tests / debugging.
 export { Storage, Crypto };
+
+
+// Diagnostics (shared/diagnostics.js): copy the local error ring with
+// the build identity, so a report is diagnosable without a console.
+function setupDiagnostics() {
+    const copy = document.getElementById('diagnostics-copy');
+    const clear = document.getElementById('diagnostics-clear');
+    const status = document.getElementById('diagnostics-status');
+    if (!copy || copy.dataset.wired) return;
+    copy.dataset.wired = '1';
+    const say = (msg) => { if (status) status.textContent = msg; };
+    copy.addEventListener('click', async () => {
+        try {
+            const entries = await readDiagnostics();
+            const manifest = browserApi.runtime.getManifest ? browserApi.runtime.getManifest() : {};
+            const info = getBuildInfo();
+            const text = formatDiagnostics(entries, { version: manifest.version, commit: info && info.commit });
+            await navigator.clipboard.writeText(text);
+            say(`Copied ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}.`);
+        } catch (err) { say('Copy failed: ' + ((err && err.message) || err)); }
+    });
+    // Self-test: the feature must be verifiable without contriving a
+    // real failure. Field-found 2026-08-23: the walk instruction "clear
+    // a key and let a transcribe refuse" was impossible — the DC.1
+    // picker deliberately routes a keyless engine to Settings instead
+    // of letting it fail. A diagnostics surface you can only verify by
+    // breaking something is itself unverifiable.
+    const testBtn = document.getElementById('diagnostics-test');
+    if (testBtn) testBtn.addEventListener('click', async () => {
+        try {
+            recordDiagnostic('options', 'diagnostics self-test — this entry confirms capture and copy work');
+            await flushDiagnostics();
+            say('Test entry recorded — press Copy diagnostics to see it.');
+        } catch (err) { say('Test failed: ' + ((err && err.message) || err)); }
+    });
+    if (clear) clear.addEventListener('click', async () => {
+        try { await clearDiagnostics(); say('Cleared.'); }
+        catch (err) { say('Clear failed: ' + ((err && err.message) || err)); }
+    });
+}

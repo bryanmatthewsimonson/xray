@@ -36,7 +36,7 @@ export const ENTITY_AUDIT_TOOL_NAME = 'propose_entity_ops';
 export const MAX_ENTITY_AUDIT_DIGEST_CHARS = 120000;
 export const MAX_MENTIONS_PER_ENTITY = 3;
 export const MAX_MENTION_CHARS = 200;
-export const MAX_ENTITY_AUDIT_OUTPUT_TOKENS = 8192;
+export const MAX_ENTITY_AUDIT_OUTPUT_TOKENS = 32768;
 
 const EXTERNAL_ID_SCHEMES = ['wikidata', 'url'];
 

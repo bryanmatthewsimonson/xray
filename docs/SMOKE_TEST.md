@@ -20,12 +20,39 @@ how `ROADMAP.md` came to advertise finished walks as pending for weeks.
 |---|---|---|
 | 2026-08-11 | **NIP-07 publish, real signer (nos2x, Chromium)** — Settings → Signing → NIP-07, provider detected, capture + publish from the reader | **PASS.** The T2 verification gate (`nip07-client.js` — pubkey/kind/tags/content/`created_at` equality + BIP-340 `verifySignature`) did NOT reject a real signer. Converts T2 from argued-safe to observed-safe; no test in the suite executes this path. |
 | 2026-08-11 | Options → Signing load + method switch, after the `web_accessible_resources` restore | **PASS** (same session). Settings renders, tabs work, method selectable and saveable. |
+| 2026-08-15 | **Transcribe Anywhere — LT.6 acceptance walk, AssemblyAI engine** — a PowerPress/Blubrry podcast episode page (`mormondiscussionpodcast.org`, the same site family as the named slice-1 target), captured and transcribed end to end | **PASS**, on the second attempt. The first attempt found the wave's headline case broken: no Transcribe button, and three stacked blockers behind it — the media-hint detector was blind to `<a href="….mp3">` PowerPress links, yt-dlp could not resolve the page URL at all (only the direct file URL), and the pre-download duration guard refused any file whose duration a probe could not establish, which is every direct `.mp3`. Fixed in `b9d4976`; the walk then passed with the AssemblyAI engine. **Local (WhisperX) was NOT exercised** — this machine has no `HF_TOKEN` and reports `device: cpu`. LT.1–LT.5 and LT.7–LT.14 remain unwalked. |
+
+| 2026-08-15 | **Direct cloud transcription — DC.1 acceptance walk (DC-2, DC-3, DC-4, DC-6)** | **PASS.** Three episodes transcribed end to end through the direct route on the maintainer's Mac, **from a fresh browser profile** (no companion-era extension storage: no engine preference, no port, no token, `localTranscription` off — so the direct-ONLY code paths were the ones exercised) — `architectureofabuse.com` (PodBean) and Mormon Discussions with the companion service RUNNING, then a rerun with the service **STOPPED**, which also passed. The stopped run is the one that matters: it is the only observation that can establish the direct path has no hidden companion dependency, and no unit test can reach it (the module imports no function from `transcriber-client.js`, but that is an argument, not evidence). The URL-consent dialog fired and named the address being sent — DC-5's disclosure clause and THREAT_MODEL G8's corrected bounding claim observed working rather than asserted. First attempt on the PodBean page FAILED ("Transcoding failed. File type text/html" — the mp3 was in schema.org JSON-LD the detector did not read; fixed in `22d9d94`, which also made the direct route refuse a page URL before spending an API call). **Not a hotlink failure** — `mcdn.podbean.com` serves a non-browser agent a 302 and no 403, so kill criterion 2 still has no evidence against it. **DC-3 PASS** — a job survived a service-worker teardown mid-run and RESUMED the same provider transcript id rather than submitting a second billable one. Observable by no automated layer, and the reason the background handler answers one request and returns instead of looping. **DC-6 PASS** — the published event carries `extraction-method: assemblyai-<model>`, byte-identical to what a companion-routed AssemblyAI run publishes, with no transport in it; the "Wire format: none" claim is now observed on a real signed event rather than argued from unit tests. **DC-4 mechanism PASS** — the provider's own failure text surfaced verbatim ("Transcoding failed. File type text/html") and nothing silently fell back to the companion, which is the behavior the row tests; the specific hotlink-protected case was not exercised, and DC-4 stays a STANDING measurement for kill criterion 2 rather than a one-time pass. **Not confirmed: DC-1** (flag-off ⇒ the engine absent from the picker) **and DC-5's picker sub-line wording** — both cheap, neither blocking. |
+| 2026-08-16 | **DC.2 — the companion-free state** (DC-7, DC-8, DC-9) + a direct-path regression check | **PASS, all four.** Observed by the maintainer on the reloaded build: (1) DC-9 — a YouTube capture shows "AssemblyAI (direct)" greyed with its reason, and clicking explains instead of starting a job; (2) the REGRESSION check — a podcast capture still offers the direct engine normally with its cost line, so the availability gate did not over-apply and break the working case (this was the worst possible outcome of the change and it did not happen); (3) DC-7 — the Options panel reads amber "Not installed" rather than red "Not running" with terminal commands; (4) DC-8 — no surface in a direct-only configuration instructs the user to install or start a companion. DC-7/DC-8 were walked on the FRESH PROFILE (direct-only), which is the configuration they describe. |
+| 2026-08-16 | **DC.2 + DC.3 acceptance walk** (DC-7..DC-11) + three regression checks | **PASS, all rows.** On the maintainer's machine across both profiles. DC-7/DC-8 on the FRESH direct-only profile: the Options panel reads amber "Not installed", and no surface instructs the user to install or start a companion. DC-9: a YouTube capture greys BOTH direct engines with their reason and explains on click. DC-10: a Deepgram (direct) run transcribed a real episode end to end. DC-11: tearing the worker down mid-request produced the persistent amber "may still have been charged" banner on the next run, with no auto-retry — the inverse of DC-3, observed. Regressions: the captured show notes survive adoption; the companion path is unchanged. **The walk found five defects that the whole test suite was green on**, each fixed and guarded: the consent dialog named AssemblyAI while running Deepgram; `priorSubmission` was returned and consumed by nothing; the charge notice used the single-slot `toast()` and was overwritten by the success toast milliseconds later; adoption read `a.markdown || ''` and so replaced every generic capture's body with its own transcript (pre-existing, older than all three slices); and yt-dlp's ANSI colour codes leaked into the error banner. A YouTube 403 seen mid-walk was yt-dlp being blocked upstream, NOT a regression — confirmed by the maintainer after a yt-dlp update. |
+| 2026-08-23 | **Book import — chapter reachability, naming, idempotence** (PR #341 soak walk) | **PASS, all three.** Observed by the maintainer on the branch build: (1) artifacts-list chapter titles open in the reader with content; (2) the book entity page's Captured-content lines open the same way; (3) re-importing the same EPUB left 31 chapters and one book entity — no growth — with titles now leading with the book name and junk spine pages named by their spine ids. First PR merged under the soak rule: used in a real session on the branch before merge. |
+| 2026-08-23 | **Diagnostics ring — self-test walk** (PR #343 soak) | **PASS.** Maintainer pressed Log test entry → Copy diagnostics on the branch build and pasted the result back: build header (`0.8.0 90dbfb7`) followed by the ISO-stamped `[options] diagnostics self-test` line — capture, flush, read and copy all observed working end to end. The walk itself was the fix's second iteration: the first suggested trigger (a keyless transcribe refusing) was unreachable because the DC.1 picker routes that case to Settings, which forced the self-test button into the design. |
+| 2026-08-23 | **Paid-Substack transcription via companion cookies** + the PR #345 soak walk | **PASS, both.** A members-only wethefifth.com post transcribed end to end via companion-routed Deepgram (~26s) once TRANSCRIBER_COOKIES_FILE/HOSTS were verifiably loaded. The failures on the way in were config-invisibility, not code: identical `url must be a string` errors with and without the env set, resolved only after the companion gained a startup `cookies:` line and a /health cookies field. #345's capture fix verified by the maintainer's own diagnostics paste — both transcribe failures landed in the ring with timestamps, where the previous copy had come back empty. |
+| 2026-08-23 | **Portal UX PR-4 — header imports inherit the active case** (PR #346 soak walk) | **PASS, both.** On the branch build with a case active: (1) a URL import's status line ended "· added to case" and the library refreshed itself; (2) a re-import of the 31-chapter EPUB reported "· added to case" and the chapters appeared in the case view — the maintainer's books-join-the-case ruling observed working on its first exercise. |
+| 2026-08-23 | **Portal UX PR-6 — the back stack** (PR #347 soak walk) | **PASS (3); 4 surfaced a defect, not a failure.** (3) Case → Across workspaces → ← Back returned to the CASE, where main dumps you in the library. (4) The two-hop person path could not be exercised: the case view showed no "People & organizations" section although the case has people entities — that section is built ONLY from `p` tags on PUBLISHED claim events (case-view.js ~417), so locally-tagged entities never appear until a claim naming them is published. Filed as a follow-up (local-first people section). |
+| 2026-08-23 | **Portal UX PR-2 — string truth** (PR #349 soak walk) | **PASS.** Header "X-Ray — Archive"; identity chips "your signer" / "seen in your published events" (raw tokens gone); "Unpublished local items (86)"; "key ownership proof" badge; inspector reads "View published copy (read-only)" with the field labelled EVENT ADDRESS. C1's vocabulary verified UNTOUCHED as designed ("Local ledger says 68 published", "remote-only"). Empty-state check skipped — archive resolves normally. Settings: opens on Capture Page (no longer force-jumps to Signing), no first-run banner, "Active method: Local — npub1wmqrxfjvz…" — the signing-banner defect this walk surfaced (Settings claimed "not configured yet" on an archive with 68 published events) is fixed and verified in the same PR. |
+| 2026-08-23 | **Portal UX PR-7 — tab layering** (PR #350 soak walk) | **PASS.** Library strip paints All / Articles / Claims / Cases / Entities and stays stable; Comments (391), Accounts (204) and Other (37) fold into "More ▾" with their counts intact; picking one from the menu renders it as a real tab beside the menu so the active filter stays visible. No count changed — the computation was deliberately untouched and is guard-pinned. |
+| 2026-08-23 | **Portal case view — People & organizations, local-first** (PR #351 soak walk) | **PASS.** People tagged locally now appear on the case dashboard with nothing published, each chip reading `Name · N sources · M published claims`, with a **dossier →** chip beside it; the fold carries its count in the title (`People & organizations (N)`) and remembers its open state. Fixes the 2026-08-23 field report on the PR #347 walk ("there is not people and organizations in the current case even though there are definitely people entities in it") — the section had been built ONLY from p-tags on published claim events. |
+| 2026-08-23 | **Agent walk — the capture marker, AW-2…AW-7 (agent)** · dist `0.8.0 · main · 8126952` | **PASS 2–5 and 7; 6 PASSED THE PRODUCT AND FAILED THE ROW.** Driven through claude-in-chrome by the agent; the human flipped Capture automation on and reloaded the card. AW-2 BBC article → `{stamp: ok, title: "The people who think AI might become conscious", len: 14776}`. AW-3 Substack (astralcodexten) → `ok`, post title, 8299. AW-4 YouTube → `ok`, title with the " - YouTube" suffix, 10055 (after a 9s settle). AW-5 re-capture of AW-2 by full navigation via example.com → `ok` again, 14758. AW-6 PDF → `stamp: ok, contentType: application/pdf` where the row had said `undefined`: the content script runs in Chrome's PDF viewer and hands off to the Phase 18 PDF route — the PRODUCT was right, the row (and the skill's failure table it was copied from) was stale; both corrected in this commit. AW-7 Web Store → unscriptable by the connector; the marker survived in the tab URL after 4s, the only observable — PASS as rewritten. Console filtered `X-Ray`: no messages (tracking starts at first read — see the row note). Four reader tabs + one PDF reader tab opened outside the group. **AW-1 (flag OFF) PASS**, run last after the human flipped the flag off: the same BBC URL → `{stamp: "flag-off", hash: "#xray:capture"}` with the real headline as the title — the page loaded fully, the marker was seen and REFUSED, and it stayed in the address bar (only a fired capture strips it). Inert by default, as the security half requires. The walk ends with Capture automation OFF. **Full AW section PASS (agent), 7/7 as corrected.** |
+| 2026-08-23 | **Portal UX PR-3 — import panels swap in one click** (PR #353 soak walk) | **PASS.** With Import transcript open, one click on Import book brought up the BOOK panel (the old behaviour only closed the transcript panel and needed a second click); Import book again closed it; the book panel now has a Close button. |
+| 2026-08-23 | **Portal UX PR-5 — visible ⓘ inspector opener + timeline caption** (PR #354 soak walk) | **PASS.** Every Library row shows a small ⓘ after its title and clicking it opens the inspector exactly as the title click does (screenshot: ⓘ on every ACCOUNT row). Under the timeline, unbrushed, the caption "Drag across the bars to filter by time"; after dragging a range the caption is gone and the ✕ 8/21–8/22 chip sits in the head. |
+| 2026-08-23 | **Portal UX PR-8 — header regroup + identity fold** (PR #355 soak walk) | **PASS, 4/4.** Header shows three controls (Add ▾ · ↻ Refresh · ⋯). Add ▾ → Import book opened its panel; Add ▾ → Import URLs with the book panel open swapped in ONE click; Import URLs again closed it; the menu resets to "Add ▾" after each pick. ⋯ → Across workspaces opened the graph and ← Back returned. The identity line reads "Showing events signed by 76c03326…0039 ▸" and opens to the chips, viewer box and Identity settings (▸ → ▾). With localTranscription ON, Add ▾ lists 🎙 Transcribe a URL… (the OFF case is unit-tested). |
+| 2026-08-25 | **Session-record quota eviction** (PR #359 soak walk) | **PASS.** On a session area that had been FULL an hour earlier (the field failure), a fresh capture registered with no quota toast and published normally — the first write evicted stale records silently, exactly the self-heal designed. |
+| 2026-08-25 | **Forensic Accept in place** (PR #360 soak walk) | **PASS.** Accepting one proposal turned its row into "✓ … recorded"; every other proposal stayed on screen; the subject picker did not move; no scroll jump. |
+| 2026-08-25 | **Claim proposals — Accept all + Link all covered** (PR #361 soak walk) | **PASS** (second round; the first walk failed and diagnosed the covered-fold dead end). On an all-covered article fold: the covered section opened itself, explained the duplicate refusal, and "Link all covered (N)" resolved the atoms to their existing claims with a running count — no minting, no reload. The first-round observation is the design input of record: after reader Accept-alls, every fold was covered and the block offered no controls at all ("every fold is similarly devoid of Accept"). |
+| 2026-08-25 | **Suggest shape-repair round + dossier bandText fix** (PR #358 soak walk) | **PASS, both halves.** Retry half by field evidence: the morning's six consecutive shape failures gave way to three completed Suggest runs — 72, 60 and 86 proposals on a long diarized transcript (screenshots on record). Dossier half confirmed post-merge on the main build: the LDS-church dossier (269 claims · 22 articles) assembled with its Captured content dates after a stale pre-fix bundle first reproduced the crash — the maintainer's walk path (People & organizations → chip → dossier →) is now the documented route, recorded here after the initial "I don't know how to find an entity dossier" report. |
+| | **DC.1 §5 acceptance criterion** | **MET except one clause, deliberately deferred.** Three transcripts by the direct route, **on a FRESH BROWSER PROFILE** — the never-configured state — and **one of them with the companion service verifiably stopped**. **(a) "A machine where the companion has never been installed" — SATISFIED.** The fresh profile is the faithful reproduction and is what the criterion can actually test: the extension has no filesystem check anywhere, it probes `127.0.0.1:<port>/health` and gets connection refused whether a companion is absent or merely stopped, so what distinguishes a newcomer is the EXTENSION's own storage — empty flags, no engine preference, no port or token. The host machine still carries the companion on disk, which the extension has no way to know and never asks; the direct path touches no part of it (`uv`, Python, GPU, `HF_TOKEN` are all unreachable from it). Worth more than the criterion: this is the direct-ONLY configuration (`localTranscription` off), which is where BOTH defects found on 2026-08-15 were reachable and where a walk on the maintainer's configured profile would have sailed past them. **(b) One transcript feeding a claim or an entity page — DEFERRED by the maintainer 2026-08-15**, to be satisfied during real corpus-building rather than manufactured for the walk. That is the better evidence: the clause exists to test whether these transcripts are USEFUL, and casework answers that where a staged run would not. Revisit at the §5 check date (2026-10-01, or the release tag after DC.1, whichever comes first). Transcript-count reading recorded rather than assumed: §5 says "three transcripts produced with no companion service running" and a strict count of runs-while-stopped is 1; taking all three as qualifying, because the stopped run establishes the independence that qualifier exists to test. Disagree with the arithmetic here rather than rediscover it. |
 
 **Not yet walked** (each blocks nothing on its own, but is unobserved):
 a NIP-46 bunker signer — the only realistic provider that might restamp
 `created_at`, the sole case the T2 equality check would reject; the K9
 entity-create surfaces; the K15 portal fold; the Settings "Capture
-Page" button (known broken, pre-existing).
+Page" button (known broken, pre-existing); and the whole **Transcribe
+Anywhere** §Local transcription (LT.1–LT.14) — code-complete but
+unwalked, including the Media-modal escape hatch and the portal panel,
+both surfaces with zero automated coverage; and, for **DC.1 direct
+cloud transcription**, only DC-1 (flag-off absence) and DC-5's picker
+sub-line wording — the section is otherwise walked.
 
 > **Capture model (no FAB).** There is no in-page floating button or
 > capture panel. Trigger capture by **clicking the toolbar icon**,
@@ -41,8 +68,8 @@ Page" button (known broken, pre-existing).
 git clone …
 cd xray
 npm install
-npm run build           # produces dist/*.bundle.js (7 bundles)
-npm test                # 1277/1277 should pass
+npm run build           # produces dist/*.bundle.js (ten entry points)
+npm test                # must exit 0 — a hardcoded count here rots silently
 ```
 
 ### Chrome / Chromium / Brave / Edge
@@ -530,7 +557,7 @@ deletes, or writes the local publish ledger.
 | 12.17 | Click a co-tagged entity node | ✅ graph refocuses on it |
 | 12.18 | Locate box + pan/zoom | ✅ typing pulses the first match; drag pans; wheel zooms |
 | 12.19 | More than 24 claims → "+K more" node | ✅ clicking expands the sector |
-| 12.20 | A case badge or case row → **☰ Dashboard** | ✅ artifact rollup by type, density strip, member chips (click → spokes), claims with stance + ⚠ contradicted badges |
+| 12.20 | A case badge or case row → **☰ Dashboard** | ✅ artifact rollup by type, density strip, **People & organizations (N)** — LOCAL-FIRST (2026-08-23): everyone on the case's member sources appears even with nothing published, each chip reading `Name · N sources · M published claims` (click → spokes; **dossier →** beside each; a keyless entity's name is a plain chip), claims with stance + ⚠ contradicted badges |
 
 **Inspector + reconciliation**
 
@@ -718,8 +745,8 @@ publishes. Requires a real Anthropic API key
 
 | # | Test | Pass criteria |
 |---|---|---|
-| 14.5.5 | On an op-ed / debate with named people, click **✨ Suggest…** (defaults) | ✅ button shows "✨ Thinking…", then a **Suggestions** modal opens with **only Entities + Claims** sections — judgment kinds can never appear here (they live at corpus level); a model badge shows the model id |
-| 14.5.5b | With entities already in the case registry, re-run Suggest on an article that re-mentions one under a variant name | ✅ the proposal arrives under the registry's EXACT existing name (the vocabulary injection) and accepting links the existing entity instead of minting a near-duplicate |
+| 14.5.5 | On an op-ed / debate with named people, click **✨ Suggest…** (defaults) | ✅ button shows "✨ Reading…" (the ONE article-pass map call — DevTools Network shows a single `api.anthropic.com` request, or none when the extract is already cached), then a **Suggestions** modal opens with **only Entities + Claims** sections — judgment kinds can never appear here (they live at corpus level); a model badge shows the model id; claim rows' ⭐ is display-only (`load_bearing`) and the claim editor has NO "Key claim" checkbox |
+| 14.5.5b | With entities already in the case registry, re-run Suggest on an article that re-mentions one under a variant name | ✅ the entity row shows the **resolution ladder**'s "≈ may already exist" chip with ranked "Use existing:" options — an exact/alias (identity) match arrives PRE-selected, a lone token-overlap match pre-selects as before, an initial+surname match is offered but NOT pre-selected — and accepting links the existing entity instead of minting a near-duplicate |
 | 14.5.6 | Inspect a **Claim** proposal | ✅ summary shows the claim text + the about-entities it links, the **quote it is drawn from**, and a **⚓ grounding chip** (verbatim / typography normalized / close match %); Accept / Edit / Reject buttons |
 | 14.5.6b | Inspect an **Entity** proposal | ✅ shows name · type, the **verbatim mention** with its ⚓ chip; if a same-type entity with a token-matching name already exists, a **"≈ may already exist"** select offers *Use existing* (defaulted when there is exactly one candidate) |
 | 14.5.6c | Accept an entity, then `chrome.storage.local` + the article: | ✅ *Use existing* links (no duplicate id minted, row notes "Linked to existing"); either way the article gains the entity ref with the **grounded mention as context** (the mention span highlights in the body) |
@@ -1313,6 +1340,36 @@ check the panel exists for; C.5 is the misconfiguration that a
 
 ---
 
+## Local transcription — Transcribe Anywhere (flag `localTranscription`)
+
+Needs the companion running: from `companion/transcriber/`,
+`uv run xray-transcriber`. **Not yet walked** — every row below is
+unobserved (see the "Not yet walked" note near the top of this
+file). Rows LT.7–LT.10 (`src/reader/media-modal.js`) and LT.11–LT.13
+(`src/portal/import-media.js`) cover surfaces with **zero automated
+test coverage** — this repo has no jsdom/DOM-stub harness, so these
+were reviewed by hand-trace during implementation, not by a test
+run; a human (or a Chrome-driven agent) must click through them.
+
+| # | Test | Pass criteria |
+|---|---|---|
+| LT.1 | Flag off ⇒ no surface | With `localTranscription` off: no "Capture & transcribe" right-click item on any https page, no 🎙 Transcribe button in the reader on a YouTube capture, no "Transcribe a URL" button in the portal, **and** — open 🎙 Media & source on any capture — no "🎙 Transcribe from source" footer button either (only Cancel and Save) — **hidden**, not merely disabled |
+| LT.2 | Companion absent ⇒ named fix | Flag on, service stopped. Click Transcribe: the banner says the service is not reachable and **names `uv run xray-transcriber`**. Nothing hangs |
+| LT.3 | YouTube — the unchanged path | Capture a short YouTube video, press 🎙 Transcribe. Result: diarized body with `**Speaker 1:**` labels, `&t=Ns` links, a `## Description — YouTube` heading, and a transcript chip in the header |
+| LT.4 | Engine picker | The ▾ shows three engines with time/cost estimates; a cloud engine with no saved key routes to Settings |
+| LT.5 | Speakers modal | On a diarized capture, 🎙 Speakers binds a voice to a person entity and the label decorates in the body |
+| LT.6 | Transcribe Anywhere — the wave's acceptance walk | Capture a **Mormon Stories episode page**, confirm the 🎙 Transcribe button appears (media hints found the embedded player), run it, and confirm: a diarized transcript adopts as the body, timestamps deep-link as `<url>#t=<s>`, **no** `## Description — YouTube` heading was invented, and the capture publishes without a `transcript_lang` tag |
+| LT.7 | Media modal escape hatch — happy path | On a capture with no media hints, open 🎙 Media & source: the footer's "🎙 Transcribe from source" button appears between Cancel and Save, styled like the plain secondary buttons (not the blue primary Save). Leave the transcript textarea empty on a capture whose `article.url` is `https://…`, click it: the modal closes, a save toast fires, and immediately after the Transcribe banner appears and a job starts — same as the main 🎙 Transcribe button |
+| LT.8 | Media modal escape hatch — exclusivity guard | Paste any text into the transcript textarea, then click "Transcribe from source": the error "Attach a pasted transcript OR transcribe from source — not both in one save." appears and the modal stays open (no save, no job) |
+| LT.9 | Media modal escape hatch — non-https capture | On a capture whose `article.url` is not `https://` (an `http://` page, or a synthetic `file:///imported/...` transcript-import URL), click "Transcribe from source": the error "This capture has no https:// URL to fetch media from…" appears and no job starts |
+| LT.10 | Media modal — stale-intent regressions | Open the modal, leave the transcript empty, type an **invalid** Feed URL, click "Transcribe from source" (delegates to Save's own validation: the Feed-URL error appears, modal stays open). Fix the Feed URL and click the **plain Save** button (not Transcribe from source again): metadata saves and **no companion job starts**. Repeat, but instead of fixing the Feed URL alone, also paste a transcript before the plain Save: **no job starts**, and the pasted transcript **is** attached (not later overwritten by an unrequested job) — the intent flag is single-use, consumed at Save entry, so a validation bail can't leave it armed for an unrelated later Save |
+| LT.11 | Portal panel — flag gating | `localTranscription` off: the portal header's "🎙 Transcribe a URL" button is absent — **hidden**, not disabled. Turn the flag on, reload the portal tab: the button appears next to "Import transcript…" |
+| LT.12 | Portal panel — run | Click the button: the panel mounts below the header (a second click collapses it via the header toggle). A non-https or malformed URL keeps Transcribe disabled; a well-formed `https://` URL enables it. With the companion **not** running, click Transcribe: a clear failure message appears in the status line — no silent hang, no uncaught console exception. With the companion running against a real podcast-episode (or off-platform video) URL: the status line updates through the companion's progress stages, then reads "Transcribed via <provider>/locally · N turns · M speaker(s) · opened in the reader.", and a new reader tab opens with the diarized transcript. In a case context, the record is added to the case. Inspect the result: `article.platform === 'media'` and the header reads `**Media**: [<title>](<url>)`, not `**Podcast**:` |
+| LT.13 | Portal panel — close mid-job | Start a job, then click **Close** before it finishes. The panel unmounts immediately. When the job later completes: the transcript is still **saved** (and added to the case, if one was active) — but **no surprise reader tab opens** and the closed panel shows no further status updates. Re-open the panel (or switch to a sibling importer) afterward: no orphaned second instance, no duplicate job |
+| LT.14 | Old-companion refusal | With a pre-wave companion running (its `/health` carries no `generic_urls`), attempt a non-YouTube URL: refused **client-side**, naming `git pull` + `uv sync`, and **no POST** is made to the companion |
+
+---
+
 ## Book import (EPUB — Model B)
 
 Import an `.epub` from the portal Library header (**Import book…**). Any
@@ -1468,9 +1525,9 @@ Network required (real fetches). Use 2–3 easy-tier URLs from
 | P28.g | Open an imported row in the reader | ✅ renders like a normal capture (title/byline/body); Load archive banner logic behaves; the record publishes with the standard 30023 path |
 | P28.h | Portal header ▸ **Import URLs…** (library mount, no case) | ✅ same flow without the case tagging; summary omits "added to case" |
 | P28.i | Import URLs panel with `llmAssist` OFF / on-but-keyless / on+key | ✅ the suggest checkbox is absent / disabled with an Options hint / enabled |
-| P28.j | Check the suggest box ▸ Import 2 URLs | ✅ a spend-confirm names the call count; rows gain "✨ N suggestions — review in the reader"; the summary reports "suggestions parked for N pages" |
-| P28.k | Open a parked page in the reader | ✅ a "✨ Review N suggestions" button appears beside Suggest (even with the key since removed — review needs no gate); clicking opens the SAME review modal as the live pass; Accept routes through the normal model firewalls with `llm:<model>` provenance |
-| P28.l | Close the review modal, reload the reader | ✅ the parked record is gone (the button no longer appears — close = session over, matching the live pass); re-running the import re-parks fresh suggestions |
+| P28.j | Check the analyze box ▸ Import 2 NEW URLs | ✅ a spend-confirm names the call count and says already-archived rows are skipped; rows gain "✨ analyzed — Suggest in the reader is instant"; the summary reports "N pages analyzed" |
+| P28.k | Open an analyzed page in the reader ▸ **✨ Suggest…** | ✅ the modal opens with NO new Anthropic call (DevTools Network quiet — the import's cached extract serves it); Accept routes through the normal model firewalls with `llm:<model>` provenance |
+| P28.l | (Legacy only) a profile with a pre-UA.3 PARKED batch still shows "✨ Review N suggestions" beside Suggest; closing the modal clears the parked record. Fresh imports never park — UA.3 replaced parking with the cached extract |
 | P28.m | Case dashboard with `caseSynthesis`+`llmAssist`+key on | ✅ a "Cross-article links — suggested relationships, not a ruling" block renders with its explainer ABOVE the corpus-synthesis block; flag off ⇒ absent; keyless ⇒ button disabled with hint |
 | P28.n | **Suggest links…** on a case with 2+ claims from different sources | ✅ spend-confirm states the claim count and "text only — no article bodies, one call"; result renders through the standard Proposals UI (Accept / Dismiss) with a provenance line (model · claim-links-v1 · N claims indexed) |
 | P28.o | Accept a proposed link, then Refresh | ✅ the relationship lands in the claims list / case graph exactly like a synthesis-accepted link (`llm:<model>` provenance); the next Analyze-corpus digest includes it |
@@ -1578,3 +1635,109 @@ When the smoke test passes end-to-end, post a comment on issue #1
 with the date + git SHA + browser / OS / version triple. That's
 the closest thing X-Ray currently has to a release-blocker
 checklist.
+
+## Agent walk — the capture marker (AW)
+
+**Who runs this: the agent**, via the claude-in-chrome connector, per
+`.claude/skills/xray-capture/SKILL.md` § Agent smoke walk. These are
+the rows a machine can observe without a human, because they satisfy
+the only two conditions under which that is true: the **Do** is an
+ordinary-page navigation and the **Expect** is readable on that same
+ordinary page (`document.documentElement.dataset.xrayCaptured`,
+`document.title`, `document.body.innerText.length`, the console). The
+reader, Options, the portal and every other extension page are
+unreachable to the connector (it cannot navigate `chrome-extension://`
+or attach there) — a row that needs one of them is NOT agent-verifiable
+no matter how mechanical it looks. Publishing is out of scope for any
+agent walk.
+
+Preconditions: the extension card reloaded on the build under test
+(state the `dist/` stamp — `version · branch · commit` — in the ledger
+row); **Options → Advanced → Capture automation** ON for AW-2 onward
+(the human flips it; the agent cannot reach Options), and back OFF
+when the walk ends. Every capture opens a reader tab the connector
+cannot close — tell the human how many to expect.
+
+| # | Step | Expect | Class |
+|---|---|---|---|
+| AW-1 | Capture automation **OFF** (the default): navigate a plain article URL with `#xray:capture` appended; after ~3s read the stamp | `xrayCaptured === "flag-off"` — the marker is inert by default and says so; no reader tab opens | agent-verifiable |
+| AW-2 | Flag **ON**: navigate a plain Readability-clean article (BBC / Vox / a blog post) with `#xray:capture`; wait ~5s; read `{stamp, title, len}` in ONE probe | `stamp === "ok"`, `title` is the real headline (not a hostname, not "Just a moment…"), `len` > 2000; console filtered `X-Ray` shows no error. A reader tab opened outside the group | agent-verifiable |
+| AW-3 | Flag ON: a **Substack** post URL with `#xray:capture` (wait ~5s) | `stamp === "ok"`; title is the post title — the platform handler path fires through the same marker | agent-verifiable |
+| AW-4 | Flag ON: a **YouTube** watch URL with `#xray:capture` (wait ~8s — the SPA settles late) | `stamp === "ok"`; title is the video title with the " - YouTube" suffix. (The transcript fetch happens in the reader and is NOT observable here — that is DC-9 / 2.x territory, human.) | agent-verifiable |
+| AW-5 | Flag ON: **re-capture** AW-2's URL by a FULL navigation (go to `https://example.com` first, then back to `<url>#xray:capture`) | `stamp === "ok"` a second time — re-capture is safe, the archive keys by URL and keeps the prior version. A same-document `<url>` → `<url>#xray:capture` hop is covered by the `hashchange` listener but the full navigation is the reliable path | agent-verifiable |
+| AW-6 | Flag ON: a direct **PDF** link (Chrome's PDF viewer), `#xray:capture` appended | `stamp === "ok"` — the content script DOES run inside Chrome's PDF viewer document and the marker hands off through the Phase 18 PDF route (`ui.js`: "a document served as application/pdf IS the PDF: hand off" → `xray:pdf:open`); a reader tab opens on the `?pdf=` path (the reader half is human — the agent sees only the stamp). **Corrected 2026-08-23 on the first run:** the row had expected `undefined`, copied from a stale line in the skill's failure table. | agent-verifiable |
+| AW-7 | Flag ON: a page where Chrome forbids ALL extension content scripts — the **Chrome Web Store** (`chromewebstore.google.com/detail/…#xray:capture`) | The stamp is UNREADABLE (the connector cannot script the gallery either — "The extensions gallery cannot be scripted"), so the observable is the tab URL: after the settle time it STILL carries `#xray:capture` — every capturable page strips the marker on firing. Uncapturable, reported as such, never worked around | agent-verifiable |
+
+Ledger rows for this walk are labelled **(agent)** — never to be
+mistaken for human eyes. An agent FAIL stops the walk at that row.
+
+---
+
+## Direct cloud transcription (DC.1)
+
+Transcription with **nothing installed**: the service worker submits the
+media URL straight to AssemblyAI, who fetch the audio themselves.
+`docs/DIRECT_CLOUD_TRANSCRIBE_KICKOFF.md`.
+
+Everything mechanical — request shape, missing-key refusal, URL
+admission, flag gating, normalizer output, error mapping, host pinning —
+is covered by `tests/direct-transcribe.test.mjs`,
+`tests/provider-host-pin.test.mjs`, `tests/engine-vocabulary.test.mjs`
+and `tests/provider-normalize.test.mjs`, and must NOT consume the
+human's twenty minutes. These six rows are what no automated layer can
+observe.
+
+**Setup:** Options → Advanced → enable **Direct cloud transcription**;
+save an AssemblyAI key under Settings → Advanced → Transcription.
+**Then STOP the companion service** — that is the whole point of the
+walk, and leaving it running invalidates DC-2 silently.
+
+**On §5's "a machine where the companion has never been installed":
+do NOT uninstall anything — use a fresh browser profile.** Uninstalling
+is neither necessary nor sufficient, and it costs you the A/B that DC-4
+wants.
+
+*Not necessary:* the extension cannot tell a stopped service from an
+absent one. It probes `127.0.0.1:<port>/health` and gets connection
+refused either way — there is no filesystem check anywhere. Stopping
+the service is therefore indistinguishable, from the extension's side,
+from never having installed it.
+
+*Not sufficient:* the direct path never touches `uv`, Python, the GPU,
+or `HF_TOKEN`, so removing them changes nothing it depends on. What
+actually differs on a newcomer's machine is the EXTENSION's own
+configuration, which no uninstall clears: `xray:flags`
+(`localTranscription` still on), `xray:transcriber:engine` (a stored
+companion engine), `xray:transcriber:port`, `xray:transcriber:token`.
+That distinction is not theoretical — both DC.1 defects found on
+2026-08-15 (a leftover engine preference dead-ending the button; the
+button gate requiring the companion flag) manifest ONLY in the
+direct-only configuration. A box with the companion uninstalled but
+`localTranscription` still ticked sails past both and proves nothing.
+
+So: new Chrome profile → `chrome://extensions` → Developer mode → Load
+unpacked → the repo root. Storage is per-profile, so everything starts
+empty. Leave "Enable Transcribe for media captures" OFF, tick "Enable
+AssemblyAI (direct)", paste an AssemblyAI key. That is the newcomer
+state for everything this feature touches, on whatever machine you
+already have.
+
+| # | Step | Expect | Class |
+|---|---|---|---|
+| DC-1 | With `directCloudTranscription` OFF (and `localTranscription` ON), open a podcast capture and press ▾ | "AssemblyAI (direct)" is **absent** from the picker — hidden, not greyed. With BOTH flags off the Transcribe button itself is absent. | **unit** — `tests/picker-visibility.test.mjs` (hidden-not-greyed, both-off ⇒ empty, and the render SEAM) + `tests/engine-vocabulary.test.mjs` ("Transcribe button reachable with companion flag OFF"). Retagged 2026-08-23: it had been `agent-verifiable`, but the picker is in the reader — an extension page no connector can attach to — so no agent could ever run it; the rule was lifted out of the render loop and is now machine-run on every `npm test`. Off every human list. |
+| DC-2 | **Companion STOPPED.** Capture a PowerPress/Blubrry episode page, press ▾ → AssemblyAI (direct), approve the URL dialog | The job runs and the transcript is adopted into the reader — diarized, speaker-labelled. No error mentions a companion, `uv run`, or "not reachable". | needs-human-eyes |
+| DC-3 | During DC-2, leave the reader tab idle past the MV3 idle window (or close and reopen the reader) before the job finishes | Polling RESUMES the same provider job rather than submitting a second one. **No automated layer can observe this** — the whole reason the SW handler returns after one request instead of looping. | needs-human-eyes |
+| DC-4 | Point a capture at a hotlink-protected file (a CDN that rejects non-browser agents) and run the direct engine | AssemblyAI's own failure text surfaces **verbatim** ("Download error, the hostname could not be resolved" or similar). Nothing silently falls back to the companion. **This row is the instrument for kill criterion 2** — if providers cannot fetch a majority of real episode URLs, the premise fails on contact. | needs-human-eyes |
+| DC-5 | Read the "AssemblyAI (direct)" sub-line in the picker before clicking | It does NOT say "the episode audio leaves this machine" (false here). It says the audio never touches this machine AND that AssemblyAI learns the address. Both halves. | needs-human-eyes |
+| DC-6 | Publish the adopted transcript; inspect the event | `extraction-method` is `assemblyai-<model>` — the SAME token a companion-routed AssemblyAI run publishes, with no `direct` in it. The banner and toast say "via AssemblyAI", never "locally". | **unit** for the wire half — `tests/direct-transcribe.test.mjs` ("a direct run publishes the SAME extraction-method … as a companion run", pinned to `assemblyai-universal-3-5-pro`); **needs-human-eyes** for the banner/toast wording. Retagged 2026-08-23: it had been `agent-verifiable`, which was wrong twice over — it requires a PUBLISH, which the agent walk forbids, and the reader is unreachable to the connector anyway. |
+| DC-7 | **Direct-only config** (`directCloudTranscription` ON, `localTranscription` OFF): open Options → Advanced → Transcription | The companion panel reads **"Not installed"** in amber, says the direct route works without it, and says what installing it would ADD (local/private; the signed-URL platforms). NOT a red "Not running" opening with terminal commands. | needs-human-eyes |
+| DC-8 | In that same config, walk every transcription surface: Options, the reader picker, a failed job | Nothing instructs you to install or start a companion. No `uv run xray-transcriber`, no "once the service is back", no "transcribing stays unavailable". | needs-human-eyes |
+| DC-9 | Open a **YouTube** capture and press ▾ | "AssemblyAI (direct)" is present but marked unavailable with its reason ("YouTube media URLs are signed and expire…"), and clicking it explains rather than starting a job — saying the captions are already captured and that transcribing would only add speaker labels. | needs-human-eyes |
+| DC-10 | **Deepgram happy path.** Open a podcast capture with a discoverable media file, press ▾ → **Deepgram (direct)**, approve the URL dialog | A transcript arrives in well under a minute (measured 12.9s for a 48-minute episode) and adopts into the reader, diarized. The picker row says the route cannot resume if interrupted. | needs-human-eyes |
+| DC-11 | **The inverse of DC-3 — Deepgram cannot resume.** Start a Deepgram (direct) run and tear the service worker down mid-request (close the reader immediately; it is a short window, so this may take a few attempts) | The next Transcribe press says a previous submission may have been charged and could not be retrieved, and does NOT silently re-submit. Contrast with DC-3, where AssemblyAI resumes the same job. **No automated layer can observe this.** | needs-human-eyes |
+
+**If DC-2 fails on the URL rather than the transport** (the provider
+cannot fetch it), that is DC-4's finding, not a DC-2 failure — record
+which, because they falsify different things: DC-2 tests whether the
+companion is really unnecessary, DC-4 whether real episode URLs are
+really fetchable by a third party.

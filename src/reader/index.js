@@ -83,17 +83,25 @@ import { lensTypeForPropositionClass } from '../shared/lens-taxonomy.js';
 import { assembleLensPanel, cacheLensRun, getCachedLensRun } from '../shared/lens-engine.js';
 import { speakerFromParagraphText } from '../shared/transcript-parse.js';
 import { buildTranscriptSection, upsertTranscriptSection } from '../shared/transcript-article.js';
-import { buildDiarizedBody, timeFragmentSelector, timeRangeOfSpan, diarizedTrackEntry, extractionMethodFor } from '../shared/diarized-transcript.js';
-import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey } from './transcribe-flow.js';
+import { buildDiarizedBody, timeFragmentSelector, timeRangeOfSpan, diarizedTrackEntry, extractionMethodFor, capturedBodyFor } from '../shared/diarized-transcript.js';
+import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, providerPhrase, reapStaleJobRecords, jobRecordKey, hasMediaSignal, isFetchableMediaUrl, transcribeSourceUrl, directSubmissionProblem, visiblePickerEngines } from './transcribe-flow.js';
+import { putSessionArticle } from '../shared/session-articles.js';
+import { mediaKeyForArticle } from '../shared/media-key.js';
 import { openMediaModal } from './media-modal.js';
 import { scanPodcastSignals } from '../shared/podcast-identity.js';
 import { openSpeakersModal, speakerEntityId, decorateSpeakerLabels } from './speakers-modal.js';
 import { runDraftPass } from '../shared/transcriber-client.js';
+import { localBlockedByHealth } from '../shared/companion-status.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { resolveActiveCaseRef, describeActiveContext, memberUrlSets } from '../shared/case-membership.js';
 import { gatherCorpusSources, corpusSourcesChars } from '../shared/audit/corpus-sources.js';
-import { autoPreAnalyzeCapture } from '../shared/auto-preanalyze.js';
+import {
+    ensureArticleExtract, articleSourceForExtract, claimProposalsFromExtract,
+    entityProposalsFromExtract, entityYield
+} from '../shared/article-pass.js';
+import { normalizeSuggestKinds, LLM_SUGGEST_KINDS_STORAGE } from '../shared/llm-prompts.js';
+import { MAX_MEMBER_INPUT_CHARS } from '../shared/corpus-prompts.js';
 import { Utils } from '../shared/utils.js';
 import {
     buildMentionNoteEvent, selectMentionQuote, mentionKey,
@@ -166,6 +174,13 @@ function escapeHtml(s) {
 }
 
 function toast(message, type = 'success', timeoutMs = 3200) {
+    // Error-toned toasts feed the diagnostics ring. Field-found
+    // 2026-08-23, by the ring's FIRST real use: a failed Substack
+    // transcription produced a visible error and an empty diagnostics
+    // copy — user-facing failures surfaced here and in the banner, and
+    // neither called Utils.error, so the exact evidence the ring exists
+    // for never reached it.
+    if (type === 'error') { try { Utils.error('reader:', message); } catch (_) { /* never the failure */ } }
     const el = $('#xr-toast');
     el.textContent = message;
     el.className = 'xr-reader__toast xr-reader__toast--' + type;
@@ -217,26 +232,27 @@ async function loadArticle() {
         // sourceTabId is null by construction — there is no source tab
         // (content scripts never run in PDF viewers) — which routes
         // signing through the worker's Signer façade instead of a tab.
-        await new Promise((resolve) => {
+        {
             const area = browserApi.storage.session || browserApi.storage.local;
-            area.set({
-                ['xray:article:' + state.id]:
-                    { article, sourceTabId: null, createdAt: Date.now(), readOnly: false }
-            }, () => {
-                // A quota-full session store fails SILENTLY here and
-                // surfaces minutes later as a baffling "Session record
-                // missing" at publish — say so now, while the user can
-                // still connect cause and effect.
-                const err = browserApi.runtime && browserApi.runtime.lastError;
-                if (err) {
-                    console.warn('[X-Ray Reader] session record write failed:', err.message);
-                    toast('Could not register this capture for publishing ('
-                        + err.message + ') — publish will fail until the browser is restarted.',
-                    'error', 8000);
-                }
-                resolve();
-            });
-        });
+            // Quota-evicting write (session-articles.js): the leak that
+            // filled this area is fixed at both write sites, so the
+            // failure toast below should now be rare — it means the
+            // area is full of RECENT records eviction refuses to touch.
+            const put = await putSessionArticle(area,
+                'xray:article:' + state.id,
+                { article, sourceTabId: null, createdAt: Date.now(), readOnly: false });
+            if (!put.ok) {
+                // Surfaced NOW, while the user can still connect cause
+                // and effect — a silent failure here resurfaces minutes
+                // later as a baffling "Session record missing" at
+                // publish.
+                Utils.error('Reader: session record write failed:', put.error);
+                toast('Could not register this capture for publishing ('
+                    + put.error + ') — close some X-Ray reader tabs and reload this one, '
+                    + 'or restart the browser.',
+                'error', 8000);
+            }
+        }
         return adoptArticle(article, null);
     }
 
@@ -437,11 +453,9 @@ async function adoptArticle(article, stored) {
             // this article carries it and no archive-side write can be
             // clobbered by a reader-side save. Same ref shape as the
             // case-membership writer; idempotent on re-opens.
-            let caseBinding = null;
             try {
                 const binding = await resolveActiveCaseRef();
                 if (binding) {
-                    caseBinding = binding;
                     if (!Array.isArray(state.article.entities)) state.article.entities = [];
                     if (!state.article.entities.some((e) => e && e.entity_id === binding.ref.entity_id)) {
                         state.article.entities.push(binding.ref);
@@ -461,12 +475,6 @@ async function adoptArticle(article, stored) {
                     ? { ...state.article, _articleHash: state.articleHash }
                     : state.article,
                 source: 'capture'
-            }).then(() => {
-                // Phase 28 — opt-in per-capture map prepay. Fires only
-                // AFTER the archive save (the member unit reads the
-                // archived record) and only into a bound case; every
-                // gate and outcome is handled inside.
-                maybeAutoPreAnalyze(caseBinding);
             }).catch((err) => console.warn('[X-Ray Reader] archive cache save failed:', err));
         })();
     } else if (stored && stored.readOnly && state.article && state.article._articleHash) {
@@ -492,28 +500,13 @@ async function adoptArticle(article, stored) {
         console.warn('[X-Ray Reader] archive check failed:', err)), 100);
 }
 
-// Phase 28 — opt-in per-capture map prepay (flag `autoPreAnalyze`,
-// default off). Fire-and-forget after the capture's archive save: run
-// the ONE synthesis map call for this member so the case's next
-// Analyze finds its extract cached. Quiet by design — skips and
-// failures are log-only and never disturb the capture flow; an actual
-// SPEND gets a small toast so per-capture cost stays visible.
-async function maybeAutoPreAnalyze(binding) {
-    if (!binding || state.readOnlyOpen || !state.article || !state.article.url) return;
-    try {
-        const out = await autoPreAnalyzeCapture({
-            caseEntityId: binding.caseId,
-            url: state.article.url,
-            sendMessage: (msg) => browserApi.runtime.sendMessage(msg)
-        });
-        if (out && out.status === 'ran') {
-            toast(`Pre-analyzed into “${binding.caseName || 'case'}”`, 'success', 2500);
-        }
-        Utils.log('[X-Ray Reader] auto pre-analyze:', out && out.status, (out && out.error) || '');
-    } catch (err) {
-        Utils.log('[X-Ray Reader] auto pre-analyze failed:', (err && err.message) || err);
-    }
-}
+// (The Phase-28 `autoPreAnalyze` prepay — maybeAutoPreAnalyze — was
+// RETIRED in UA.3: since the One Article Pass, EVERY Suggest click
+// runs the one cache-first map call, so the prepay had nothing left
+// to prepay. Its hard-won trigger-site rule survives as history: the
+// per-article spend fires from the Suggest CLICK, never from the
+// archive-save tail, which runs on every writable reader open —
+// JOURNAL 2026-08-11.)
 
 // Persist the current article (with its tagged entities) to the archive
 // row shortly after a tag lands, so tag-without-publish survives a
@@ -1992,6 +1985,10 @@ async function reconstructWithLlmFlow() {
 
 /** The transcription progress/status banner (hash-banner chrome). */
 function renderTranscribeBanner(text, tone = 'info', { docsHint = false } = {}) {
+    // Same rule as toast(): an error banner is evidence (see the
+    // 2026-08-23 note there). 'warning' stays unrecorded — the
+    // prior-submission notice is a disclosure, not a failure.
+    if (tone === 'error') { try { Utils.error('transcribe:', text); } catch (_) { /* never the failure */ } }
     let banner = $('#xr-transcribe-banner');
     if (!banner) {
         banner = document.createElement('aside');
@@ -2030,7 +2027,7 @@ function removeTranscribeBanner() {
  */
 async function adoptDiarizedTranscript(result) {
     const a = state.article;
-    if (!a || !a.youtube) throw new Error('Not a YouTube capture.');
+    if (!a || !a.url) throw new Error('This capture has no source URL to transcribe.');
 
     // The job ran for minutes on an editable page. Adopting over the
     // user's edits would silently discard them — their state wins.
@@ -2046,21 +2043,31 @@ async function adoptDiarizedTranscript(result) {
     }
 
     const { markdown, timeMap, transcriptMeta } = buildDiarizedBody({
-        capturedMarkdown: a.markdown || '',
-        watchUrl: a.url,
+        // NOT `a.markdown || ''`. A generic capture carries only HTML —
+        // markdown happens downstream — so that form composed the
+        // transcript onto an empty base and discarded the article
+        // (field-found 2026-08-16 on a podcast episode).
+        capturedMarkdown: capturedBodyFor(a, ContentExtractor.htmlToMarkdown),
+        mediaUrl: a.url,
+        platform: a.platform,
         result
     });
 
     // contentType flips BEFORE hashing: 'transcript' joins the
     // markdown-canonical set, so the hash covers the markdown substrate
     // (the ordering trap — hashing first would cover the old turndown
-    // side). platform stays 'youtube' (header + tag block unaffected).
+    // side). platform is untouched (header + tag block unaffected).
     a.contentType = 'transcript';
-    // The Phase 22 whitelisted user-declared media tag: choosing
-    // "Transcribe locally" on a video IS the declaration, and it keeps
-    // these captures findable by consumers filtering on video-ness now
-    // that content_format reads 'transcript'.
-    a.media = 'video';
+    // The Phase 22 whitelisted user-declared media tag. Choosing
+    // "Transcribe" on a platform that IS video is the declaration, and
+    // it keeps those captures findable by consumers filtering on
+    // video-ness now that content_format reads 'transcript'. OFF those
+    // platforms we declare NOTHING: media type is the user's to state
+    // (the 🎙 Media modal), and a podcast episode is not a video. The
+    // post-adoption refreshMediaNudge() surfaces that prompt.
+    if (!a.media && (a.platform === 'youtube' || a.platform === 'tiktok')) {
+        a.media = 'video';
+    }
     a.markdown = markdown;
     a.content = ContentExtractor.markdownToHtml(markdown);
     a.transcript_meta = transcriptMeta;
@@ -2076,10 +2083,21 @@ async function adoptDiarizedTranscript(result) {
     a.extraction = { ...(a.extraction || {}), method: extractionMethodFor(result.model_info) };
     // The transcript_lang manifest + header chip both gate on non-empty
     // events — the diarized track carries them (locally; never as tags).
-    a.youtube.transcripts = [
-        ...(Array.isArray(a.youtube.transcripts) ? a.youtube.transcripts : [])
+    // YOUTUBE keeps the youtube-nested slot, which is the ONLY slot
+    // event-builder reads: writing the neutral slot below for other
+    // platforms is deliberately wire-inert (tests/diarized-wire.test.mjs
+    // pins that a non-YouTube diarized capture emits no transcript_lang).
+    const trackSlot = a.platform === 'youtube' && a.youtube ? a.youtube : a;
+    trackSlot.transcripts = [
+        ...(Array.isArray(trackSlot.transcripts) ? trackSlot.transcripts : [])
             .filter((t) => t && t.role !== 'local-diarized'),
-        diarizedTrackEntry(result)
+        // Local-only provenance: which transport produced these
+        // segments. Read off the result rather than threaded through
+        // the call chain, so it stays correct however adoption is
+        // reached (job finish, resume, archive reload).
+        diarizedTrackEntry(result, {
+            source: (result.model_info && result.model_info.route) === 'direct' ? 'direct' : 'companion'
+        })
     ];
 
     state.markdownDraft = a.markdown;
@@ -2119,17 +2137,150 @@ async function adoptDiarizedTranscript(result) {
     try { refreshMediaNudge(); } catch (_) { /* cosmetic */ }
 }
 
+/**
+ * A previous submission on a synchronous route never came back — money
+ * may have been spent with nothing to show.
+ *
+ * Deliberately a BANNER, not a toast. Field-found 2026-08-16: the first
+ * version used toast(), and the reader has exactly ONE toast element
+ * whose every call overwrites the last — so the warning was posted and
+ * then obliterated by the success toast milliseconds later. The
+ * maintainer correctly reported seeing nothing. A possible-charge notice
+ * must also outlive a 12-second timeout, which a toast cannot.
+ *
+ * Rendered LAST on both the success and failure paths, after the
+ * in-flight banner has been removed, so nothing can clear it but the
+ * user.
+ */
+function warnPriorSubmission() {
+    renderTranscribeBanner(
+        'A previous submission for this media never came back. It may still have been charged, '
+        + 'and this provider does not store transcripts, so that one cannot be retrieved. '
+        + 'Nothing was retried automatically.',
+        'warning'
+    );
+}
+
 let _transcribeRunning = false;
 
 /** Start (or resume) the companion job and adopt the result. The whole
  *  loop is page-driven — each poll message resets the SW idle timer.
  *  `provider` is the engine for THIS run (picker choice); undefined
- *  defers to the stored engine preference in the SW. */
+ *  defers to the stored engine preference in the SW.
+ *
+ *  'ask' handling is HOISTED here (review fix) rather than left to each
+ *  caller: every caller below resolves its provider argument as
+ *  `_transcribeCfg.engine || undefined`, so an 'ask' preference arrives
+ *  here as the literal string 'ask' — never a real engine id (those are
+ *  always 'local'/'assemblyai'/'deepgram'). Catching it in one place
+ *  means no caller can forget to open the picker and accidentally let
+ *  the request fall through with no provider field, at which point
+ *  transcriber-client.js's startTranscription collapses 'ask' to null
+ *  and the companion's env default silently rules — no picker, no cost
+ *  estimate. The picker's own engine-item clicks pass a concrete engine
+ *  string, so they always bypass this branch. */
+/** Which transport carries this engine, and the message pair + poll
+ *  cadence it speaks. Companion defaults are returned unchanged for
+ *  every engine but the direct one, so the driver behaves exactly as
+ *  before on every pre-existing path. */
+function transcribeRouting(provider) {
+    if (provider === DEEPGRAM_DIRECT_ENGINE_ID) {
+        // No job id, no polling — the submit returns the transcript.
+        return {
+            route: 'deepgram-direct',
+            startType: 'xray:transcribe:direct:deepgram',
+            synchronous: true
+        };
+    }
+    if (provider !== DIRECT_ENGINE_ID) return {};
+    return {
+        route: 'direct',
+        startType: 'xray:transcribe:direct:start',
+        statusType: 'xray:transcribe:direct:status',
+        // A provider job has no queue position and no progress to
+        // report, so a 3s cadence just burns requests against a rate
+        // limit. Their own client polls on a similar interval.
+        pollMs: 5000
+    };
+}
+
+/**
+ * Consent for handing a third party a media address.
+ *
+ * The URL submitted is NOT always one the user typed or can see: off
+ * the known platforms, transcribeSourceUrl prefers a
+ * `mediaHints.fileUrl` discovered in the captured page's DOM, and the
+ * reader never displays it. So a hostile page can choose which address
+ * X-Ray hands AssemblyAI under the user's paid key.
+ *
+ * Confirm exactly when that divergence exists — i.e. when the submitted
+ * URL is not the page the user is looking at. When they match, the
+ * picker click already IS the informed gesture and a second dialog
+ * would be noise on every ordinary run.
+ *
+ * Returns true to proceed.
+ */
+function confirmDirectSubmission(sourceUrl, articleUrl, engine) {
+    if (sourceUrl === articleUrl) return true;
+    let host = sourceUrl;
+    try { host = new URL(sourceUrl).host; } catch (_) { /* show the raw string */ }
+    // Name the vendor THIS run will actually reach. Hardcoding one was a
+    // field-found consent defect (2026-08-16): the dialog asked to send
+    // an address to AssemblyAI while the run went to Deepgram, so the
+    // user approved a disclosure to a party that was not the recipient.
+    const vendor = (ENGINE_META[engine] && ENGINE_META[engine].vendor) || 'the transcription provider';
+    return window.confirm(
+        `Send this media address to ${vendor}?\n\n`
+        + `${sourceUrl}\n\n`
+        + `${vendor} will download the audio directly from ${host}. `
+        + `The audio never touches this machine — but ${vendor} learns the address `
+        + 'of what you are transcribing.\n\n'
+        + 'This address was found in the captured page, not typed by you.'
+    );
+}
+
 async function runTranscribeFlow(provider) {
     if (typeof provider !== 'string') provider = undefined; // onclick passes an event
+    if (provider === 'ask') { openEnginePicker(); return; }
+    // Direct-only setup (companion flag off): ANY companion engine is a
+    // dead end here — the SW refuses with 'Local transcription is off',
+    // which pushes a user who deliberately installed nothing toward the
+    // companion. Adversarial review found the first version of this
+    // guard tested `!provider` alone, so a leftover engine preference
+    // ('local'/'assemblyai'/'deepgram' — the Options select is never
+    // cleared when the flag goes off) sailed past it and bricked the
+    // main button. Test the RESOLVED engine instead.
+    if (!_transcribeCfg.enabled && _transcribeCfg.directEnabled
+            && !isDirectEngine(provider || _transcribeCfg.engine)) {
+        openEnginePicker();
+        return;
+    }
     const a = state.article;
-    const videoId = a && a.youtube && a.youtube.videoId;
-    if (!a || !videoId) { toast('Not a YouTube capture.', 'error'); return; }
+    if (!a || !isFetchableMediaUrl(a.url)) {
+        // Same gate hasMediaSignal enforces for the button — the
+        // companion's validate_media_url admits https:// only, so an
+        // http:// or file:// (the Phase-21 synthetic-import identity)
+        // source would fail there every time.
+        toast('This capture has no https media URL to transcribe (only https:// sources can be fetched).', 'error');
+        return;
+    }
+    // The URL actually handed to the companion — B2: article.url stays
+    // the article's identity (archive keying, publish `a` tag) unchanged;
+    // this only decides what the transcription job fetches. Known
+    // platforms (YouTube included — byte-identical behavior preserved)
+    // keep sending the page URL; anything else prefers a discovered
+    // mediaHints.fileUrl. The media key is derived from THIS url (not
+    // a.url) so a re-run of the same source resumes the same job record
+    // instead of orphaning it.
+    const sourceUrl = transcribeSourceUrl(a);
+    if (isDirectEngine(provider)) {
+        // Refuse a page URL locally rather than pay a provider to
+        // discover it was handed HTML (field failure 2026-08-15).
+        const problem = directSubmissionProblem(a, sourceUrl);
+        if (problem) { toast(problem.detail, 'error', 10000); return; }
+        if (!confirmDirectSubmission(sourceUrl, a.url, provider)) return;
+    }
+    const mediaKey = await mediaKeyForArticle(a, sourceUrl);
     if (_transcribeRunning) {
         // Never swallow a click silently (the Suggest-local precedent).
         toast('A transcription is already running for this capture — wait for it to finish.', 'error');
@@ -2160,7 +2311,7 @@ async function runTranscribeFlow(provider) {
                 const arch = hit.article;
                 const segs = arch.transcription.segments.length;
                 if (confirm(
-                    `This video already has a local transcription in your archive (${segs} segments`
+                    `This capture already has a local transcription in your archive (${segs} segments`
                     + `${arch.transcript_meta ? `, ${arch.transcript_meta.speaker_count} speaker(s)` : ''}`
                     + `${hit.prior ? ' — from a prior version; a later re-capture replaced it' : ''}).\n\n`
                     + 'OK — load the archived transcript (instant).\n'
@@ -2174,6 +2325,9 @@ async function runTranscribeFlow(provider) {
         } catch (_) { /* archive miss — proceed to transcribe */ }
     }
 
+    // Resolved once: the record key is transport-scoped, so the
+    // cleanup after adoption must remove the SAME key the job wrote.
+    const routing = transcribeRouting(provider);
     _transcribeRunning = true;
     const btn = $('#xr-transcribe');
     const caretBtn = $('#xr-transcribe-engine');
@@ -2189,24 +2343,34 @@ async function runTranscribeFlow(provider) {
     if (draftsBtn) draftsBtn.disabled = true;
     try {
         reapStaleJobRecords(transcribeChromeIo(browserApi, () => {})).catch(() => {});
-        renderTranscribeBanner('Contacting the transcription service…');
+        const vendor = (ENGINE_META[provider] && ENGINE_META[provider].vendor) || null;
+        renderTranscribeBanner(vendor
+            ? `Contacting ${vendor}…`
+            : 'Contacting the transcription service…');
         const io = transcribeChromeIo(browserApi, (job) => {
             // Honest wording: a cloud-provider job is not "locally".
             renderTranscribeBanner(`Transcribing ${providerPhrase(job && job.provider)} — ${describeProgress(job)}`);
         });
-        const out = await runTranscriptionJob({ videoUrl: a.url, videoId, provider, io });
+        const out = await runTranscriptionJob({ mediaUrl: sourceUrl, mediaKey, provider, io, ...routing });
         if (!out.ok) {
-            renderTranscribeBanner(out.error, 'error', { docsHint: !!(out.error || '').includes('not reachable') });
+            renderTranscribeBanner(out.error, 'error', {
+                // Companion setup advice on a companion-free route is
+                // noise at best. Gate it on the ROUTE, not on a
+                // substring that a future direct-path string might
+                // happen to contain.
+                docsHint: routing.route !== 'direct' && !!(out.error || '').includes('not reachable')
+            });
             // A cloud engine without its key: the picker is the fastest
             // path to either the key field or another engine.
             if (out.missingKey) openEnginePicker();
+            if (out.priorSubmission) warnPriorSubmission();
             return;
         }
         await adoptDiarizedTranscript(out.result);
         // Adoption succeeded — NOW the finished job's record can go
         // (kept until here so an adoption refusal keeps a handle to the
         // server-side result instead of re-running the whole job).
-        await io.storageRemove([jobRecordKey(videoId)]).catch(() => {});
+        await io.storageRemove([jobRecordKey(mediaKey, routing.route)]).catch(() => {});
         // Reload safety: fold the adopted article + a cleared transcribe
         // flag back into the session record. Without this, F5 (or a
         // Memory-Saver tab restore) re-reads the ORIGINAL transcript-less
@@ -2226,6 +2390,10 @@ async function runTranscribeFlow(provider) {
         removeTranscribeBanner();
         toast(`Transcribed ${providerPhrase(meta.provider)} — ${segs} segments, ${state.article.transcript_meta.speaker_count} speaker(s)`
             + (meta.asr_model ? ` (${meta.asr_model})` : ''), 'success', 6000);
+        // LAST, after the in-flight banner is gone: a possible-charge
+        // notice must outlive the success toast rather than be erased by
+        // it (the single toast slot is last-write-wins).
+        if (out.priorSubmission) warnPriorSubmission();
     } catch (err) {
         renderTranscribeBanner((err && err.message) || String(err), 'error');
     } finally {
@@ -2241,18 +2409,44 @@ async function runTranscribeFlow(provider) {
 // or changes the engine in Options with readers already open, and a
 // stale snapshot would loop the "add a key in Settings" path forever
 // (review finding, 2026-08-02). `engine: null` = no preference chosen:
-// jobs carry no provider and the companion default rules.
-let _transcribeCfg = { engine: null, keys: {} };
+// jobs carry no provider and the companion default rules. `enabled`
+// mirrors the localTranscription flag — the Media modal's "Transcribe
+// from source" button reads it to decide whether to render at all.
+let _transcribeCfg = { engine: null, keys: {}, enabled: false, directEnabled: false };
 
 async function refreshTranscribeCfg() {
     try {
         const cfg = await browserApi.runtime.sendMessage({ type: 'xray:transcribe:config' }) || {};
-        _transcribeCfg = { engine: cfg.engine || null, keys: cfg.keys || {} };
+        _transcribeCfg = {
+            engine: cfg.engine || null,
+            keys: cfg.keys || {},
+            enabled: !!cfg.enabled,
+            directEnabled: !!(cfg.direct && cfg.direct.enabled)
+        };
     } catch (_) { /* keep the previous snapshot */ }
     const btn = $('#xr-transcribe');
     if (btn && !btn.hidden) btn.title = transcribeTooltip();
     return _transcribeCfg;
 }
+
+// The picker id for the companion-free transport. Declared as a LITERAL
+// rather than imported from shared/direct-transcribe.js on purpose: that
+// module performs credentialed egress and reads the API key from
+// storage, and it is service-worker-only by design. Importing it here
+// would bundle a key-reading helper into a page context for the sake of
+// one string. tests/engine-vocabulary.test.mjs asserts this literal
+// still equals the module's DIRECT_ENGINE_ID export.
+const DIRECT_ENGINE_ID = 'assemblyai-direct';
+const DEEPGRAM_DIRECT_ENGINE_ID = 'deepgram-direct';
+
+// EVERY companion-free engine. Scattered `=== DIRECT_ENGINE_ID` checks
+// are what broke Deepgram on arrival (2026-08-16): the click guard and
+// the consent block each compared against ONE id, so selecting Deepgram
+// silently re-opened the picker, and — worse — skipped both the page-URL
+// refusal and the confirm dialog. Comparisons go through this set, and
+// tests/engine-vocabulary.test.mjs fails any that do not.
+const DIRECT_ENGINE_IDS = [DIRECT_ENGINE_ID, DEEPGRAM_DIRECT_ENGINE_ID];
+const isDirectEngine = (id) => DIRECT_ENGINE_IDS.includes(id);
 
 const ENGINE_META = {
     local: {
@@ -2271,37 +2465,117 @@ const ENGINE_META = {
         badge: 'cloud — ≈$0.26/hr',
         detail: 'Uploads the episode audio to Deepgram. Fast, no GPU use.',
         rate: 0.26
+    },
+    // The companion-free transport. The disclosure here is deliberately
+    // NOT the cloud engines' "the episode audio leaves this machine" —
+    // on this path the audio never touches this machine at all. What
+    // leaves is the media's ADDRESS, which is a different disclosure
+    // and, in one direction, a worse one: uploading bytes never told
+    // the provider where the audio came from.
+    [DIRECT_ENGINE_ID]: {
+        label: 'AssemblyAI (direct)',
+        badge: 'cloud — nothing to install',
+        detail: 'X-Ray sends AssemblyAI the media\u2019s web address and your API key; '
+            + 'AssemblyAI downloads the audio itself. No companion service, no Python, no GPU.',
+        rate: 0.28,
+        direct: true,
+        // The bare vendor name, for sentences. `label` carries the
+        // "(direct)" transport suffix, which reads wrong mid-prose and —
+        // field-found 2026-08-16 — was not the bug: the consent dialog
+        // hardcoded "AssemblyAI" and said it while running Deepgram.
+        vendor: 'AssemblyAI'
+    },
+    // The second companion-free provider (DC.3). Measured 2026-08-16 on
+    // a live 48-minute episode: 12.9s end to end. Its structural
+    // difference from AssemblyAI is stated in the sub-line, because it
+    // is the one thing a user could not otherwise know: this route
+    // cannot resume if it is interrupted.
+    [DEEPGRAM_DIRECT_ENGINE_ID]: {
+        label: 'Deepgram (direct)',
+        badge: 'cloud — nothing to install',
+        detail: 'X-Ray sends Deepgram the media\u2019s web address and your API key; '
+            + 'Deepgram downloads the audio itself and returns the transcript in one call. '
+            + 'Fast, but it cannot resume if interrupted.',
+        rate: 0.26,
+        direct: true,
+        synchronous: true,
+        vendor: 'Deepgram'
     }
 };
+
+// Engine id → the PROVIDER whose saved API key it needs. Distinct from
+// the id itself because two engines can share one provider account:
+// 'assemblyai-direct' spends the same key as 'assemblyai'. The picker's
+// availability mark reads keys by PROVIDER for that reason — testing
+// keys['assemblyai-direct'] against a provider-keyed map would render
+// "No API key saved" forever with the key sitting right there.
+const ENGINE_PROVIDER = {
+    local: null,
+    assemblyai: 'assemblyai',
+    deepgram: 'deepgram',
+    [DIRECT_ENGINE_ID]: 'assemblyai',
+    [DEEPGRAM_DIRECT_ENGINE_ID]: 'deepgram'
+};
+
+/** Every engine the picker offers, in display order. Availability and
+ *  flag gating are applied per item inside openEnginePicker. */
+const PICKER_ENGINES = ['local', 'assemblyai', 'deepgram', DIRECT_ENGINE_ID, DEEPGRAM_DIRECT_ENGINE_ID];
 
 /** Human tooltip for the main Transcribe button, from the preference. */
 function transcribeTooltip() {
     const rerun = !!(state.article && state.article.transcription);
     const head = rerun
         ? 'Re-run the diarized transcription (replaces the current transcript section)'
-        : 'Transcribe this video';
+        : 'Transcribe the media at this URL';
     const e = _transcribeCfg.engine;
     if (e === 'ask') return `${head} — you'll choose the engine (▾ also opens the choices)`;
+    // Direct-only install: there is no companion default to fall back
+    // on, and the direct engine is picker-only in DC.1. Covers a stored
+    // companion engine too — saying "locally" for a preference that
+    // cannot run would be the same dead end the click guard closes.
+    if (!_transcribeCfg.enabled && _transcribeCfg.directEnabled && !isDirectEngine(e)) {
+        return `${head} — choose AssemblyAI (direct) with ▾; no companion service needed`;
+    }
     if (!e) return `${head} — with the companion service's default engine (local unless its env says otherwise; pick per video with ▾, or set a default in Settings)`;
     const meta = ENGINE_META[e] || ENGINE_META.local;
+    if (meta.direct) return `${head} — via ${meta.label} (${meta.detail})`;
     return e === 'local'
         ? `${head} — locally (${meta.detail})`
         : `${head} — via ${meta.label} (cloud: the episode audio leaves this machine, ${meta.badge.replace('cloud — ', '')})`;
 }
 
-/** Per-engine time/cost line for the picker, from the video duration. */
+/** Per-engine time/cost line for the picker. Duration is only known
+ *  before the job on platforms that report it (YouTube, TikTok);
+ *  elsewhere we say so rather than invent a number — the companion
+ *  probes the real duration and enforces the 4-hour cap. */
 function engineEstimate(engine) {
-    const secs = Number(state.article && state.article.youtube
-        && state.article.youtube.durationSeconds) || 0;
+    const a = state.article || {};
+    const secs = Number((a.youtube && a.youtube.durationSeconds)
+        || (a.tiktok && a.tiktok.durationSeconds)) || 0;
     const meta = ENGINE_META[engine];
+    if (meta && meta.direct) {
+        // No duration probe on this path — nothing is downloaded, so
+        // nothing measures the length. Saying so is the only honest
+        // answer; a guessed figure on a consent surface is worse than
+        // "unknown". Never name the companion here: this route exists
+        // precisely for users who have not installed one.
+        const vendor = meta.vendor || 'the provider';
+        const speed = meta.synchronous ? 'Usually well under a minute' : 'Usually 2–5 minutes';
+        return secs
+            ? `~${meta.synchronous ? 'under a minute' : '2–5 min'} — about `
+              + `$${Math.max(0.01, (secs / 3600) * meta.rate).toFixed(2)} for this media. `
+              + `The audio never touches this machine; ${vendor} learns the address.`
+            : `${speed}, metered per audio-hour — length unknown until ${vendor} `
+              + `fetches it. The audio never touches this machine; ${vendor} learns the address.`;
+    }
     if (engine === 'local') {
-        if (!secs) return 'Runs on your GPU; speed depends on the card.';
+        if (!secs) return 'Runs on your GPU; speed depends on the card and the length of the media.';
         const mins = Math.max(1, Math.ceil(secs / 900 + secs / 3600 * 2));
         return `~${mins} min on your GPU (transcribe + diarize) — free.`;
     }
-    if (!secs) return 'Usually 2–5 minutes, metered per audio-hour.';
+    if (!secs) return 'Usually 2–5 minutes, metered per audio-hour (length unknown until the companion probes it).';
     const cost = Math.max(0.01, (secs / 3600) * meta.rate);
-    return `~2–5 min — about $${cost.toFixed(2)} for this video.`;
+    return `~2–5 min — about $${cost.toFixed(2)} for this media.`;
 }
 
 function closeEnginePicker() {
@@ -2321,7 +2595,10 @@ function _pickerEscape(ev) { if (ev.key === 'Escape') closeEnginePicker(); }
  * video — a 10-minute clip is fine on the GPU, a 2-hour episode wants
  * cloud speed. Shows real time/cost estimates from the capture's
  * duration and each engine's availability; a cloud engine without a
- * saved key routes to Settings instead of failing later.
+ * saved key routes to Settings instead of failing later, and — a
+ * best-effort companion health probe, 2026-08-14 — local is marked
+ * unavailable (with the real fix named) when HF_TOKEN is missing on
+ * the companion, instead of presenting a choice that fails on click.
  */
 async function openEnginePicker() {
     // Toggle: a second chevron click closes instead of flickering
@@ -2332,15 +2609,55 @@ async function openEnginePicker() {
     // saved a key in Options (review finding: the stale snapshot made
     // "add a key in Settings" a dead loop).
     await refreshTranscribeCfg();
+    // Best-effort: does the companion's OWN health say local jobs will
+    // fail (HF_TOKEN unset — pyannote diarization can't load)? Local was
+    // otherwise shown as unconditionally available, which is dishonest —
+    // a cloud engine with no saved key correctly routes to Settings, but
+    // picking local just fails. A short self-imposed race, not the
+    // probe's own ~3s timeout, keeps a dead/slow companion from ever
+    // delaying the menu: on failure or timeout, local stays available
+    // exactly as before (never wrongly block a working setup).
+    const companionEnabled = !!_transcribeCfg.enabled;
+    const directEnabled = !!_transcribeCfg.directEnabled;
+    let localBlocked = false;
+    // ...but ONLY when a companion engine is actually on the menu. In a
+    // direct-only configuration there is no companion to ask and no
+    // local item to mark, so the probe is a round trip to a socket
+    // nothing is listening on, on the one path whose whole premise is
+    // that nothing is installed.
+    if (companionEnabled) {
+        try {
+            const probe = await Promise.race([
+                browserApi.runtime.sendMessage({ type: 'xray:transcribe:ping' }),
+                new Promise((resolve) => setTimeout(() => resolve(null), 1500))
+            ]);
+            if (probe && probe.ok) localBlocked = localBlockedByHealth(probe.health);
+        } catch (_) { /* best-effort only — local stays available */ }
+    }
     const anchor = $('#xr-transcribe');
     if (!anchor) return;
     const menu = document.createElement('div');
     menu.id = 'xr-engine-menu';
     menu.className = 'xr-engine-menu';
 
-    for (const engine of ['local', 'assemblyai', 'deepgram']) {
+    // Visibility by flag is a pure, unit-tested rule (transcribe-flow.js
+    // visiblePickerEngines — SMOKE_TEST DC-1): direct engines absent when
+    // the direct flag is off, companion engines absent when theirs is.
+    for (const engine of visiblePickerEngines(PICKER_ENGINES, ENGINE_META, { companionEnabled, directEnabled })) {
         const meta = ENGINE_META[engine];
-        const keyed = engine === 'local' || !!(_transcribeCfg.keys && _transcribeCfg.keys[engine]);
+        const blockedLocal = engine === 'local' && localBlocked;
+        // Field report 2026-08-16: the direct engine was OFFERED on a
+        // YouTube capture and only refused after the click, on a page
+        // where it structurally cannot work. Availability marks are the
+        // picker's existing idiom for exactly this (missing key,
+        // HF_TOKEN) — a choice that cannot succeed should never look
+        // like a choice.
+        const blockedDirect = meta.direct
+            ? directSubmissionProblem(state.article, transcribeSourceUrl(state.article || {}))
+            : null;
+        const provider = ENGINE_PROVIDER[engine];
+        const keyed = !blockedLocal && !blockedDirect
+            && (!provider || !!(_transcribeCfg.keys && _transcribeCfg.keys[provider]));
         const item = document.createElement('button');
         item.type = 'button';
         item.className = 'xr-engine-menu__item';
@@ -2364,11 +2681,23 @@ async function openEnginePicker() {
         sub.className = 'xr-engine-menu__sub' + (keyed ? '' : ' xr-engine-menu__sub--warn');
         sub.textContent = keyed
             ? engineEstimate(engine)
-            : 'No API key saved — click to add one in Settings.';
+            : blockedDirect
+                ? blockedDirect.short
+                : blockedLocal
+                    ? 'Needs HF_TOKEN on the companion service — see companion/transcriber/README.md.'
+                    : 'No API key saved — click to add one in Settings.';
         item.appendChild(sub);
 
         item.addEventListener('click', () => {
             closeEnginePicker();
+            if (blockedDirect) {
+                toast(blockedDirect.detail, 'error', 10000);
+                return;
+            }
+            if (blockedLocal) {
+                toast('Local transcription needs HF_TOKEN set on the companion service — see companion/transcriber/README.md, then restart the service.', 'error', 6000);
+                return;
+            }
             if (!keyed) {
                 try { browserApi.runtime.openOptionsPage(); } catch (_) { /* page-open denied */ }
                 return;
@@ -2414,9 +2743,10 @@ async function setupTranscribeControl() {
     const btn = $('#xr-transcribe');
     const caret = $('#xr-transcribe-engine');
     if (!btn) return;
-    const isYouTube = !!(state.article && state.article.platform === 'youtube'
-        && state.article.youtube && state.article.youtube.videoId);
-    if (!isYouTube || state.readOnlyOpen) {
+    // An explicit "Capture & transcribe" gesture IS the signal — show
+    // the control even when the page's media hints came back empty.
+    const qualifies = hasMediaSignal(state.article) || state.transcribeRequested;
+    if (!qualifies || state.readOnlyOpen) {
         btn.hidden = true;
         if (caret) caret.hidden = true;
         return;
@@ -2424,12 +2754,22 @@ async function setupTranscribeControl() {
     let cfg = {};
     try { cfg = await browserApi.runtime.sendMessage({ type: 'xray:transcribe:config' }) || {}; }
     catch (_) { cfg = {}; }
-    if (!cfg.enabled) {   // flag off ⇒ absent
+    // EITHER transport is enough to offer the button. The direct
+    // route needs no companion at all — that is its entire point —
+    // so gating this on localTranscription alone would make the
+    // feature unreachable for exactly the users it exists for.
+    const directEnabled = !!(cfg.direct && cfg.direct.enabled);
+    if (!cfg.enabled && !directEnabled) {   // both flags off ⇒ absent
         btn.hidden = true;
         if (caret) caret.hidden = true;
         return;
     }
-    _transcribeCfg = { engine: cfg.engine || null, keys: cfg.keys || {} };
+    _transcribeCfg = {
+        engine: cfg.engine || null,
+        keys: cfg.keys || {},
+        enabled: !!cfg.enabled,
+        directEnabled
+    };
     btn.hidden = false;
     btn.disabled = false;
     btn.title = transcribeTooltip();
@@ -2438,21 +2778,23 @@ async function setupTranscribeControl() {
     // and must never stack duplicate handlers. Every click re-reads the
     // CURRENT preference (Options may have changed it since page load);
     // a null preference passes no engine — the SW then omits the
-    // provider and the companion default rules.
+    // provider and the companion default rules. 'ask' handling lives in
+    // runTranscribeFlow itself now (hoisted, review fix) — this call
+    // site no longer branches on it, which also rules out a double-open
+    // of the picker.
     btn.onclick = async () => {
         await refreshTranscribeCfg();
-        if (_transcribeCfg.engine === 'ask') { openEnginePicker(); return; }
         runTranscribeFlow(_transcribeCfg.engine || undefined);
     };
     if (caret) caret.onclick = openEnginePicker;
 
     // The "Capture & transcribe" path: the session record said to start
     // immediately. An 'ask' preference opens the picker instead of
-    // silently picking an engine the user never chose.
+    // silently picking an engine the user never chose — runTranscribeFlow
+    // resolves that itself now.
     if (state.transcribeRequested && !state.article.transcription) {
         state.transcribeRequested = false;
-        if (_transcribeCfg.engine === 'ask') openEnginePicker();
-        else runTranscribeFlow(_transcribeCfg.engine || undefined);
+        runTranscribeFlow(_transcribeCfg.engine || undefined);
     }
 }
 
@@ -2981,7 +3323,16 @@ function captureSelectionSeed() {
 async function foldSuggestionsIntoRecord(proposals, model) {
     const hash = claimArticleHash();
     if (!hash) return { status: 'skipped-unhashed' };
-    const extract = suggestExtractFromProposals(proposals);
+    // UA.1 — extract-derived claim rows already folded through the map
+    // record path (ensureArticleExtract → recordArticleExtraction, with
+    // a fingerprint key); re-folding them here would only re-walk the
+    // span dedup. Only rows the MODEL authored in this pass fold as
+    // producer 'suggest' — post-UA.1 that is none on the live path, and
+    // the parked import-time batches keep working unchanged.
+    const suggested = (Array.isArray(proposals) ? proposals : [])
+        .filter((p) => !(p && p.from_extract));
+    if (suggested.length === 0) return { status: 'skipped-from-extract' };
+    const extract = suggestExtractFromProposals(suggested);
     if (extract.key_assertions.length === 0) return { status: 'skipped-empty' };
     const canonicalText = EventBuilder.assembleArticleBody(hashableArticle(state.article)) || '';
     if (!canonicalText) return { status: 'skipped-no-text' };
@@ -3196,8 +3547,19 @@ function setupMediaControl() {
     if (state.readOnlyOpen) { btn.hidden = true; return; }
     btn.addEventListener('click', async () => {
         if (!state.article) return;
-        const result = await openMediaModal(state.article);
-        if (result) await applyMediaResult(result);
+        // Fresh flag read every open (Options may have flipped it since
+        // page load) — the modal renders its "Transcribe from source"
+        // button ONLY when true, so an off flag means the affordance
+        // never exists rather than existing-but-erroring on click.
+        await refreshTranscribeCfg();
+        const result = await openMediaModal(state.article, { canTranscribe: _transcribeCfg.enabled });
+        if (result) {
+            await applyMediaResult(result);
+            // Metadata first, THEN the job: adoption re-hashes, and a
+            // half-applied declaration would be lost by the reload the
+            // adoption performs.
+            if (result.transcribe) await runTranscribeFlow(_transcribeCfg.engine || undefined);
+        }
     });
     refreshMediaNudge();
 }
@@ -3235,8 +3597,17 @@ function refreshMediaNudge() {
         hint.addEventListener('click', async (ev) => {
             ev.stopPropagation();
             if (!state.article) return;
-            const result = await openMediaModal(state.article, { autoFind: true });
-            if (result) await applyMediaResult(result);
+            // Same fresh flag read as the plain Media button — the nudge
+            // opens the same modal and must gate the same button.
+            await refreshTranscribeCfg();
+            const result = await openMediaModal(state.article, { autoFind: true, canTranscribe: _transcribeCfg.enabled });
+            if (result) {
+                await applyMediaResult(result);
+                // Metadata first, THEN the job — same ordering as the
+                // plain Media button (applyMediaResult's re-hash must
+                // land before adoption's reload).
+                if (result.transcribe) await runTranscribeFlow(_transcribeCfg.engine || undefined);
+            }
         });
         btn.appendChild(hint);
     }
@@ -3694,61 +4065,173 @@ async function setupSuggestControl() {
         return;
     }
     btn.disabled = false;
-    btn.title = 'Suggest capture artifacts with an LLM (sends the article text to Anthropic)';
-    btn.addEventListener('click', runSuggestPass);
+    // Alt/Option-click FORCES a fresh reading. Discoverable from the
+    // title and from the toast that needs it: an extract that is
+    // schema-valid but poor (no entities named, thin atomization) is
+    // cached under a content-only key and re-served forever, so a plain
+    // re-click is a guaranteed no-op. This is the only escape.
+    btn.title = 'Suggest capture artifacts with an LLM (sends the article text to Anthropic).'
+        + '\nAlt-click to discard the cached reading and re-analyze at full price.';
+    btn.addEventListener('click', (ev) => runSuggestPass({ force: !!(ev && ev.altKey) }));
 }
 
-async function runSuggestPass() {
+async function runSuggestPass({ force = false } = {}) {
     const btn = $('#xr-suggest');
     if (!btn || btn.disabled || !state.article) return;
     const articleText = articleBodyText();
     if (!articleText.trim()) { toast('Nothing to analyze yet.', 'error'); return; }
 
-    const original = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = '✨ Thinking…';
-    let resp;
+    // Which artifact kinds to suggest is configured in Options (default:
+    // entities + claims); the SW re-reads it for its own gating, but the
+    // reader needs it here to route the UA.1 unified pass.
+    let kinds;
     try {
-        // 28.3 — the active workspace's case frames the extraction.
-        const binding = await resolveActiveCaseRef().catch(() => null);
-        resp = await browserApi.runtime.sendMessage({
-            type: 'xray:llm:suggest',
-            request: {
-                // Which artifact kinds to suggest is configured in Options
-                // (default: entities + claims); the SW reads it.
-                articleText,
-                articleUrl: state.article.url || '',
-                articleTitle: state.article.title || '',
-                caseName: binding ? binding.caseName : '',
-                scopeQuestion: binding ? binding.scopeQuestion : ''
-            }
-        });
-    } catch (err) {
-        resp = { ok: false, error: (err && err.message) || String(err) };
-    }
-    btn.textContent = original;
-    btn.disabled = false;
-
-    if (!resp || !resp.ok) {
-        toast('Suggest failed: ' + ((resp && resp.error) || 'unknown error'), 'error', 6000);
+        kinds = normalizeSuggestKinds(
+            (await browserApi.storage.local.get(LLM_SUGGEST_KINDS_STORAGE))[LLM_SUGGEST_KINDS_STORAGE]);
+    } catch (_) { kinds = normalizeSuggestKinds(undefined); }
+    if (kinds.length === 0) {
+        toast('No suggestion types are enabled. Turn some on in Options → Advanced → LLM assist.', 'error', 6000);
         return;
     }
-    if (!Array.isArray(resp.proposals) || resp.proposals.length === 0) {
+
+    const original = btn.textContent;
+    btn.disabled = true;
+    let proposals = [];
+    let extractModel = '';
+    let canonicalText = '';
+    try {
+        // 28.3 — the active workspace's case frames the fold provenance.
+        const binding = await resolveActiveCaseRef().catch(() => null);
+
+        // UA.2 — ONE call: the article extract (cache-first fetch-or-run
+        // of the corpus map, corpus-v9) carries claims AND entities with
+        // native about-links, so the whole Suggest surface is one
+        // reading — free on an already-analyzed article. The enabled
+        // kinds gate which proposals derive, never what is read.
+        btn.textContent = '✨ Reading…';
+        // The ARCHIVE ROW's article feeds the unit whenever one exists —
+        // the same object buildMemberUnits assembles from — so the cache
+        // key cannot fork from the Analyze path's on markdown-canonical
+        // captures (see articleSourceForExtract).
+        const src = await articleSourceForExtract({
+            url: state.article.url || '',
+            fallbackArticle: hashableArticle(state.article),
+            fallbackHash: claimArticleHash(),
+            fallbackTitle: state.article.title || ''
+        });
+        const out = await ensureArticleExtract({
+            article: src.article,
+            articleHash: src.articleHash,
+            url: state.article.url || '',
+            title: src.title,
+            frame: binding
+                ? { caseName: binding.caseName || '', scopeQuestion: binding.scopeQuestion || '' }
+                : {},
+            sendMessage: (msg) => browserApi.runtime.sendMessage(msg),
+            // A long-form capture (transcript, book) can hold this one
+            // call for minutes — keep the SW alive for its duration.
+            keepalive: startSwKeepalive,
+            force
+        });
+        if (out.status !== 'cached' && out.status !== 'ran') {
+            toast('Suggest failed: ' + (out.error || 'could not analyze the article'), 'error', 6000);
+            return;
+        }
+        extractModel = out.model || '';
+        // The substrate the extract READ — the review modal grounds
+        // against THIS text, so quotes and mentions (canonical
+        // markdown, links/emphasis included) anchor in the text they
+        // were copied from instead of failing against the rendered DOM.
+        canonicalText = out.text || '';
+        proposals = [
+            ...(kinds.includes('entities') ? entityProposalsFromExtract(out.extract) : []),
+            ...(kinds.includes('claims') ? claimProposalsFromExtract(out.extract) : [])
+        ];
+        // Honest coverage: the article pass reads the map's input bound
+        // — on a capture longer than it the pass covers the head only.
+        // Disclosed, never silent. The number comes FROM the constant:
+        // it moved once (60k → 400k for long-form transcripts) and a
+        // hardcoded copy here would have quietly started lying.
+        if (out.truncated) {
+            const kchars = Math.round(MAX_MEMBER_INPUT_CHARS / 1000);
+            toast(`Long capture: suggestions read the first ${kchars}k characters.`, 'info', 4000);
+        }
+        // A DIFFERENT loss from `truncated`: the whole article was read,
+        // but the model hit its output ceiling and the extract was
+        // salvaged to its last complete assertion. Never silent — the
+        // proposals below are a prefix, not the article's full set.
+        if (out.partial) {
+            toast('The analysis hit its output limit — these proposals stop partway '
+                + `through the article (${(out.extract.key_assertions || []).length} complete assertions kept).`,
+            'info', 8000);
+        }
+        // ENTITY YIELD — never silent again. "No entity suggestions" had
+        // four completely different causes wearing one silence, and the
+        // silence is what made the feature read as broken. Each gets its
+        // own sentence naming the actual fix.
+        if (!kinds.includes('entities')) {
+            toast('Entity suggestions are switched OFF for this pass — turn them on in '
+                + 'Options → Advanced → LLM assist → "Suggest these artifact types".', 'info', 9000);
+        } else {
+            const y = entityYield(out.extract);
+            if (y.wrongType) {
+                toast('The model returned a malformed entity list for this article, so no entities '
+                    + 'could be proposed. Run Suggest again — the extract will be re-read.', 'error', 9000);
+            } else if (y.rows === 0) {
+                // NOT "run Suggest again" — that was advice that could not
+                // work. An entity-less extract is schema-valid, so the
+                // content-keyed cache re-serves it forever; only a forced
+                // re-read escapes it. Say the thing that actually works.
+                toast('The model named no entities in this article. This reading is cached — if that '
+                    + 'looks wrong, Alt-click Suggest to discard it and re-analyze.', 'info', 10000);
+            } else if (y.proposed === 0) {
+                // Rows arrived and every one was refused by the converter.
+                // Naming WHICH rule refused them is the difference between
+                // a bug report and a shrug.
+                const why = y.noMention > y.noName
+                    ? `${y.noMention} had no verbatim mention to anchor to`
+                    : `${y.noName} had no name`;
+                toast(`The model named ${y.rows} entit${y.rows === 1 ? 'y' : 'ies'}, but none could be `
+                    + `proposed — ${why}. Alt-click Suggest to re-analyze.`, 'error', 10000);
+            } else if (y.noName + y.noMention > 0) {
+                toast(`${y.proposed} entit${y.proposed === 1 ? 'y' : 'ies'} proposed; `
+                    + `${y.noName + y.noMention} dropped for a missing name or verbatim mention.`,
+                'info', 7000);
+            }
+        }
+    } catch (err) {
+        // Belt over the per-call braces: NOTHING in this flow may
+        // escape as an unhandled rejection with the button silently
+        // restored (the Suggest-local precedent: never swallow a click).
+        toast('Suggest failed: ' + ((err && err.message) || String(err)), 'error', 6000);
+        return;
+    } finally {
+        btn.textContent = original;
+        btn.disabled = false;
+    }
+
+    if (proposals.length === 0) {
         toast('The model returned no suggestions for this article.', 'success', 4000);
         return;
     }
-    await reviewSuggestions(resp.proposals, resp.model);
+    await reviewSuggestions(proposals, extractModel || 'unknown',
+        canonicalText ? { groundingText: canonicalText } : {});
 }
 
 /**
  * Open the 14.5.3 review modal over a set of suggest-pass proposals —
  * shared by the live Suggest button and the 28.2 pending (import-time)
  * path, so both review flows are ONE code path: same grounding
- * substrate (the rendered body text), same accept firewalls, same
- * provenance stamping.
+ * substrate, same accept firewalls, same provenance stamping.
+ *
+ * `opts.groundingText` (UA.1) — the unified pass grounds against the
+ * CANONICAL assembled text its extract and slim call actually read, so
+ * quotes containing markdown syntax (links, emphasis) anchor instead
+ * of failing against the rendered DOM. Absent (the pending-import and
+ * legacy paths), the rendered body text stays the substrate, as ever.
  */
-async function reviewSuggestions(proposals, model) {
-    const articleText = articleBodyText();
+async function reviewSuggestions(proposals, model, opts = {}) {
+    const articleText = (opts && opts.groundingText) || articleBodyText();
     // MA.4 — the suggest pass's claim proposals become DURABLE atoms in
     // this article's extraction record BEFORE the modal opens, so
     // closing the review no longer discards paid analysis: whatever is

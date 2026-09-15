@@ -4,6 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { sseResponse } from './helpers/sse.mjs';
 
 await import('fake-indexeddb/auto');
 // Stateful storage stub: the consent-gate tests (aiVision flag + API
@@ -213,15 +214,12 @@ function stubFetch(response) {
 }
 
 function toolResponse(input, extra = {}) {
-    return {
-        ok: true,
-        json: async () => ({
-            model: MODEL, stop_reason: 'tool_use',
-            content: [{ type: 'tool_use', name: VISION_TOOL_NAME, input }],
-            usage: { input_tokens: 10, output_tokens: 20 },
-            ...extra
-        })
-    };
+    return sseResponse({
+        model: MODEL, stop_reason: 'tool_use',
+        content: [{ type: 'tool_use', name: VISION_TOOL_NAME, input }],
+        usage: { input_tokens: 10, output_tokens: 20 },
+        ...extra
+    });
 }
 
 test('runVisionPass: request carries the image block and the forced tool', async () => {
@@ -261,7 +259,7 @@ test('runVisionPass: request carries the image block and the forced tool', async
 test('runVisionPass: model refusal is its own state', async () => {
     enableVision();
     const original = globalThis.fetch;
-    stubFetch({ ok: true, json: async () => ({ model: MODEL, stop_reason: 'refusal', content: [] }) });
+    stubFetch(sseResponse({ model: MODEL, stop_reason: 'refusal', content: [] }));
     let res;
     try { res = await runVisionPass({ imageBase64: 'AAAA', mediaType: 'image/png' }); }
     finally { globalThis.fetch = original; }
@@ -274,7 +272,7 @@ test('runVisionPass: max_tokens and malformed output are distinct errors', async
     enableVision();
     const original = globalThis.fetch;
     try {
-        stubFetch({ ok: true, json: async () => ({ model: MODEL, stop_reason: 'max_tokens', content: [] }) });
+        stubFetch(sseResponse({ model: MODEL, stop_reason: 'max_tokens', content: [] }));
         let res = await runVisionPass({ imageBase64: 'AAAA', mediaType: 'image/png' });
         assert.equal(res.ok, false);
         assert.match(res.error, /output limit/);
@@ -591,6 +589,31 @@ test('upsertVisionNoteHtml: attribute-less round-tripped note is replaced, not s
     assert.ok(out.includes('New caption.'));
     assert.ok(out.includes('<p>Body.</p>'));
     assert.equal((out.match(/Image description \(AI/g) || []).length, 1);
+});
+
+test('blockedImageUrl: a trailing root label does not bypass the host checks', () => {
+    // Found 2026-08-15 while building direct cloud transcription. The
+    // WHATWG parser normalizes the numeric host forms for us —
+    // https://2130706433/, https://0x7f000001/ and https://127.1/ all
+    // arrive as "127.0.0.1", and an IPv4 literal with a trailing dot is
+    // normalized too — but it does NOT strip a trailing root label from
+    // a NAMED host, so "localhost." reached the `host === 'localhost'`
+    // comparison as a miss and was admitted. Resolvers treat the two as
+    // the same host.
+    assert.equal(new URL('https://localhost./x').hostname, 'localhost.',
+        'if the parser ever starts stripping this, the normalization below is redundant, not wrong');
+    assert.ok(blockedImageUrl('http://localhost./x.png'), 'localhost. must be refused');
+    assert.ok(blockedImageUrl('http://box.local./x.png'), 'a trailing-dot mDNS name must be refused');
+    assert.ok(blockedImageUrl('http://sub.localhost./x.png'));
+    assert.ok(blockedImageUrl('http://localhost../x.png'), 'repeated root labels too');
+    // The numeric forms, asserted so the parser's help is observed
+    // rather than assumed.
+    assert.ok(blockedImageUrl('http://2130706433/x.png'), '127.0.0.1 as a decimal integer');
+    assert.ok(blockedImageUrl('http://0x7f000001/x.png'), 'as hex');
+    assert.ok(blockedImageUrl('http://127.1/x.png'), 'the short form');
+    assert.ok(blockedImageUrl('http://127.0.0.1./x.png'), 'v4 literal with a trailing dot');
+    // A legitimate fully-qualified CDN name still passes.
+    assert.equal(blockedImageUrl('https://cdn.example.com./img.jpg'), null);
 });
 
 test('blockedImageUrl: refuses local/private/link-local, allows public hosts', () => {

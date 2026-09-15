@@ -127,9 +127,25 @@ export function renderForensicCorpusBlock(host, { data, callbacks = {} }) {
 }
 
 function renderReview(host, { subject, accepted, rejected, model, callbacks }) {
+    void callbacks;   // deliberately unused — see the accept handler note
     host.replaceChildren();
     const wrap = el('div', 'xr-caudit');
     host.appendChild(wrap);
+    // Field-found 2026-08-25: accepting ONE proposal reloaded the whole
+    // case view — which threw away the remaining paid proposals and
+    // reset the subject picker mid-review. Accepts mark IN PLACE (the
+    // synthesis-review pattern); the human folds them into the dossier
+    // with Refresh when THEY are done.
+    let acceptedCount = 0;
+    const doneNote = el('div', 'xr-synth__status');
+    doneNote.hidden = true;
+    host.appendChild(doneNote);
+    const noteAccepted = () => {
+        acceptedCount += 1;
+        doneNote.hidden = false;
+        doneNote.textContent = `${acceptedCount} finding${acceptedCount === 1 ? '' : 's'} recorded — `
+            + 'Refresh (top right) to fold them into the dossier.';
+    };
     for (const f of accepted) {
         const row = el('div', 'xr-row');
         // Rule 6 made structural: the innocent reading leads.
@@ -158,8 +174,9 @@ function renderReview(host, { subject, accepted, rejected, model, callbacks }) {
                     })),
                     suggested_by: `llm:${model || 'model'}`
                 });
-                row.remove();
-                if (typeof callbacks.onReloadCase === 'function') callbacks.onReloadCase();
+                row.replaceChildren(el('div', 'xr-row__title',
+                    `✓ ${f.maneuver} · ${f.role} — recorded`));
+                noteAccepted();
             } catch (err) {
                 Utils.error('Finding accept failed', err);
                 ok.disabled = false;

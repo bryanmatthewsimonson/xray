@@ -108,6 +108,64 @@ function emptyRecord(articleHash) {
 }
 
 // ------------------------------------------------------------------
+// Import-boundary normalization
+// ------------------------------------------------------------------
+
+const objRows = (v) => (Array.isArray(v)
+    ? v.filter((x) => x && typeof x === 'object' && !Array.isArray(x)) : []);
+const strRows = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
+// A count/timestamp that is not a finite number is NO count, not NaN.
+// `x || 0` rescues only falsy values, so `Math.max(local||0, {}||0)`
+// yields NaN — which structured-clone happily WRITES to IndexedDB, and
+// NaN !== NaN then makes the `changed` comparison below true on every
+// re-import, forever.
+const finiteNum = (v) => ((typeof v === 'number' && Number.isFinite(v)) ? v : 0);
+
+/**
+ * Coerce an `article-extractions` row to its canonical shape.
+ *
+ * WHY THIS EXISTS, and why it is not merely defensive. A record can
+ * arrive from a peer's backup file — arbitrary JSON authored on another
+ * machine — and `mergeExtractionRecords` runs INSIDE an IndexedDB
+ * transaction handler. A throw there does not lose one row: it aborts
+ * the transaction and fails the WHOLE restore with a bare AbortError.
+ * So the merge has to be a total function, and the cheapest way to make
+ * it total is to guarantee its inputs.
+ *
+ * The list fields are the danger. `for (const x of row.assertions || [])`
+ * on a truthy non-array throws "is not iterable"; a plain STRING is
+ * worse than a throw, because it iterates CHARACTERS and each non-empty
+ * one survives the row guards. And a null row inside an otherwise-good
+ * list throws at `x.key` / `q.caseName` in the union and position
+ * passes, which read local rows without guarding them.
+ *
+ * Rows that carry no usable data are DROPPED rather than repaired: every
+ * consumer already requires a `key`, a `quote`, or a frame, so a
+ * non-object row could never have contributed anything. Nothing that
+ * could carry meaning is invented.
+ *
+ * Returns null when the row is not a record at all — the caller drops it
+ * rather than writing garbage.
+ */
+export function normalizeExtractionRecord(row) {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
+    return {
+        ...row,
+        articleHash: typeof row.articleHash === 'string' ? row.articleHash : '',
+        url: typeof row.url === 'string' ? row.url : null,
+        title: typeof row.title === 'string' ? row.title : null,
+        assertions: objRows(row.assertions),
+        sources: objRows(row.sources),
+        open_questions: objRows(row.open_questions),
+        positions: objRows(row.positions),
+        imported_unlocated: objRows(row.imported_unlocated),
+        merged_keys: strRows(row.merged_keys),
+        dropped_ungrounded: finiteNum(row.dropped_ungrounded),
+        updatedAt: finiteNum(row.updatedAt)
+    };
+}
+
+// ------------------------------------------------------------------
 // The merge — pure, idempotent, triage-preserving
 // ------------------------------------------------------------------
 
@@ -406,7 +464,15 @@ export function mergeExtractionRecords(local, incoming, { localText = null, now 
     // half of the bug: it took foreign spans, a foreign `merged_keys`
     // ledger, and any `published_at` stamp verbatim — so an import could
     // make this machine claim it had published an event it never signed.
+    // Normalize BOTH sides before a single field is read. `incoming` is
+    // foreign by definition; `local` is normalized too because a row
+    // written by an EARLIER restore (before this guard existed) is
+    // already sitting in IndexedDB, and the union/position passes read
+    // local rows without guarding them.
+    incoming = normalizeExtractionRecord(incoming);
+    if (!incoming) return { record: local, changed: false, skipped: 'malformed-incoming' };
     const hadLocal = !!local;
+    local = local ? normalizeExtractionRecord(local) : null;
     if (!local) local = emptyRecord(incoming.articleHash);
 
     const index = createGroundingIndex(localText);
@@ -513,8 +579,8 @@ export function mergeExtractionRecords(local, incoming, { localText = null, now 
         // one would make a local fold of a locally PAID extract a
         // permanent no-op. Local keys ride through untouched.
         merged_keys: (local.merged_keys || []).slice(-MERGED_KEYS_MAX),
-        dropped_ungrounded: Math.max(local.dropped_ungrounded || 0, incoming.dropped_ungrounded || 0),
-        updatedAt: Math.max(local.updatedAt || 0, incoming.updatedAt || 0)
+        dropped_ungrounded: Math.max(finiteNum(local.dropped_ungrounded), finiteNum(incoming.dropped_ungrounded)),
+        updatedAt: Math.max(finiteNum(local.updatedAt), finiteNum(incoming.updatedAt))
     };
     // Quotes an import could not locate in this machine's text: kept as
     // a bounded, disclosed list rather than a bare counter, because the

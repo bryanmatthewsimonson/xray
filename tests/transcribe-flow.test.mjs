@@ -1,5 +1,5 @@
 // Local transcription — the reader-side job orchestration. Pure logic
-// with injectable IO (the autoPreAnalyzeCapture seam): the resume
+// with injectable IO (the autoPreAnalyzeArticle seam): the resume
 // decision table, the poll state machine, unreachable tolerance (the
 // record survives so a later click resumes the same job), and the
 // stale-record reaper. No chrome stub needed — everything arrives via io.
@@ -10,8 +10,56 @@ import assert from 'node:assert/strict';
 import {
     JOB_RECORD_PREFIX, JOB_RECORD_TTL_MS, MAX_UNREACHABLE_POLLS,
     jobRecordKey, isRecordStale, describeProgress, providerPhrase, decideResume,
-    reapStaleJobRecords, runTranscriptionJob
+    reapStaleJobRecords, runTranscriptionJob, transcribeSourceUrl, directSubmissionProblem, cleanProviderError
 } from '../src/reader/transcribe-flow.js';
+
+// transcribeSourceUrl — smoke-failure diagnosis B2. A KNOWN platform
+// (one with a src/shared/platforms/index.js handler) keeps sending its
+// page URL always, because that's what yt-dlp resolves best and the
+// signed-URL hazard (IG/FB) is real there. Anything else prefers a
+// discovered mediaHints.fileUrl when it's https, falling back to the
+// page URL otherwise. article.url itself is never touched by this
+// function — only what gets POSTed to the job.
+test('transcribeSourceUrl: a known platform (YouTube) always sends the page URL, fileUrl or not', () => {
+    assert.equal(transcribeSourceUrl({
+        url: 'https://www.youtube.com/watch?v=abc123DEF45',
+        platform: 'youtube',
+        mediaHints: { audio: false, video: true, embeds: [], fileUrl: 'https://cdn.example.com/decoy.mp4' }
+    }), 'https://www.youtube.com/watch?v=abc123DEF45');
+});
+
+test('transcribeSourceUrl: a known platform with no fileUrl still sends the page URL', () => {
+    assert.equal(transcribeSourceUrl({
+        url: 'https://www.instagram.com/reel/abc/',
+        platform: 'instagram'
+    }), 'https://www.instagram.com/reel/abc/');
+});
+
+test('transcribeSourceUrl: an unknown platform with a discovered fileUrl sends the fileUrl', () => {
+    assert.equal(transcribeSourceUrl({
+        url: 'https://mormondiscussionpodcast.org/2026/08/some-episode/',
+        platform: null,
+        mediaHints: { audio: true, video: false, embeds: [], fileUrl: 'https://media.blubrry.com/x/ep.mp3' }
+    }), 'https://media.blubrry.com/x/ep.mp3');
+});
+
+test('transcribeSourceUrl: an unknown platform with no fileUrl falls back to the page URL', () => {
+    assert.equal(transcribeSourceUrl({
+        url: 'https://example.com/some-article',
+        platform: null
+    }), 'https://example.com/some-article');
+});
+
+test('transcribeSourceUrl: an http:// fileUrl is not fetchable — falls back to the page URL', () => {
+    assert.equal(transcribeSourceUrl({
+        url: 'https://example.com/some-article',
+        mediaHints: { audio: true, video: false, embeds: [], fileUrl: 'http://cdn.example.com/ep.mp3' }
+    }), 'https://example.com/some-article');
+});
+
+test('transcribeSourceUrl: no article at all does not throw', () => {
+    assert.equal(transcribeSourceUrl(null), undefined);
+});
 
 const NOW = 1_750_000_000_000;
 
@@ -90,7 +138,7 @@ test('runTranscriptionJob: the picked engine rides the start message and the job
         startResp: { ok: true, jobId: 'j-cloud', provider: 'assemblyai' },
         statusScript: [{ ok: true, job: { status: 'done', result: { segments: [1] } } }]
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://v', videoId: 'vid9', provider: 'assemblyai', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://v', mediaKey: 'vid9', provider: 'assemblyai', io });
     assert.equal(out.ok, true);
     const start = sent.find((m) => m.type === 'xray:transcribe:start');
     assert.equal(start.provider, 'assemblyai');
@@ -101,7 +149,7 @@ test('runTranscriptionJob: no provider given → none sent (SW resolves the stor
     const { io, sent } = makeIo({
         statusScript: [{ ok: true, job: { status: 'done', result: { segments: [1] } } }]
     });
-    await runTranscriptionJob({ videoUrl: 'https://v', videoId: 'vid10', io });
+    await runTranscriptionJob({ mediaUrl: 'https://v', mediaKey: 'vid10', io });
     const start = sent.find((m) => m.type === 'xray:transcribe:start');
     assert.ok(!('provider' in start), 'absent means the stored preference decides');
 });
@@ -110,7 +158,7 @@ test('runTranscriptionJob: a missing cloud key surfaces missingKey for the picke
     const { io } = makeIo({
         startResp: { ok: false, missingKey: 'deepgram', error: 'No Deepgram API key saved.' }
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://v', videoId: 'vid11', provider: 'deepgram', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://v', mediaKey: 'vid11', provider: 'deepgram', io });
     assert.equal(out.ok, false);
     assert.equal(out.missingKey, 'deepgram');
     assert.match(out.error, /Deepgram/);
@@ -138,7 +186,7 @@ test('runTranscriptionJob: mismatched record skips the status probe and starts f
         statusScript: [{ ok: true, job: { status: 'done', result: { segments: [1] } } }],
         store: { [jobRecordKey('vidM')]: { jobId: 'j-aai', startedAt: NOW - 1000, provider: 'assemblyai' } }
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://v', videoId: 'vidM', provider: 'local', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://v', mediaKey: 'vidM', provider: 'local', io });
     assert.equal(out.ok, true);
     // The old AssemblyAI job was never even asked about…
     const statusTargets = sent.filter((m) => m.type === 'xray:transcribe:status').map((m) => m.jobId);
@@ -184,7 +232,7 @@ test('fresh run: start → persist record → poll to done; record KEPT for the 
             { ok: true, job: { status: 'done', result } }
         ]
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://w', videoId: 'v', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://w', mediaKey: 'v', io });
     assert.equal(out.ok, true);
     assert.deepEqual(out.result, result);
     assert.equal(sent.filter((m) => m.type === 'xray:transcribe:start').length, 1);
@@ -202,7 +250,7 @@ test('resume: live record + running job → NO second start message', async () =
             { ok: true, job: { status: 'done', result: { segments: [1] } } }
         ]
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://w', videoId: 'v', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://w', mediaKey: 'v', io });
     assert.equal(out.ok, true);
     assert.equal(sent.filter((m) => m.type === 'xray:transcribe:start').length, 0, 'never double-submits');
 });
@@ -213,7 +261,7 @@ test('done-while-away: reopening adopts the finished job without polling, record
         store: { [jobRecordKey('v')]: { jobId: 'j-1', startedAt: NOW - 1000 } },
         statusScript: [{ ok: true, job: { status: 'done', result } }]
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://w', videoId: 'v', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://w', mediaKey: 'v', io });
     assert.equal(out.ok, true);
     assert.deepEqual(out.result, result);
     assert.equal(sent.length, 1, 'one status call, no start, no poll loop');
@@ -224,7 +272,7 @@ test('service down at start: clear error, nothing persisted', async () => {
     const { io, store } = makeIo({
         startResp: { ok: false, unreachable: true, error: 'Companion transcription service not reachable at http://127.0.0.1:8756. …' }
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://w', videoId: 'v', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://w', mediaKey: 'v', io });
     assert.equal(out.ok, false);
     assert.match(out.error, /not reachable/);
     assert.ok(!(jobRecordKey('v') in store));
@@ -234,7 +282,7 @@ test('unreachable mid-poll: tolerated briefly, then resumable failure that KEEPS
     const { io, store } = makeIo({
         statusScript: [{ ok: false, unreachable: true, error: 'Companion transcription service not reachable…' }]
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://w', videoId: 'v', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://w', mediaKey: 'v', io });
     assert.equal(out.ok, false);
     assert.equal(out.resumable, true);
     assert.ok(jobRecordKey('v') in store, 'the record survives — a later click resumes the same job');
@@ -249,7 +297,7 @@ test('unreachable blips under the threshold recover', async () => {
         ]
     });
     assert.ok(MAX_UNREACHABLE_POLLS > 2, 'precondition for this fixture');
-    const out = await runTranscriptionJob({ videoUrl: 'https://w', videoId: 'v', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://w', mediaKey: 'v', io });
     assert.equal(out.ok, true);
 });
 
@@ -257,7 +305,7 @@ test('failed job: error surfaced, record reaped so the next click starts fresh',
     const { io, store } = makeIo({
         statusScript: [{ ok: true, job: { status: 'failed', error: 'HF_TOKEN is not set. …' } }]
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://w', videoId: 'v', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://w', mediaKey: 'v', io });
     assert.equal(out.ok, false);
     assert.match(out.error, /HF_TOKEN/);
     assert.ok(!(jobRecordKey('v') in store));
@@ -270,8 +318,578 @@ test('404 mid-poll (server restarted past retention): record reaped, clear error
             { ok: false, status: 404, error: 'Transcriber request failed: unknown job' }
         ]
     });
-    const out = await runTranscriptionJob({ videoUrl: 'https://w', videoId: 'v', io });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://w', mediaKey: 'v', io });
     assert.equal(out.ok, false);
     assert.match(out.error, /no longer knows this job/);
     assert.ok(!(jobRecordKey('v') in store));
+});
+
+test('runTranscriptionJob: a generic media key stores and resumes its own record', async () => {
+    const KEY = 'u_0123456789abcdef';
+    const { io, store, sent } = makeIo({
+        startResp: { ok: true, jobId: 'j-generic', provider: 'local' },
+        statusScript: [{ ok: true, job: { status: 'done', result: { segments: [{ start: 0, end: 1, text: 'hi' }] } } }]
+    });
+    const out = await runTranscriptionJob({
+        mediaUrl: 'https://mormonstories.org/podcast/ep-1/', mediaKey: KEY, io
+    });
+    assert.equal(out.ok, true);
+    // The record is keyed by the media key and SURVIVES success — the
+    // caller drops it only after a successful adoption.
+    assert.ok(store[JOB_RECORD_PREFIX + KEY], 'record kept under the media key');
+    assert.equal(store[JOB_RECORD_PREFIX + KEY].jobId, 'j-generic');
+    const start = sent.find((m) => m.type === 'xray:transcribe:start');
+    assert.equal(start.url, 'https://mormonstories.org/podcast/ep-1/');
+});
+
+// ------------------------------------------------------------------
+// Direct cloud transcription (DC.1) — routing the SAME driver at a
+// different transport.
+//
+// The point of these tests is that runTranscriptionJob was NOT forked:
+// one job driver, one page-driven poll loop, one tested lifecycle. The
+// only things that vary are which message types it speaks and how often
+// it polls. Every assertion above this line is the regression net for
+// the companion path — none of them were modified.
+// ------------------------------------------------------------------
+
+const DIRECT_START = 'xray:transcribe:direct:start';
+const DIRECT_STATUS = 'xray:transcribe:direct:status';
+
+/** Scripted io for the direct message pair. */
+function makeDirectIo({ statusScript = [], startResp = { ok: true, jobId: 'aai-1', provider: 'assemblyai-direct' }, store = {} } = {}) {
+    const sent = [];
+    let statusIdx = 0;
+    return {
+        sent,
+        store,
+        io: {
+            sendMessage: async (msg) => {
+                sent.push(msg);
+                if (msg.type === DIRECT_START) return startResp;
+                if (msg.type === DIRECT_STATUS) {
+                    const r = statusScript[Math.min(statusIdx, statusScript.length - 1)];
+                    statusIdx += 1;
+                    return typeof r === 'function' ? r() : r;
+                }
+                return { ok: false, error: 'unknown' };
+            },
+            storageGet: async (key) => store[key],
+            storageSet: async (key, value) => { store[key] = value; },
+            storageRemove: async (keys) => { for (const k of [].concat(keys)) delete store[k]; },
+            storageGetAll: async () => ({ ...store }),
+            sleep: async () => {},
+            now: () => NOW,
+            onProgress: () => {}
+        }
+    };
+}
+
+test('runTranscriptionJob defaults to the companion message types', async () => {
+    // The parameterization must be invisible to every existing caller.
+    const { sent, io } = makeIo({ statusScript: [{ ok: true, job: { status: 'done', result: { segments: [1] } } }] });
+    await runTranscriptionJob({ mediaUrl: 'https://x/a.mp3', mediaKey: 'k', io });
+    assert.deepEqual([...new Set(sent.map((m) => m.type))],
+        ['xray:transcribe:start', 'xray:transcribe:status']);
+});
+
+test('runTranscriptionJob routes to the direct message types when asked', async () => {
+    const { sent, store, io } = makeDirectIo({
+        statusScript: [{ ok: true, job: { status: 'done', result: { segments: [1] }, provider: 'assemblyai-direct' } }]
+    });
+    const out = await runTranscriptionJob({
+        mediaUrl: 'https://cdn.example.com/ep.mp3',
+        mediaKey: 'k',
+        provider: 'assemblyai-direct',
+        route: 'direct',
+        startType: DIRECT_START,
+        statusType: DIRECT_STATUS,
+        io
+    });
+    assert.equal(out.ok, true);
+    assert.deepEqual([...new Set(sent.map((m) => m.type))], [DIRECT_START, DIRECT_STATUS]);
+    // The provider transcript id must be persisted BEFORE the first
+    // poll — it is the only handle to an already-paid job.
+    assert.equal(store[jobRecordKey('k', 'direct')].jobId, 'aai-1');
+    assert.equal(store[jobRecordKey('k', 'direct')].route, 'direct');
+    // ...and it does NOT occupy the companion key.
+    assert.equal(store[jobRecordKey('k')], undefined);
+});
+
+test('a companion job record never resumes on the direct transport, or vice versa', () => {
+    // Routes are not interchangeable: a companion job id means nothing
+    // to AssemblyAI, and polling the wrong one with a credential is
+    // worse than starting fresh.
+    const live = { ok: true, job: { status: 'running' } };
+    const companionRecord = { jobId: 'j1', startedAt: NOW, route: 'companion' };
+    const directRecord = { jobId: 'aai-1', startedAt: NOW, route: 'direct' };
+
+    assert.equal(decideResume(companionRecord, live, NOW, null, 'companion').action, 'resume');
+    assert.equal(decideResume(companionRecord, live, NOW, null, 'direct').action, 'start');
+    assert.equal(decideResume(directRecord, live, NOW, null, 'direct').action, 'resume');
+    assert.equal(decideResume(directRecord, live, NOW, null, 'companion').action, 'start');
+
+    // Cross-route refusal must hold for a FINISHED job too — adopting a
+    // companion result on a direct run would misreport which engine ran.
+    const done = { ok: true, job: { status: 'done', result: { segments: [1] } } };
+    assert.equal(decideResume(directRecord, done, NOW, null, 'direct').action, 'adopt');
+    assert.equal(decideResume(directRecord, done, NOW, null, 'companion').action, 'start');
+});
+
+test('a pre-DC.1 record with no route still resumes on the companion path', () => {
+    // Records written before this slice carry neither route nor
+    // provider. They must behave exactly as they did.
+    const legacy = { jobId: 'j1', startedAt: NOW };
+    const live = { ok: true, job: { status: 'running' } };
+    assert.equal(decideResume(legacy, live, NOW).action, 'resume');
+    assert.equal(decideResume(legacy, live, NOW, null, 'companion').action, 'resume');
+    // ...but it is not a direct job, so a direct run starts fresh.
+    assert.equal(decideResume(legacy, live, NOW, null, 'direct').action, 'start');
+});
+
+test('a stored record for a DIFFERENT url starts fresh', () => {
+    // The media key is a hash of the submitted URL, but a record can
+    // outlive a page edit that changes which file URL is discovered.
+    // Submitting job A's id against URL B would bill the wrong audio.
+    const record = { jobId: 'aai-1', startedAt: NOW, route: 'direct', url: 'https://cdn/a.mp3' };
+    const live = { ok: true, job: { status: 'running' } };
+    assert.equal(decideResume(record, live, NOW, null, 'direct', 'https://cdn/a.mp3').action, 'resume');
+    assert.equal(decideResume(record, live, NOW, null, 'direct', 'https://cdn/b.mp3').action, 'start');
+});
+
+test('describeProgress omits the percentage when there is no honest one', () => {
+    // The direct path has no duration probe and no provider-reported
+    // percentage, so "0%" would be a fabricated number that also reads
+    // as a stuck job. Absent progress is not zero progress.
+    assert.equal(
+        describeProgress({ status: 'running', stage: 'transcribing', provider: 'assemblyai-direct' }),
+        'Transcribing (AssemblyAI)…'
+    );
+    assert.equal(
+        describeProgress({ status: 'running', stage: 'transcribing' }),
+        'Transcribing (WhisperX)…'
+    );
+    // An EXPLICIT zero is still a real reading and still renders.
+    assert.equal(
+        describeProgress({ status: 'running', stage: 'downloading', progress: 0 }),
+        'Downloading audio… 0%'
+    );
+});
+
+test('the direct engine never announces itself as local', () => {
+    // providerPhrase renders both the in-flight banner and the success
+    // toast. Any engine it does not know says "locally" — which for a
+    // run that handed a third party a URL is exactly the durable lie
+    // the JOURNAL ruled against on 2026-08-02.
+    assert.equal(providerPhrase('assemblyai-direct'), 'via AssemblyAI');
+    assert.notEqual(providerPhrase('assemblyai-direct'), 'locally');
+});
+
+test('a companion run cannot clobber the record of an in-flight PAID direct job', async () => {
+    // Found by adversarial review and REPRODUCED before this fix: the
+    // cross-route guard correctly refuses to RESUME a direct record on
+    // the companion transport, but the new companion job's record write
+    // then overwrote it under the same key — destroying the only handle
+    // to an already-paid provider job. Route-scoped keys make the two
+    // records coexist.
+    const store = {};
+    const io = (startResp) => ({
+        sendMessage: async (msg) => (msg.type.endsWith(':start')
+            ? startResp
+            : { ok: true, job: { status: 'done', result: { segments: [1] } } }),
+        storageGet: async (k) => store[k],
+        storageSet: async (k, v) => { store[k] = v; },
+        storageRemove: async (ks) => { for (const k of [].concat(ks)) delete store[k]; },
+        storageGetAll: async () => ({ ...store }),
+        sleep: async () => {}, now: () => NOW, onProgress: () => {}
+    });
+
+    await runTranscriptionJob({
+        mediaUrl: 'https://cdn/ep.mp3', mediaKey: 'K', provider: 'assemblyai-direct',
+        route: 'direct', startType: DIRECT_START, statusType: DIRECT_STATUS,
+        io: io({ ok: true, jobId: 'aai-PAID', provider: 'assemblyai-direct' })
+    });
+    await runTranscriptionJob({
+        mediaUrl: 'https://cdn/ep.mp3', mediaKey: 'K',
+        io: io({ ok: true, jobId: 'companion-99' })
+    });
+
+    assert.equal(store[jobRecordKey('K', 'direct')].jobId, 'aai-PAID',
+        'the paid provider job id must survive an unrelated companion run');
+    assert.equal(store[jobRecordKey('K')].jobId, 'companion-99');
+});
+
+test('the companion record key is unchanged, so pre-DC.1 records still resolve', () => {
+    // Route-scoping must not re-key existing records: a companion job
+    // recorded by a build that predates this slice has to keep resuming.
+    assert.equal(jobRecordKey('K'), JOB_RECORD_PREFIX + 'K');
+    assert.equal(jobRecordKey('K', 'companion'), JOB_RECORD_PREFIX + 'K');
+    assert.equal(jobRecordKey('K', undefined), JOB_RECORD_PREFIX + 'K');
+    assert.notEqual(jobRecordKey('K', 'direct'), jobRecordKey('K'));
+    // Both still start with the reaper's prefix, so neither leaks past TTL.
+    assert.ok(jobRecordKey('K', 'direct').startsWith(JOB_RECORD_PREFIX));
+});
+
+test('the stale reaper collects direct records too', async () => {
+    const store = {
+        [jobRecordKey('K')]: { jobId: 'a', startedAt: NOW - JOB_RECORD_TTL_MS - 1 },
+        [jobRecordKey('K', 'direct')]: { jobId: 'b', startedAt: NOW - JOB_RECORD_TTL_MS - 1 },
+        [jobRecordKey('L', 'direct')]: { jobId: 'c', startedAt: NOW }
+    };
+    const io = {
+        storageGetAll: async () => ({ ...store }),
+        storageRemove: async (ks) => { for (const k of [].concat(ks)) delete store[k]; }
+    };
+    assert.equal(await reapStaleJobRecords(io, NOW), 2);
+    assert.deepEqual(Object.keys(store), [jobRecordKey('L', 'direct')]);
+});
+
+// ------------------------------------------------------------------
+// The direct path cannot resolve a PAGE.
+//
+// Field failure 2026-08-15 (architectureofabuse.com/e/episode1, a
+// PodBean-hosted episode): no fileUrl was discovered, transcribeSourceUrl
+// fell back to the page URL as designed, and the direct route handed
+// AssemblyAI an HTML document — "Transcoding failed. File type
+// text/html". The user paid an API call to be told the obvious.
+//
+// The asymmetry is the point: the companion resolves pages, because
+// yt-dlp does. A provider fetching a URL cannot. So the same fallback
+// that is correct for the companion is guaranteed-useless for direct,
+// and this refuses it locally instead of spending the call.
+//
+// The test is non-heuristic: the article's OWN url is definitionally a
+// page, not a media file — unless the capture is itself a media file,
+// which is why the extension check is there.
+// ------------------------------------------------------------------
+
+test('directSubmissionProblem: refuses to submit the captured page itself', () => {
+    const article = { url: 'https://architectureofabuse.com/e/episode1' };
+    const problem = directSubmissionProblem(article, article.url);
+    assert.ok(problem, 'a page URL must be refused before the API call');
+    assert.match(problem.short, /no direct media file/i);
+    assert.match(problem.detail, /Media/i, 'the Media modal is the escape hatch off-platform — name it');
+    // Must not read as a companion problem: the reader attaches
+    // companion setup advice to anything containing "not reachable".
+    assert.ok(!/not reachable/i.test(problem.short + problem.detail));
+});
+
+test('directSubmissionProblem: a discovered media file is admitted', () => {
+    const article = {
+        url: 'https://architectureofabuse.com/e/episode1',
+        mediaHints: { fileUrl: 'https://mcdn.podbean.com/mf/web/abc/Ep1.mp3' }
+    };
+    assert.equal(directSubmissionProblem(article, transcribeSourceUrl(article)), null);
+});
+
+test('directSubmissionProblem: a capture whose own URL IS the media file is admitted', () => {
+    const article = { url: 'https://cdn.example.com/ep.mp3' };
+    assert.equal(directSubmissionProblem(article, article.url), null);
+    const q = { url: 'https://cdn.example.com/ep.m4a?token=abc' };
+    assert.equal(directSubmissionProblem(q, q.url), null);
+});
+
+test('directSubmissionProblem: YouTube gets the remedy that actually applies', () => {
+    // Field report 2026-08-16. The DC.1 message advised two remedies,
+    // and on YouTube BOTH are wrong: you cannot paste a stable direct
+    // file URL (they are signed and expire — kickoff §8), and "run it
+    // through the companion" is useless advice to the direct-only user
+    // this feature exists for. What is TRUE on YouTube is that the
+    // captions are already captured with the page, so the user is not
+    // missing a transcript at all — only diarized speaker labels.
+    const article = { url: 'https://www.youtube.com/watch?v=abc123DEF45', platform: 'youtube' };
+    const problem = directSubmissionProblem(article, transcribeSourceUrl(article));
+    assert.ok(problem);
+    assert.match(problem.detail, /caption/i, 'say the captions are already captured');
+    assert.match(problem.detail, /speaker label/i, 'say what transcribing would actually add');
+    assert.ok(!/paste/i.test(problem.detail),
+        'never advise pasting a direct file URL for a platform whose URLs are signed and expire');
+});
+
+test('directSubmissionProblem: other known platforms say signed URLs, not "no file found"', () => {
+    const article = { url: 'https://www.instagram.com/reel/abc/', platform: 'instagram' };
+    const problem = directSubmissionProblem(article, transcribeSourceUrl(article));
+    assert.ok(problem);
+    assert.match(problem.short, /sign|expir/i);
+    assert.ok(!/caption/i.test(problem.detail), 'the captions line is YouTube-specific');
+});
+
+test('directSubmissionProblem: the short form is one line, fit for a menu row', () => {
+    for (const article of [
+        { url: 'https://example.com/e/1' },
+        { url: 'https://www.youtube.com/watch?v=abc123DEF45', platform: 'youtube' }
+    ]) {
+        const { short } = directSubmissionProblem(article, transcribeSourceUrl(article));
+        assert.ok(short.length <= 90, `too long for a menu row (${short.length}): ${short}`);
+        assert.ok(!short.includes('\n'));
+    }
+});
+
+
+test('directSubmissionProblem: platform names are human, and the grammar holds', () => {
+    // Read the output, do not just assert a substring: the first cut
+    // produced "cannot transcribe a instagram page" — lowercase id and
+    // a broken article. Sentences are phrased to avoid a/an entirely.
+    const cases = [['instagram', 'Instagram'], ['tiktok', 'TikTok'], ['twitter', 'X'], ['youtube', 'YouTube']];
+    for (const [id, label] of cases) {
+        const article = { url: `https://${id}.example/x`, platform: id };
+        const { short, detail } = directSubmissionProblem(article, transcribeSourceUrl(article));
+        assert.ok(short.startsWith(label), `menu row should lead with "${label}": ${short}`);
+        assert.ok(!new RegExp(`\\\\b${id}\\\\b`).test(short + detail),
+            `the raw platform id "${id}" leaked into user-visible text`);
+        // The a/an problem is removed STRUCTURALLY — the sentence says
+        // "this <Platform> page", never "a <Platform> page" — so pin the
+        // phrasing rather than trying to spell-check English articles
+        // ("a URL" is correct; a naive vowel rule flags it).
+        assert.match(detail, new RegExp(`cannot transcribe this ${label} page`));
+    }
+});
+
+// ------------------------------------------------------------------
+// DC.2 — the job driver's failure strings are ROUTE-AWARE.
+//
+// runTranscriptionJob is shared by both transports, and its error text
+// was written when only the companion existed. On the direct route
+// "the transcription service" means AssemblyAI, and advice like "try
+// again once the service is back" is meaningless — there is no service
+// of the user's to bring back. `route` is already in scope at every one
+// of these, so this is a wording fix, not a restructure.
+// ------------------------------------------------------------------
+
+const directIo = (statusScript, store = {}) => ({
+    sendMessage: async (msg) => (msg.type.endsWith(':start')
+        ? { ok: true, jobId: 'aai-1', provider: 'assemblyai-direct' }
+        : statusScript),
+    storageGet: async (k) => store[k],
+    storageSet: async (k, v) => { store[k] = v; },
+    storageRemove: async (ks) => { for (const k of [].concat(ks)) delete store[k]; },
+    storageGetAll: async () => ({ ...store }),
+    sleep: async () => {}, now: () => NOW, onProgress: () => {}
+});
+
+const runDirect = (statusScript, store) => runTranscriptionJob({
+    mediaUrl: 'https://cdn/ep.mp3', mediaKey: 'K', provider: 'assemblyai-direct',
+    route: 'direct', startType: DIRECT_START, statusType: DIRECT_STATUS,
+    io: directIo(statusScript, store)
+});
+
+test('DC.2: a direct job that the provider no longer knows does not blame a service restart', async () => {
+    const out = await runDirect({ ok: false, status: 404 });
+    assert.equal(out.ok, false);
+    assert.ok(!/service.*restarted|once the service is back/i.test(out.error),
+        `companion wording on the direct route: ${out.error}`);
+    assert.match(out.error, /AssemblyAI/,
+        'name who no longer knows the job');
+});
+
+test('DC.2: losing contact on the direct route does not say "once the service is back"', async () => {
+    const out = await runDirect({ ok: false, unreachable: true });
+    assert.equal(out.ok, false);
+    assert.ok(!/once the service is back/i.test(out.error),
+        `there is no service of the user’s to bring back: ${out.error}`);
+    assert.ok(!/\bcompanion\b/i.test(out.error), `companion named on a companion-free route: ${out.error}`);
+});
+
+test('DC.2: the COMPANION route keeps its wording exactly', async () => {
+    // Byte-identical regression net: these strings are what a companion
+    // user has been reading, and nothing about DC.2 should change them.
+    const io = (script) => ({
+        sendMessage: async (msg) => (msg.type.endsWith(':start') ? { ok: true, jobId: 'j' } : script),
+        storageGet: async () => undefined, storageSet: async () => {},
+        storageRemove: async () => {}, storageGetAll: async () => ({}),
+        sleep: async () => {}, now: () => NOW, onProgress: () => {}
+    });
+    const four04 = await runTranscriptionJob({
+        mediaUrl: 'https://x/a.mp3', mediaKey: 'K', io: io({ ok: false, status: 404 })
+    });
+    assert.equal(four04.error,
+        'The transcription service no longer knows this job (it may have restarted). Try again.');
+    const lost = await runTranscriptionJob({
+        mediaUrl: 'https://x/a.mp3', mediaKey: 'K', io: io({ ok: false, unreachable: true })
+    });
+    assert.match(lost.error, /once the service is back/);
+});
+
+// ------------------------------------------------------------------
+// DC.3 — the SYNCHRONOUS transport.
+//
+// Deepgram returns the transcript from the submit itself: no job id, no
+// polling, and (their docs) no stored copy to retrieve later. So the
+// driver must NOT poll, and a torn-down worker mid-request is an
+// unrecoverable loss of that request rather than a resumable job.
+//
+// Bounded, not catastrophic — measured 12.9s for a 48-minute episode —
+// but real, so a pre-flight record is written BEFORE the request and
+// removed on any resolved outcome. A record that survives means the
+// request never resolved, and the next run says so rather than
+// pretending nothing happened. It NEVER auto-retries.
+// ------------------------------------------------------------------
+
+const SYNC_START = 'xray:transcribe:direct:deepgram';
+
+function syncIo(startResp, store = {}) {
+    const sent = [];
+    return {
+        sent,
+        store,
+        io: {
+            sendMessage: async (msg) => { sent.push(msg); return startResp; },
+            storageGet: async (k) => store[k],
+            storageSet: async (k, v) => { store[k] = v; },
+            storageRemove: async (ks) => { for (const k of [].concat(ks)) delete store[k]; },
+            storageGetAll: async () => ({ ...store }),
+            sleep: async () => {}, now: () => NOW, onProgress: () => {}
+        }
+    };
+}
+
+const runSync = (io, store) => runTranscriptionJob({
+    mediaUrl: 'https://cdn/ep.mp3', mediaKey: 'K', provider: 'deepgram-direct',
+    route: 'deepgram-direct', startType: SYNC_START, synchronous: true, io, ...(store ? {} : {})
+});
+
+test('DC.3: a synchronous run takes the result from the submit and never polls', async () => {
+    const { sent, io } = syncIo({ ok: true, result: { segments: [{ start: 0, end: 1, speaker: null, text: 'hi' }] } });
+    const out = await runSync(io);
+    assert.equal(out.ok, true);
+    assert.equal(out.result.segments.length, 1);
+    assert.deepEqual(sent.map((m) => m.type), [SYNC_START],
+        'exactly one message — there is nothing to poll');
+});
+
+test('DC.3: the pre-flight record is written BEFORE the request and cleared after', async () => {
+    const store = {};
+    let seenDuringRequest;
+    const io = {
+        sendMessage: async () => {
+            // Observe storage AT THE MOMENT the request is in flight —
+            // this is the window a teardown would freeze.
+            seenDuringRequest = { ...store };
+            return { ok: true, result: { segments: [{ start: 0, end: 1, speaker: null, text: 'hi' }] } };
+        },
+        storageGet: async (k) => store[k],
+        storageSet: async (k, v) => { store[k] = v; },
+        storageRemove: async (ks) => { for (const k of [].concat(ks)) delete store[k]; },
+        storageGetAll: async () => ({ ...store }),
+        sleep: async () => {}, now: () => NOW, onProgress: () => {}
+    };
+    await runTranscriptionJob({
+        mediaUrl: 'https://cdn/ep.mp3', mediaKey: 'K', provider: 'deepgram-direct',
+        route: 'deepgram-direct', startType: SYNC_START, synchronous: true, io
+    });
+    const key = jobRecordKey('K', 'deepgram-direct');
+    assert.ok(seenDuringRequest[key], 'no pre-flight record existed while the request was in flight');
+    assert.equal(seenDuringRequest[key].pending, true);
+    assert.equal(seenDuringRequest[key].url, 'https://cdn/ep.mp3');
+    assert.equal(store[key], undefined, 'a resolved request must clear its pre-flight record');
+});
+
+test('DC.3: a resolved FAILURE also clears the record — only a teardown leaves one', async () => {
+    const store = {};
+    const { io } = syncIo({ ok: false, error: 'Deepgram request failed: HTTP 415' }, store);
+    const out = await runTranscriptionJob({
+        mediaUrl: 'https://cdn/ep.mp3', mediaKey: 'K', provider: 'deepgram-direct',
+        route: 'deepgram-direct', startType: SYNC_START, synchronous: true, io
+    });
+    assert.equal(out.ok, false);
+    assert.match(out.error, /415/);
+    assert.equal(store[jobRecordKey('K', 'deepgram-direct')], undefined,
+        'an answered request is not a lost one, whatever the answer');
+});
+
+test('DC.3: a surviving pre-flight record reports a possible charge, and never auto-retries', async () => {
+    // The teardown case: the previous run's record is still pending.
+    const key = jobRecordKey('K', 'deepgram-direct');
+    const store = { [key]: { pending: true, url: 'https://cdn/ep.mp3', mediaKey: 'K', startedAt: NOW - 1000 } };
+    const { sent, io } = syncIo({ ok: true, result: { segments: [{ start: 0, end: 1, speaker: null, text: 'hi' }] } }, store);
+    const out = await runTranscriptionJob({
+        mediaUrl: 'https://cdn/ep.mp3', mediaKey: 'K', provider: 'deepgram-direct',
+        route: 'deepgram-direct', startType: SYNC_START, synchronous: true, io
+    });
+    assert.equal(out.priorSubmission, true,
+        'the caller must be able to tell the user a previous submission may have been charged');
+    // It ran because the USER pressed the button — not because the code
+    // decided to retry on their behalf.
+    assert.equal(sent.length, 1);
+    assert.equal(out.ok, true);
+});
+
+test('DC.3: a synchronous run leaves the ASYNC transports untouched', async () => {
+    // Regression net: adding the branch must not perturb either polling
+    // path. Both still start-then-poll.
+    const { sent, io } = makeIo({ statusScript: [{ ok: true, job: { status: 'done', result: { segments: [1] } } }] });
+    await runTranscriptionJob({ mediaUrl: 'https://x/a.mp3', mediaKey: 'k', io });
+    assert.deepEqual([...new Set(sent.map((m) => m.type))],
+        ['xray:transcribe:start', 'xray:transcribe:status']);
+});
+
+// ------------------------------------------------------------------
+// Companion/provider error text reaches a USER-FACING banner verbatim.
+// yt-dlp writes ANSI colour codes to stderr, the companion forwards the
+// message, and JSON transport strips the ESC byte — leaving the bare
+// "[0;31m" fragments that appeared in the field on 2026-08-16:
+//
+//   [0;31mERROR: [0m unable to download video data: HTTP Error 403
+//
+// The diagnosis inside it is exactly right and must survive; only the
+// escape debris goes.
+// ------------------------------------------------------------------
+
+test('cleanProviderError strips ANSI debris and keeps the diagnosis', () => {
+    // The bare form, ESC already lost in transport — what the field saw.
+    assert.equal(
+        cleanProviderError('[0;31mERROR: [0m unable to download video data: HTTP Error 403: Forbidden'),
+        'ERROR: unable to download video data: HTTP Error 403: Forbidden');
+    // And the real escape form, when ESC survives.
+    assert.equal(cleanProviderError('\u001b[0;31mERROR:\u001b[0m nope'), 'ERROR: nope');
+    assert.equal(cleanProviderError('\u001b[33mwarn\u001b[0m'), 'warn');
+});
+
+test('cleanProviderError leaves ordinary prose and real brackets alone', () => {
+    // It must not eat legitimate text — provider errors carry URLs,
+    // quotes and bracketed detail a greedy strip would damage.
+    for (const s of [
+        'Deepgram request failed: unsupported media type',
+        'AssemblyAI no longer knows this transcript (their record may have expired).',
+        'failed at [step 3] of the pipeline',
+        'see https://example.com/a[b]c for detail',
+        ''
+    ]) {
+        assert.equal(cleanProviderError(s), s.trim());
+    }
+    assert.equal(cleanProviderError(null), '');
+});
+
+test('a companion job failure reaches the caller cleaned', async () => {
+    const { io } = makeIo({
+        statusScript: [{ ok: true, job: { status: 'failed',
+            error: '[0;31mERROR: [0m unable to download video data: HTTP Error 403: Forbidden' } }]
+    });
+    const out = await runTranscriptionJob({ mediaUrl: 'https://x/a.mp3', mediaKey: 'k', io });
+    assert.equal(out.ok, false);
+    assert.ok(!out.error.includes('[0;31m'), `ANSI debris survived: ${out.error}`);
+    assert.match(out.error, /403: Forbidden/, 'the diagnosis must survive');
+});
+
+test('directSubmissionProblem: the signed-URL claim is made only where it is true', () => {
+    // Field-found 2026-08-16 on a Substack post. Every KNOWN_PLATFORM got
+    // "media URLs are signed and expire", which is true of YouTube and
+    // the social platforms and NOT of Substack, PMC or arXiv — they send
+    // a page URL because they have a capture handler, not because their
+    // media expires. An unbacked technical claim in front of the user is
+    // the same defect class as naming the wrong vendor.
+    for (const id of ['youtube', 'instagram', 'tiktok', 'facebook', 'twitter']) {
+        const a = { url: `https://${id}.example/x`, platform: id };
+        const { short, detail } = directSubmissionProblem(a, transcribeSourceUrl(a));
+        assert.match(short, /signed and expire/, `${id} genuinely serves signed URLs`);
+        assert.match(detail, /signed and expire/);
+    }
+    for (const id of ['substack', 'pmc', 'arxiv']) {
+        const a = { url: `https://${id}.example/x`, platform: id };
+        const { short, detail } = directSubmissionProblem(a, transcribeSourceUrl(a));
+        assert.ok(!/signed and expire/.test(short + detail),
+            `${id} does not serve signed media URLs — do not claim it does`);
+        // Still refused, and still for a TRUE reason.
+        assert.match(short + detail, /page/i);
+    }
 });

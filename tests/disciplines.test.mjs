@@ -121,7 +121,10 @@ test('guard: every "You are" prompt file carries a registered Standards header',
         assert.ok(header, `${file} has a Standards header (docs/DISCIPLINES.md §0)`);
         assert.ok(ids.has(header[1]), `${file}'s discipline "${header[1]}" is an index id`);
     }
-    assert.ok(promptFiles >= 8, `sanity: the scan sees the prompt files (${promptFiles})`);
+    // Floor 7 since UA.3: llm-prompts.js lost its "You are" prompt when
+    // the standalone suggest pass retired (the map pass in
+    // corpus-prompts.js is the extraction prompt surface now).
+    assert.ok(promptFiles >= 7, `sanity: the scan sees the prompt files (${promptFiles})`);
 });
 
 // ---- the operator discipline stays gateless (CONSTITUTION Art. 8) --

@@ -327,7 +327,7 @@
         content into the current corpus: articles, claims, entities,
         analysis records, and audits it has and you don't are added
         (deduplicated by id; per-article extraction records merge at the
-        assertion level), nothing local is deleted or overwritten, and
+        claim-proposal level), nothing local is deleted or overwritten, and
         settings/identities in the file are ignored.
         The signed-events bundle is the raw signed JSON of every event you
         have published (no keys inside) — anyone can rebroadcast it to any
@@ -510,9 +510,11 @@
       </div>
       <p class="xr-opt__hint" style="margin-top:-8px">
         Default: <strong>Entities</strong> + <strong>Claims</strong> — extraction
-        the model does reliably (high signal, low noise). Relationships,
-        assessments, and forensic findings are opt-in <em>judgments</em>:
-        higher false-positive rate, and X-Ray never renders them automatically.
+        the model does reliably (high signal, low noise). These gate what
+        the reader derives from the one article reading. The judgment
+        kinds (relationships, assessments, forensic findings) are RETIRED
+        from Suggest — each lives at corpus level, where its evidence is
+        (cross-article links, the assess modal, the forensic pass).
       </p>
       <div class="xr-opt__actions">
         <button class="xr-opt__btn" id="llm-key-clear">Clear key</button>
@@ -576,7 +578,7 @@
       </p>
 
       <hr />
-      <h3 class="xr-opt__subhead">Transcription (companion service)</h3>
+      <h3 class="xr-opt__subhead">Transcription</h3>
 
       <!-- Live service state. One stable container, repainted in place
            (never re-created) so the aria-live announcement survives —
@@ -592,22 +594,60 @@
 
       <label class="xr-opt__field xr-opt__field--inline">
         <input type="checkbox" id="pref-local-transcription" />
-        <span>Enable "Transcribe" for YouTube captures</span>
+        <span>Enable "Transcribe" for media captures</span>
       </label>
       <p class="xr-opt__hint" style="margin-top:-8px">
-        Off by default. Transcribing needs the companion service from
-        <code>companion/transcriber/</code> in the X-Ray repo running on
-        this machine — <strong>including for the AssemblyAI and Deepgram
-        engines</strong>, which skip the GPU but still download the audio
-        locally through it. Adds a "Capture &amp; transcribe" right-click
-        item on YouTube videos and a Transcribe button in the reader (the
-        ▾ next to it picks an engine per video, with time and cost
-        estimates). Full setup:
+        Off by default. <strong>The engines this checkbox enables</strong>
+        — Local, and the companion-routed AssemblyAI and Deepgram — need
+        the companion service from <code>companion/transcriber/</code> in
+        the X-Ray repo running on this machine; the two cloud ones skip
+        the GPU but still download the audio locally through it. If you
+        want to transcribe with <em>nothing installed</em>, you want the
+        direct option below instead. Adds a "Capture &amp; transcribe" right-click
+        item on any https page and a Transcribe button in the reader
+        wherever a capture shows media (the ▾ next to it picks an
+        engine, with time and cost estimates). The companion hands the
+        URL to yt-dlp, so podcast episodes, off-platform video, and
+        pages with embedded players all work — not only YouTube. Full
+        setup:
         <a href="https://github.com/bryanmatthewsimonson/xray/blob/main/companion/transcriber/README.md"
            target="_blank" rel="noreferrer">companion/transcriber/README.md</a>.
       </p>
+      <h3 class="xr-opt__subhead">Diagnostics</h3>
+      <p class="xr-opt__hint">
+        X-Ray keeps its last errors on this device (never sent anywhere)
+        so a bug report can carry its own evidence. Copy pastes the log;
+        Clear empties it.
+      </p>
+      <p class="xr-opt__field xr-opt__field--inline">
+        <button class="xr-opt__btn" id="diagnostics-test" type="button">Log test entry</button>
+        <button class="xr-opt__btn" id="diagnostics-copy" type="button">Copy diagnostics</button>
+        <button class="xr-opt__btn" id="diagnostics-clear" type="button">Clear</button>
+        <span class="xr-opt__hint" id="diagnostics-status"></span>
+      </p>
+
+      <hr />
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-direct-cloud-transcription" />
+        <span>Enable "AssemblyAI (direct)" — transcribe with nothing installed</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Off by default, and <strong>independent of the checkbox above</strong>
+        — this route needs no companion service at all. X-Ray sends
+        AssemblyAI the media's web address and your API key, and
+        AssemblyAI downloads the audio itself. Stated plainly, because
+        it is a <em>different</em> trade rather than a smaller one:
+        <strong>the audio never touches this machine</strong> and the
+        site never sees your IP — but <strong>AssemblyAI learns the
+        address of what you are transcribing</strong>, which uploading
+        audio through the companion never revealed. Pick it per capture
+        from the ▾ next to Transcribe; it cannot be set as the default
+        engine below yet. Works only where the captured page exposes a
+        direct media file (most podcast pages do; YouTube and the other
+        signed-URL platforms do not).
+      </p>
       <label class="xr-opt__field">
-        <span>Transcription engine</span>
+        <span>Transcription engine <span class="xr-opt__hint">(companion only)</span></span>
         <select id="pref-transcribe-engine">
           <option value="">Companion default — whatever the service's own configuration says (local unless set)</option>
           <option value="local">Local — on this device, free (WhisperX + diarization, GPU recommended)</option>
@@ -621,8 +661,12 @@
         <strong>Cloud engines upload the episode audio</strong> to that
         provider and transcribe a 2-hour episode in minutes for tens of
         cents — paste the provider's API key below. Keys are stored on
-        this device only (like the LLM assist key), sent per job to your
-        loopback companion service, and never written to its disk. The
+        this device only (like the LLM assist key) and never written to
+        disk by any service. Where a key GOES depends on the route: a
+        companion-routed job sends it to your loopback service, which
+        holds it in memory only; an <strong>AssemblyAI (direct)</strong>
+        job sends it straight from this extension to AssemblyAI, because
+        there is no companion in the loop. The
         companion's own <code>TRANSCRIBER_PROVIDER</code> /
         <code>*_API_KEY</code> environment variables still work as
         server-side defaults when nothing is chosen here.
@@ -714,24 +758,6 @@
         proportionally more than a single-article pass. The brief is stored
         locally and exportable; it carries no verdict or score. Proposals only
         materialize as ordinary claims/links after you Accept them.
-      </p>
-
-      <label class="xr-opt__field xr-opt__field--inline">
-        <input type="checkbox" id="pref-auto-preanalyze" />
-        <span>Pre-analyze each capture into the bound case automatically</span>
-      </label>
-      <p class="xr-opt__hint" style="margin-top:-8px">
-        Off by default. Requires case synthesis (above) plus LLM assist and
-        the API key. When on, every capture that lands in a case-bound
-        workspace immediately runs the synthesis <em>map</em> stage for that
-        one article, so a later <strong>Analyze corpus</strong> starts from a
-        warm cache instead of re-reading the whole corpus.
-        <strong>This is a standing authorization to spend: each capture sends
-        that article&rsquo;s text to Anthropic (one map call per capture,
-        roughly the cost of one Suggest pass)</strong> — with it off, the
-        same work happens only when you click Analyze or Pre-analyze and
-        confirm. Already-analyzed articles are skipped (cache first, no
-        call), and a failure never affects the capture itself.
       </p>
 
       <hr />

@@ -111,8 +111,18 @@ function moduleToolSchema(name) {
     required.push('auditor_caveats');
 
     if (name !== 'prediction_extraction') {
+        // `number`, not `integer` — the DECLARATION was wrong, and it
+        // disagreed with everything that reads it. validateFindings walks
+        // this field as `{type:'number', minimum:0, maximum:100}`
+        // (findings-schemas.js), and clampScore exists precisely so that
+        // "a recoverable model quirk must degrade a number, never discard
+        // the whole eight-module audit" (assemble.js). A model answering
+        // 82.5 was always meant to be clamped and kept; only the tool
+        // schema claimed otherwise. Harmless while nothing enforced the
+        // declaration — a 2026-08-15 review found it the moment something
+        // tried to.
         properties.score = {
-            type: 'integer', minimum: 0, maximum: 100,
+            type: 'number', minimum: 0, maximum: 100,
             description: '0-100 calibrated score for this dimension. 90-100 exemplary; '
                 + '75-89 solid; 60-74 acceptable; 40-59 significant problems; '
                 + '20-39 severe; 0-19 catastrophic.'

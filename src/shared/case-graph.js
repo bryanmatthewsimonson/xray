@@ -19,6 +19,44 @@ import { Utils } from './utils.js';
 const TAU = Math.PI * 2;
 
 /**
+ * Who appears on each member source — THE one presence rule shared
+ * by the local case graph (edges + entity degree) and the case view's
+ * "People & organizations" section, so the two local views can never
+ * disagree about who is on which source. Per source (one per
+ * `deriveArticleRows` row): the entities TAGGED on its archive record
+ * ∪ the entities NAMED by an orbit claim on it (about/source), minus
+ * the case itself. Pure.
+ *
+ * @param {object} data  collectCaseDossierData output
+ * @returns {Array<{row: object, tagged: Set<string>, about: Map<string, number>}>}
+ *          `about` maps entity id → claim count on that source.
+ */
+export function sourceEntityPresence(data) {
+    const { rows } = deriveArticleRows(data);
+    const recByUrl = new Map();
+    for (const rec of data.articles || []) {
+        if (rec && rec.url) recByUrl.set(Utils.normalizeUrl(rec.url), rec);
+    }
+    return rows.map((row) => {
+        const tagged = new Set();
+        const about = new Map();
+        const rec = recByUrl.get(row.url);
+        for (const e of (rec && rec.article && rec.article.entities) || []) {
+            if (!e || !e.entity_id || e.entity_id === data.case.id) continue;
+            tagged.add(e.entity_id);
+        }
+        for (const c of row.claims || []) {
+            const refs = [...(c.about || []), ...(c.source ? [c.source] : [])];
+            for (const id of refs) {
+                if (!id || id === data.case.id) continue;
+                about.set(id, (about.get(id) || 0) + 1);
+            }
+        }
+        return { row, tagged, about };
+    });
+}
+
+/**
  * @param {object} data  collectCaseDossierData output
  * @param {object} [opts]
  * @param {boolean} [opts.includeClaims=false] add per-claim nodes
@@ -32,25 +70,18 @@ export function buildCaseGraph(data, { includeClaims = false, maxEntities = 40, 
     const nameOf = (id) => (entitiesById[id] && entitiesById[id].name) || id;
     const typeOf = (id) => (entitiesById[id] && entitiesById[id].type) || 'entity';
 
-    const { rows } = deriveArticleRows(data);
+    const presence = sourceEntityPresence(data);
+    const rows = presence.map((p) => p.row);
 
-    // Archive record lookup by normalized url, for the tagged entities.
-    const recByUrl = new Map();
-    for (const rec of data.articles || []) {
-        if (rec && rec.url) recByUrl.set(Utils.normalizeUrl(rec.url), rec);
-    }
-
-    // Per-article entity set: tagged (record entities in the member
-    // family) ∪ claimed (orbit claim about/source on this row), minus
-    // the case itself. This set drives the tag/about edges AND the
-    // co-tag weights.
+    // Per-article entity set (the shared presence rule above): this
+    // set drives the tag/about edges AND the co-tag weights.
     const articleNodes = [];
     const entityIds = new Set();
     const articleEntitySets = new Map();   // article node id → Set<entityId>
     const tagPairs = new Set();            // `${url} ${entityId}` present-as-tag
     const aboutWeight = new Map();         // `${url} ${entityId}` → claim count
 
-    for (const row of rows) {
+    for (const { row, tagged, about } of presence) {
         const aid = `article:${row.url}`;
         articleNodes.push({
             id: aid, type: 'article', url: row.url,
@@ -59,23 +90,15 @@ export function buildCaseGraph(data, { includeClaims = false, maxEntities = 40, 
         });
         const set = new Set();
         articleEntitySets.set(aid, set);
-
-        const rec = recByUrl.get(row.url);
-        for (const e of (rec && rec.article && rec.article.entities) || []) {
-            if (!e || !e.entity_id || e.entity_id === data.case.id) continue;
-            set.add(e.entity_id);
-            entityIds.add(e.entity_id);
-            tagPairs.add(`${row.url} ${e.entity_id}`);
+        for (const id of tagged) {
+            set.add(id);
+            entityIds.add(id);
+            tagPairs.add(`${row.url} ${id}`);
         }
-        for (const c of row.claims || []) {
-            const refs = [...(c.about || []), ...(c.source ? [c.source] : [])];
-            for (const id of refs) {
-                if (!id || id === data.case.id) continue;
-                set.add(id);
-                entityIds.add(id);
-                const k = `${row.url} ${id}`;
-                aboutWeight.set(k, (aboutWeight.get(k) || 0) + 1);
-            }
+        for (const [id, n] of about) {
+            set.add(id);
+            entityIds.add(id);
+            aboutWeight.set(`${row.url} ${id}`, n);
         }
     }
 

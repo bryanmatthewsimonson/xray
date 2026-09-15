@@ -41,9 +41,9 @@ test('an empty record renders nothing', () => {
 
 test('a record renders counts, provenance, the quote, and the durable marker', () => {
     const html = renderExtractionBar(record());
-    assert.match(html, /Extracted assertions/);
+    assert.match(html, /Claim proposals/);
     assert.match(html, /durable/, 'the durability of the record is stated on its face');
-    assert.match(html, /1 assertion\b/);
+    assert.match(html, /1 claim proposal\b/);
     assert.match(html, /1 open/);
     assert.match(html, /claude-test/, 'model provenance renders (P12)');
     assert.match(html, /corpus-v4/, 'prompt version renders (P12)');
@@ -65,7 +65,7 @@ test('triage state renders: accepted and dismissed fold into a collapsed section
             assertion({ key: 'a:3', status: 'dismissed', quote: 'dismissed span' })
         ]
     }));
-    assert.match(html, /3 assertions/);
+    assert.match(html, /3 claim proposals/);
     assert.match(html, /1 open/);
     assert.match(html, /1 accepted as claims/);
     assert.match(html, /1 dismissed/);
@@ -108,7 +108,7 @@ test('an ALL-ungroundable record still speaks: a paid pass that retained nothing
     const html = renderExtractionBar(record({
         assertions: [], sources: [], open_questions: [], dropped_ungrounded: 4
     }));
-    assert.match(html, /Extracted assertions/);
+    assert.match(html, /Claim proposals/);
     assert.match(html, /none retained/);
     assert.match(html, /4 proposed quotes could be located/);
     assert.match(html, /never turned into a claim/);
@@ -179,7 +179,7 @@ test('MA.4: a suggest atom\'s authored claim text renders beside the quote', () 
 
 test('no current record but a PRIOR-version record → discloses it instead of rendering nothing', () => {
     const html = renderExtractionBar(null, { priorRuns: 2 });
-    assert.match(html, /Extracted assertions/);
+    assert.match(html, /Claim proposals/);
     assert.match(html, /2 extraction records anchor to a <em>previous version<\/em>/);
     assert.match(html, /never transfer across edits/);
 });

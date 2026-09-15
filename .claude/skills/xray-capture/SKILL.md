@@ -18,7 +18,7 @@ or not at all.
   forces an `https://` prefix) and **cannot attach the debugger to
   extension pages** ("Cannot attach debugger to chrome-extension://
   pages"). Everything that needed extension-page JS — IDB reads,
-  `chrome.tabs.sendMessage`, `xray:llm:suggest` — is unreachable.
+  `chrome.tabs.sendMessage`, `xray:llm:corpus-map` — is unreachable.
 - Synthetic keys do not fire extension command shortcuts, and OS-level
   keystrokes into browsers are blocked by the computer-use tier.
 - Therefore the ONLY verb you have against the extension is
@@ -90,10 +90,11 @@ or not at all.
    connector cannot close (they're outside the group). Tell the user
    at the end how many reader tabs they'll find and that each shows a
    captured article ready for claim extraction.
-6. **PDFs:** the reader's `?pdf=` path is an extension-page URL the
-   connector cannot open. Give the user the exact
-   `chrome-extension://<ID>/src/reader/index.html?pdf=<ENCODED_URL>`
-   link to open by hand instead.
+6. **PDFs:** a direct PDF URL with `#xray:capture` WORKS (verified
+   2026-08-23): the content script runs inside Chrome's PDF viewer
+   document and hands off to the reader's `?pdf=` path, stamping `ok`.
+   You cannot open that reader page yourself (extension page), so the
+   stamp is your whole observation; the reader side is the human's.
 
 ## Enumerate the frontier
 
@@ -123,7 +124,7 @@ backup export** the user hands you:
 | Symptom | Meaning | Do |
 |---|---|---|
 | `dataset.xrayCaptured === "flag-off"` | Capture automation off | Ask the user to enable it in Options → Advanced |
-| `dataset.xrayCaptured` undefined after reload | content script absent (blocked page, chrome://, PDF viewer) | Report uncapturable; PDFs → hand the user the `?pdf=` reader link |
+| `dataset.xrayCaptured` undefined after reload, or the page cannot be scripted at all and the `#xray:capture` marker is STILL in the tab URL after the settle time | content script absent (chrome://, the Chrome Web Store, other gallery/blocked pages). **NOT PDFs** — verified 2026-08-23: the content script runs inside Chrome's PDF viewer and the marker hands off through the Phase 18 `xray:pdf:open` route, stamping `ok` | Report uncapturable, never work around it |
 | `"error"` stamp | the marker branch threw | Read the console (`pattern: "X-Ray"`) — it logs the reason verbatim |
 | Stamp `"ok"` but the title is `archive.is` / `Just a moment…` / `Medium` | captured an interstitial, not the article | Wait for the real title, then re-capture via a full navigation |
 | Stamp never appears on one specific host | the content script may be throwing before the marker runs | Console first, guess never — this is how the archive.is `<base href>` bug was found (JOURNAL 2026-07-17) |
@@ -138,3 +139,51 @@ outside the group — you cannot close them), which URLs failed and why,
 and which captured content you are UNSURE about. An honest "this one
 may have caught a loading page" is worth more than a green checkmark
 they later discover was empty.
+
+## Agent smoke walk (added 2026-08-23, maintainer directive)
+
+Beyond capture, this skill drives the loaded extension through the
+**agent-verifiable subset of `docs/SMOKE_TEST.md`** so machine-checkable
+rows stop consuming the maintainer's twenty minutes and stop shipping
+unwalked.
+
+**When:** after any behavior-changing branch is loaded (the soak rule's
+companion), before asking the maintainer to walk anything, and before a
+release tag.
+
+**What:** only rows tagged `agent-verifiable`. Rows tagged
+`needs-human-eyes` are out of scope BY DEFINITION — do not attempt
+them, do not mark them, and never report a row you did not run
+(`hand-to-maintainer` owns the human handoff and the honesty rules).
+
+**What may carry the tag (the criterion — added 2026-08-23 after the
+first walk found both tagged rows unrunnable):** a row is
+`agent-verifiable` ONLY if (a) its Do is an ordinary-page navigation
+and (b) its Expect is readable on that same ordinary page — the
+`dataset.xrayCaptured` stamp, `document.title`,
+`document.body.innerText.length`, or the console. The reader, Options,
+the portal and every other extension page are unreachable to the
+connector (see Connector limits) — a row that needs one of them is
+not agent-verifiable however mechanical it looks, and a row that
+needs a publish never is. If a row's invariant is actually a pure
+rule, the right move is to LIFT it into a unit test and retag it
+`unit` (DC-1 is the worked example: `tests/picker-visibility.test.mjs`)
+— that takes it off every list, human and agent. The runnable set
+today is `docs/SMOKE_TEST.md` § "Agent walk — the capture marker (AW)".
+
+**How:**
+1. Confirm the extension is loaded and which branch built `dist/`
+   (`git rev-parse --abbrev-ref HEAD` + the Options build stamp).
+2. Walk each agent-verifiable row via the claude-in-chrome connector:
+   perform the row's Do column, observe its Expect column literally —
+   read rendered text, not DOM presence alone.
+3. Record results in the walk ledger the same way a human walk is
+   recorded: date, rows, PASS/FAIL **with what was observed**, and the
+   build hash. An agent walk is labelled `(agent)` so it is never
+   mistaken for human eyes.
+4. On any FAIL: stop, report with the observation, do not continue to
+   dependent rows.
+
+**Boundaries:** never publish to relays during a smoke walk; never
+spend a paid API call unless the row explicitly requires it and the
+maintainer approved the spend; never mark a `needs-human-eyes` row.
