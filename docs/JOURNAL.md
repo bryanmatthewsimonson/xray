@@ -19,6 +19,84 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-09-05 — `(x || []).filter` is not an array guard: the known-unknowns block's stored-string crash
+
+**Tags:** bug, pattern
+
+Maintainer diagnostics, 2026-08-30, three occurrences: "Known-unknowns
+block failed (f.primary_documents || []).filter is not a function".
+One stored module-04 (source_quality) finding carried a STRING in
+`primary_documents` — a record that predates or slipped past
+`findings-schemas.js` validation — and `known-unknowns.js`'s
+`(f.primary_documents || []).filter(...)` threw on it. `|| []` only
+covers falsy values; any truthy non-array sails through, and the
+portal block's catch-all removed the whole block. The one malformed
+member cost the case every other member's unknowns, three times.
+
+Fix is data tolerance, not a schema change (stored malformed records
+must render degraded, never crash a block — the portal's own rule):
+every list read in `shared/audit/known-unknowns.js` goes through
+`Array.isArray(v) ? v : []`, every displayed scalar through a
+string-only coercion (the renderer slices quotes), and the findings
+payload is narrowed to a plain object. The same sweep covered
+`shared/reference-resolver.js` — whose destructuring defaults cover
+only `undefined`, so a string `primary_documents` iterated as
+characters and an object would have thrown "not iterable" — and the
+identical `moduleResults`/`findings` read in
+`portal/references-block.js`. The renderer
+(`portal/known-unknowns-block.js`) is untouched: it is a 1:1
+projection of the model record, and the tolerance belongs at that one
+seam, not duplicated in the DOM layer.
+
+Tests: `tests/known-unknowns.test.mjs` (the hostile fixture — the
+observed string plus every other list slot in a wrong-but-truthy
+shape — beside a well-formed unknown that must survive, and a
+no-drift check on the healthy shape), `tests/known-unknowns-block.
+test.mjs` (drives the REAL renderer through a DOM stub and asserts
+the block stays and shows the surviving unknown — the failure path
+removes it, so an absent block is the observable crash), and the
+resolver / references-block suites.
+
+The pattern for future readers: **`|| []` is a null guard, not a type
+guard.** Anything read from IndexedDB, chrome.storage, a relay event,
+or a model's tool output that will be iterated or `.filter`ed needs
+`Array.isArray` — the repo already does this in `article-pass.js`,
+`entity-feed.js`, and the transcribe normalizers; this is the same
+rule applied to the runs ledger.
+## 2026-08-28 — a missing session record stopped being a publish refusal
+
+**Tags:** bug, capture
+
+Field-found mid-corpus-capture: a reader tab holding hours of extracted
+claims failed with "Publish failed: Session record missing". The
+record had been evicted by the quota discipline PR #359 added three days
+earlier — correct behaviour for a full session area, wrong consequence.
+
+When that eviction shipped I wrote the tradeoff down as "an evicted
+record's reader tab publishes as 'Session record missing' and recovers
+by re-capture — strictly better than every NEW capture failing." The
+first half was accurate and the second half was lazy: re-capture is not
+a recovery when the tab carries a session's claim work, and the premise
+was wrong anyway. The record is not load-bearing. `handleCapturePublish`
+reads exactly ONE field from it — `record.sourceTabId` — and that field
+matters for exactly one signing method, NIP-07, whose `window.nostr`
+lives in the source page. Local and NSecBunker sign in the worker
+through the Signer façade, which is precisely why PDFs, imported EPUB
+chapters, transcript imports and portal reconstructions have always
+published with `sourceTabId: null`.
+
+So both handlers refused on a missing record and then, two lines later,
+branched correctly on `sourceTabId == null`. The refusal was redundant
+for every method but NIP-07, and for NIP-07 the null branch already
+raises the actionable "needs a web page — switch to Local" error. A
+missing record now degrades to that tabless path in both
+`handleCapturePublish` and the `xray:capture:getPubkey` handler.
+
+The lesson is about the earlier entry, not this one: when a design note
+says a failure mode is acceptable, the note has to be re-read once the
+failure actually happens to someone. Eviction was the right call; the
+price I priced it at was not the price it charged.
+
 ## 2026-08-25 — Suggest's shape failures get ONE paid repair round; the dossier's bandText ghost
 
 **Tags:** bug, llm
