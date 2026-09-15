@@ -1,0 +1,59 @@
+# Branch hygiene — RESET_PLAN §9 "The rules going forward".
+#
+# The weekly cron run is REPORT-ONLY by design: it classifies every remote
+# branch (protected / open-pr / merged / stale / active), prints what the
+# rules WOULD do, and uploads the JSON report. Nothing is deleted or tagged
+# unless a human dispatches this workflow with `apply: true`. To make the
+# cron enforce instead of report, change the one `--apply` line below —
+# that flip is the maintainer's call (RESET_PLAN §11), not this file's.
+#
+# What --apply does (scripts/branch-hygiene.mjs): a branch whose tip is
+# already an ancestor of main is deleted (no tag — the commits are on
+# main); a branch with no open PR and no commit for 14 days is tagged
+# archive/<name>-<yyyymmdd> and then deleted; a branch with an open PR
+# is never touched; main is never touched. The tag is created BEFORE the
+# delete and the delete is refused if the tag did not land.
+name: branch hygiene
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # Mondays 06:00 UTC — report only
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Execute the deletions and archive tags (default: report only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write        # create archive tags, delete merged/stale branches (only with apply)
+  issues: write          # the PR-cap issue (only with apply)
+  pull-requests: read    # the open-PR list
+
+concurrency:
+  group: branch-hygiene
+  cancel-in-progress: false
+
+jobs:
+  hygiene:
+    name: classify branches
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # the ancestor test and tip dates need the whole history
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: classify (dry run unless dispatched with apply=true)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLY: ${{ github.event_name == 'workflow_dispatch' && inputs.apply == true && '--apply' || '' }}
+        run: node scripts/branch-hygiene.mjs --json hygiene-report.json $APPLY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: hygiene-report
+          path: hygiene-report.json
+          retention-days: 30

@@ -81,6 +81,24 @@ web-ext build          # produces a .zip in web-ext-artifacts/
 
 - `npm test` green.
 - `npm run build` green (no errors, no new warnings).
+- `npm run smoke` green — the browser smoke loads the built extension
+  in headless Chromium (`npx playwright install chromium` once per
+  machine). CI runs the same scenarios; `pages` gates every PR (every
+  extension page must run its init to the ready stamp with no uncaught
+  exception and no product `console.error`), the MA.6 walk is advisory
+  until the flip recorded in `docs/JOURNAL.md` 2026-09-07. A new
+  extension page joins `pages` by ending its init with
+  `markReady('<dir>')` (`src/shared/smoke-anchors.js`).
+- The golden fixtures still pass. `tests/fixtures/{idb,wire,backup}/`
+  pin every shipped IndexedDB schema rung, every emitted NOSTR kind,
+  and the backup envelope; `tests/structure-guards.test.mjs` pins the
+  import graph, the message set, and per-surface ceilings (all
+  shrink-only). If you bumped a `DB_VERSION`, changed a builder's
+  tags/content, or changed the backup envelope, regenerate with
+  `node tests/tools/gen-{idb,wire,backup}-fixtures.mjs`, commit the
+  diff, and call the change out in the PR (`Wire format:` for
+  anything a relay consumer would see). A fixture diff you did not
+  intend is a regression, not a fixture to refresh.
 - Load in Chrome and smoke-test whatever path you touched end to
   end. For platform handlers: capture + publish on a live page, not
   just a static fixture.
@@ -89,6 +107,31 @@ web-ext build          # produces a .zip in web-ext-artifacts/
   CSP.
 
 `web-ext lint` must pass. CI runs it on every push and PR.
+
+## Branch hygiene
+
+`scripts/branch-hygiene.mjs` enforces RESET_PLAN §9's branch rules
+(the weekly `hygiene.yml` runs it report-only; enforcement happens only
+when a human dispatches it with `--apply`):
+
+- `main` is never touched; neither is any branch with an open PR.
+- A branch whose tip is already an ancestor of `main` is deleted, no tag.
+- A branch with no open PR and no commit for fourteen days is tagged
+  `archive/<name-with-slashes-as-dashes>-<yyyymmdd of the tip>` and then
+  deleted — the tag lands first, and the delete is refused if it did not.
+- Branch names are `<lane>/<topic>` (`fix/…`, `feat/…`, `docs/…`,
+  `claude/…`); violations are reported, never acted on.
+- At most four open non-dependabot PRs (drafts count); over the cap the
+  apply run opens or updates one tracking issue.
+
+Local dry run (nothing is written without `--apply`; needs a full-history
+clone and an up-to-date `origin/main`):
+
+    node scripts/branch-hygiene.mjs --today YYYY-MM-DD --json /tmp/hygiene.json
+
+Restore an archived branch:
+
+    git fetch origin tag archive/<x> && git checkout -b <lane>/<topic> archive/<x>
 
 ## Signing key safety
 

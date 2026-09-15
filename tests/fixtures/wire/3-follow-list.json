@@ -1,0 +1,51 @@
+{
+  "builder": {
+    "fn": "EventBuilder.buildFollowListEvent",
+    "module": "src/shared/event-builder.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "",
+    "created_at": 1700000000,
+    "id": "dea874c9433ea6a16ee7a3cdabc5719aed1fa6c45e326e72ff9d3b286b7afdf9",
+    "kind": 3,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "a6d911922daa07741ce45d142c6191560fd20bce902b5933d5ee372944dd6d838bc332f5126cbf95f79c42839275f1cbac59491edd435b4a8ed689f3be73379f",
+    "tags": [
+      [
+        "p",
+        "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+        "wss://relay.example",
+        "Entity Three"
+      ],
+      [
+        "p",
+        "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+        ""
+      ]
+    ]
+  },
+  "inputs": {
+    "entries": [
+      {
+        "label": "Entity Three",
+        "pubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+        "relayHints": [
+          "wss://relay.example"
+        ]
+      },
+      {
+        "pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+      }
+    ],
+    "options": {
+      "includeLabels": true
+    },
+    "userPubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+  },
+  "kind": 3,
+  "notes": "NIP-02 mirror with includeLabels ON so the petname slot is pinned; second entry has no hint (empty slot kept).",
+  "rebuild": "exact",
+  "shape": "follow-list",
+  "signer": "TV1"
+}

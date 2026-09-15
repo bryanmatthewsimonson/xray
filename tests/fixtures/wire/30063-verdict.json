@@ -1,0 +1,121 @@
+{
+  "builder": {
+    "fn": "buildAdjudicatedVerdictEvent",
+    "module": "src/shared/truth-builders.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "Cross-checked against the certified journal.",
+    "created_at": 1700000000,
+    "id": "ba20420ed55e4a696f146c5f2aef20e9f269c2e3e09c4028fef74d36534921ff",
+    "kind": 30063,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "1c4f4fbf0018cda9b015e13e776781e9717f856c8e7ffd3155801decfdecc8766b87388f7f6e969f9e40d0f943c41eff9dd57928af471562520e45c3360c331b",
+    "tags": [
+      [
+        "d",
+        "verdict:c25ef089376b5f91"
+      ],
+      [
+        "a",
+        "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_c6bfed4695f9ee16",
+        "",
+        "proposition-claim"
+      ],
+      [
+        "L",
+        "xray/adjudication"
+      ],
+      [
+        "l",
+        "established-true",
+        "xray/adjudication"
+      ],
+      [
+        "proposition-class",
+        "event-fact"
+      ],
+      [
+        "subject-role",
+        "enacted"
+      ],
+      [
+        "criteria",
+        "The official roll-call record."
+      ],
+      [
+        "occurred",
+        "1614729600",
+        "day"
+      ],
+      [
+        "standard",
+        "preponderance"
+      ],
+      [
+        "evidence-for",
+        "Roll-call 71: Nay.",
+        "tier-1",
+        "https://example.org/71"
+      ],
+      [
+        "caveat",
+        "Could not verify a later motion."
+      ],
+      [
+        "method",
+        "manual record check"
+      ],
+      [
+        "r",
+        "https://example.com/article"
+      ],
+      [
+        "i",
+        "https://example.com/article"
+      ],
+      [
+        "k",
+        "web"
+      ],
+      [
+        "suggested-by",
+        "user"
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "caveats": [
+      "Could not verify a later motion."
+    ],
+    "claimCoord": "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_c6bfed4695f9ee16",
+    "evidenceFor": [
+      {
+        "quote": "Roll-call 71: Nay.",
+        "tier": "tier-1",
+        "url": "https://example.org/71"
+      }
+    ],
+    "method": "manual record check",
+    "occurredAt": 1614729600,
+    "occurredPrecision": "day",
+    "propositionClass": "event-fact",
+    "rationale": "Cross-checked against the certified journal.",
+    "resolutionCriteria": {
+      "criteria": "The official roll-call record."
+    },
+    "sourceUrl": "https://example.com/article",
+    "standardOfProof": "preponderance",
+    "subjectRole": "enacted",
+    "verdict": "established-true"
+  },
+  "kind": 30063,
+  "notes": "event-fact / established-true under preponderance; NEVER a p tag. The truth tag() helper TRIMS trailing empty slots — compare raw arrays.",
+  "rebuild": "exact",
+  "shape": "verdict",
+  "signer": "TV1"
+}
