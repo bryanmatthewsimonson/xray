@@ -1,0 +1,58 @@
+# Dependabot auto-merge — RESET_PLAN §9: "Dependabot devDependency and
+# action bumps auto-merge on green".
+#
+# Scope, deliberately narrow: GitHub Actions pins and npm DEVELOPMENT
+# dependencies only. npm RUNTIME dependencies (@mozilla/readability,
+# pdfjs-dist, turndown, turndown-plugin-gfm ship inside the bundles that
+# reach installed users) and the companion's uv/pip dependencies stay
+# manual — this workflow only logs them. A Dependabot group that mixes a
+# runtime dependency with dev ones reports dependency-type
+# "direct:production" (fetch-metadata takes the highest type), so it
+# stays manual too.
+#
+# Two repo settings this needs, both maintainer-owed (Settings → General
+# and Settings → Branches): "Allow auto-merge" ON, and branch protection
+# on main with the CI checks required — without required checks,
+# auto-merge would merge on the first green instead of waiting for all.
+# `gh pr merge --auto` only queues the merge; the required checks decide.
+name: dependabot auto-merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'bryanmatthewsimonson/xray'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: read Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@21025c705c08248db411dc16f3619e6b5f9ea21a # v2.5.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: enable auto-merge (actions pins and npm devDependencies only)
+        if: >-
+          contains(fromJSON('["github_actions","github-actions"]'), steps.meta.outputs.package-ecosystem)
+          || (contains(fromJSON('["npm_and_yarn","npm"]'), steps.meta.outputs.package-ecosystem)
+              && steps.meta.outputs.dependency-type == 'direct:development')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR_URL"
+      - name: manual review required
+        if: >-
+          !(contains(fromJSON('["github_actions","github-actions"]'), steps.meta.outputs.package-ecosystem)
+          || (contains(fromJSON('["npm_and_yarn","npm"]'), steps.meta.outputs.package-ecosystem)
+              && steps.meta.outputs.dependency-type == 'direct:development'))
+        env:
+          ECO: ${{ steps.meta.outputs.package-ecosystem }}
+          DTYPE: ${{ steps.meta.outputs.dependency-type }}
+          NAMES: ${{ steps.meta.outputs.dependency-names }}
+        run: |
+          echo "manual review: ecosystem=$ECO dependency-type=$DTYPE ($NAMES) - runtime or companion dependency, not auto-merged"
