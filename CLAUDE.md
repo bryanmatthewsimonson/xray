@@ -110,12 +110,17 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
 
 - **`storage.js`** — `chrome.storage.local` wrapper; the **canonical source
   of truth**. Preserves the userscript's outer API (`Storage.get/set/...`
-  plus `publications`/`people`/`organizations`/`preferences`/`keypairs`
-  sub-objects) so callers didn't change during the port. Values are
-  JSON-serialized for export/import compatibility. Note: the **primary
-  signing identity (Local mode) lives under a separate
-  `local_primary_identity` key**, deliberately *outside* the keypair
-  registry, so exporting entity keys never leaks the user's nsec.
+  plus `preferences`/`primaryIdentity`/`platformAccounts`/`relays`
+  sub-objects) so callers didn't change during the port; the
+  userscript-era `publications`/`people`/`organizations`/`keypairs`
+  sub-objects are gone (removed 2026-07-01), and captured articles live
+  in `archive-cache.js`'s IndexedDB, not here — `entities`/`articleCache`
+  survive only as dead v4-compat stubs (kill candidate K14 in
+  ROAD_TO_1_0). Values are JSON-serialized for export/import
+  compatibility. Note: the **primary signing identity (Local mode) lives
+  under a separate `local_primary_identity` key**, deliberately *outside*
+  the per-entity key registry (`local_keys`), so exporting entity keys
+  never leaks the user's nsec.
 - **`signer.js`** — unified signing façade over Local / NIP-07 /
   NSecBunker, dispatched on `preferences.signing_method`. NIP-07 only works
   where a `nip07Client` is injected (`Signer.configure({ nip07Client })`),
