@@ -1212,8 +1212,27 @@ flip to enforcement is a §11 call), `.github/workflows/dependabot-automerge.yml
 (actions pins and npm devDependencies only; runtime and uv bumps stay
 manual), and the `dependabot.yml` group split.
 
-**Runbook — the maintainer's part, in order** (or say "go" for the
-steps an agent may do with permission; none of these were executed):
+**Executed 2026-09-15, on the maintainer's go** (answered the same
+day, in the session): (a) the eight machine-class merges, squash, in
+§9's order — #373 (marked ready) → #369 → #372 → #375 → #378 → #371 →
+#366 → #364 (marked ready); `main` moved from `c1e652c` to `07b91c5`.
+Branch protection turned out to require an up-to-date branch, so each
+PR got a merge of `main` (the JOURNAL resolved by union, newest entry
+first) and a fresh CI run before its merge — the house "Merge main into
+…" pattern, one more time each. (b) #370 parked: closed with the
+guard's price stated in the closing comment; branch kept. (c) #374 and
+#324 brought onto the merged `main` the same way (build and tests green
+on both; the browser smoke does not exist on `main` yet, so it could
+not run there); both now wait on their human rows. (d) The R0 slices
+moved to their own branch, `toolchain/r0-net`, cut from the merged
+`main` — the smoke, the guard, the fixtures, the hygiene tooling, and
+the one grandfathering commit (the background ceiling re-pinned 1875 →
+1888 for #369) — so this PR is the plan and the audit reports only.
+NOT executed, by the maintainer's choice: #368's stray-file removal and
+merge, #376, and the hygiene `--apply` (65 deletes + 1 archive tag);
+the repo settings remain admin-only.
+
+**Runbook — what remains, in order:**
 
 1. *Repo settings (~2 min, admin only).* Settings → General → Pull
    Requests: squash merging ON, merge commits OFF, rebase merging OFF,
@@ -1232,10 +1251,13 @@ steps an agent may do with permission; none of these were executed):
    #374 registers its five literals when the net is in), then merge.
 5. *Rebase and merge #377* last (step 2's grandfathering point).
 6. *Hygiene:* dispatch `branch hygiene` with `apply=true` once (or
-   `node scripts/branch-hygiene.mjs --apply` locally): 65 deletes, one
-   archive tag, and the PR-cap issue (10 open non-Dependabot PRs > 4
-   today; the cap starts binding once the queue above drains).
+   `node scripts/branch-hygiene.mjs --apply` locally) after
+   `toolchain/r0-net` merges: 65 deletes, one archive tag, and the
+   PR-cap issue (the open non-Dependabot count is now 5 — #324, #365,
+   #374, #377 and the net PR — against a cap of 4).
 7. *Fold #365* per its row, in a fresh ≤120-line PR.
+8. *Merge `toolchain/r0-net`* (the net) before any further behaviour
+   PR, then #374 and #324 register their guard entries on rebase.
 
 
 ---
