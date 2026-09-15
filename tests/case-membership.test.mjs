@@ -8,6 +8,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { seedPrimary } from './seed-primary.mjs';
+
 await import('fake-indexeddb/auto');
 
 const _store = new Map();
@@ -38,6 +40,7 @@ const {
 
 async function reset() {
     _store.clear();
+    seedPrimary(_store);
     LocalKeyManager.keys.clear();
     try { await clearArchive(); } catch (_) { /* db may not exist yet */ }
 }

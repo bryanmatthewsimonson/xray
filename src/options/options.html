@@ -159,6 +159,19 @@
           or <a href="https://getalby.com/" target="_blank" rel="noopener">Alby</a>
           if you don't have a NIP-07 provider yet.
         </p>
+        <p class="xr-opt__hint">
+          <strong>What NIP-07 covers:</strong> your own publishes
+          (articles, claims, judgments) from a captured page, signed by
+          your provider so the nsec never enters X-Ray. It cannot sign
+          from X-Ray's own pages (Archive, Network) or for tabless
+          captures (PDF, EPUB, transcript imports) — those need Local.
+          <strong>Entities still need a local primary identity</strong>
+          as their root: entity keys derive from it (that is what makes
+          a lost keystore recoverable), and creating an entity without
+          one is refused rather than minting an unrecoverable key. The
+          local primary can sit alongside NIP-07 — it roots your
+          entities; your provider signs your publishes.
+        </p>
       </div>
 
       <!-- NSecBunker panel -->
