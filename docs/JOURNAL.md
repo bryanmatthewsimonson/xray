@@ -36,6 +36,8 @@ the entry's heading anchor in its monthly file.
 
 ## 2026-09
 
+- **2026-09-21** — [MA.6 stays advisory: the 2026-09-21 flip criterion, recorded](journal/2026-09.md#2026-09-21--ma6-stays-advisory-the-2026-09-21-flip-criterion-recorded) · design
+- **2026-09-21** — [The JOURNAL splits into monthly files](journal/2026-09.md#2026-09-21--the-journal-splits-into-monthly-files) · design, pattern
 - **2026-09-05** — [`(x || []).filter` is not an array guard: the known-unknowns block's stored-string crash](journal/2026-09.md#2026-09-05--x--filter-is-not-an-array-guard-the-known-unknowns-blocks-stored-string-crash) · bug, pattern
 - **2026-09-05** — [the designer reviews the governance corpus (and the first attempt had it backwards)](journal/2026-09.md#2026-09-05--the-designer-reviews-the-governance-corpus-and-the-first-attempt-had-it-backwards) · design, process
 
