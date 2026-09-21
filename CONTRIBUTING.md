@@ -26,6 +26,29 @@ codebase — here's what you need to know.
   from the diff, when making a design choice future-you might
   reasonably second-guess, or when working around something a third
   party changed. Keep entries tight.
+  **The generator never discards text.** When `npm run docs:journal`
+  refuses (exit 1) it has listed what it does not recognise — a
+  heading that is not `## YYYY-MM-DD — title` on a calendar date, or
+  an entry in the index whose heading already exists in its month with
+  a different body — and written nothing. Fix the heading; or make the
+  edit in the monthly file and delete the copy from the index.
+  **A branch from before the split** (its entry prepended into
+  `docs/JOURNAL.md`) has two ways home, both one command past the
+  merge: `git rebase origin/main` does not conflict (the union rule
+  comes from main) and leaves your entry in the index, then `npm run
+  docs:journal` moves it into its month; `git merge origin/main`
+  CONFLICTS in `docs/JOURNAL.md` (git reads the union rule from the
+  side you have checked out, which does not have it yet) — do not
+  hand-resolve: run `npm run docs:journal` on the conflicted file
+  (the markers are boundaries to it), `git add docs/JOURNAL.md
+  docs/journal`, commit. GitHub's "Update branch" button is that
+  merge and will report the conflict; resolve it locally the same way.
+  **After a merge to main** the `journal index` workflow
+  (`.github/workflows/journal-index.yml`) regenerates the index and
+  commits when it changed — two regenerated indexes union in merge
+  order and the generator sorts, so a clean merge of two green PRs can
+  still leave main stale. If that job is red, main needs the hand fix
+  its log names.
 - **Smoke test.** [`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md) is the
   manual checklist that exercises every shipped surface, phase by phase.
   Run it before any release tag, after any cross-cutting refactor, or

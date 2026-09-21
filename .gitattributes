@@ -22,6 +22,15 @@
 # Union on the GENERATED index too: a stale PR's prepended entry
 # survives the merge instead of conflicting, and `npm run docs:journal`
 # moves it into its month — the drift guard (tests/journal-index.test.mjs)
-# makes forgetting impossible. Never hand-resolve JOURNAL.md: regenerate.
+# makes forgetting impossible. What union on the index trades: a
+# conflict for a RED DRIFT GUARD, never for silent wrongness — two
+# regenerated indexes union in merge order while the generator sorts,
+# so main can need a regen after a clean merge; the push-to-main job
+# .github/workflows/journal-index.yml does it. Never hand-resolve
+# JOURNAL.md: regenerate. A branch from BEFORE the split still gets a
+# real conflict when it merges main (git reads this attribute from the
+# checked-out side, which lacks it): run `npm run docs:journal` on the
+# conflicted file — the markers are boundaries to it — or rebase onto
+# main, which unions. Recipes: CONTRIBUTING.md, "Engineering journal".
 docs/journal/*.md merge=union
 docs/JOURNAL.md   merge=union

@@ -12,7 +12,9 @@
 // TEXT: unrecognised lines refuse the write and are listed, a stray
 // that amends an existing entry is refused with both line numbers,
 // identical duplicates are summarised, conflict markers are
-// boundaries so a conflicted index heals in one run.
+// boundaries so a conflicted index heals in one run; the post-merge
+// regen workflow's shape (two regenerated indexes union in merge
+// order on main; the generator sorts).
 //
 // Why: docs/RESET_PLAN.md §7 R0, "Split the JOURNAL now, not in R6" —
 // `docs/journal/YYYY-MM.md`, append-at-bottom, `merge=union`, a
@@ -440,4 +442,21 @@ test('mover: conflict markers are boundaries — a conflicted index (the pre-spl
         assert.equal(run({ root: E.root, log: E.log }), 0);
         assert.ok(E.read('docs/journal/2026-09.md').endsWith(`${stray}\n=======\n`));
     } finally { E.done(); }
+});
+
+// ---------------------------------------------------------------- the post-merge regen
+
+test('pin: the journal-index workflow regenerates on a push to main and commits when the index changed', () => {
+    const y = readFileSync(join(ROOT, '.github', 'workflows', 'journal-index.yml'), 'utf8');
+    assert.match(y, /^on:\n  push:\n    branches: \[main\]\n    paths:\n(?:      - .*\n)*      - docs\/journal\/\*\*\n/m, 'fires on a push to main that touched the monthly files');
+    assert.match(y, /^      - docs\/JOURNAL\.md$/m, '… or the index');
+    assert.match(y, /^      - tools\/gen-journal-index\.mjs$/m, '… or the generator');
+    assert.match(y, /^permissions:\n  contents: write/m, 'may push the regen commit');
+    assert.match(y, /run: npm run docs:journal$/m, 'runs the generator itself — never --check: it must heal, not report');
+    assert.match(y, /run: node --test tests\/journal-index\.test\.mjs$/m, 'the journal guards run on the tree it is about to commit');
+    assert.match(y, /git diff --quiet -- docs\/JOURNAL\.md docs\/journal/, 'commits only when the index or a monthly file changed');
+    assert.match(y, /git add docs\/JOURNAL\.md docs\/journal$/m, 'stages both — a moved stray changes a monthly file too');
+    assert.match(y, /git push$/m, 'pushes to main');
+    assert.doesNotMatch(y, /^\s*run: .*npm (ci|install)/m, 'zero dependencies — no install step to rot (the comment may say so; a run: line may not)');
+    for (const uses of y.match(/uses: .*/g)) assert.match(uses, /@[0-9a-f]{40} # v/, `${uses}: pinned to a full commit SHA, like ci.yml`);
 });

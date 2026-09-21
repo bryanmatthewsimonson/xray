@@ -445,7 +445,10 @@ without the other is the design's named long-term risk.
   second-guessable design choice, or working around a third-party
   change, then run `npm run docs:journal` to regenerate the index —
   never edit the index by hand (`tests/journal-index.test.mjs` goes red
-  when it is stale or when an entry landed in it). "JOURNAL YYYY-MM-DD"
+  when it is stale or when an entry landed in it). The generator never
+  discards text: when it refuses it lists the lines and writes nothing;
+  a conflicted or union-merged index is healed by running it, never by
+  hand (recipes: CONTRIBUTING.md, "Engineering journal"). "JOURNAL YYYY-MM-DD"
   still means the entry of that date. Grep `docs/journal/` first when a
   capture target breaks.
 - **`docs/SMOKE_TEST.md`** — ~20-min manual checklist; run before any
