@@ -15,12 +15,17 @@ codebase — here's what you need to know.
   [`docs/ROADMAP.md`](docs/ROADMAP.md) and the relevant phase issue.
   Sub-phase progress belongs as comments on the phase issue, not as
   orphan branches.
-- **Engineering journal.** [`docs/JOURNAL.md`](docs/JOURNAL.md) is
-  the chronological log of bugs, design decisions, and external
-  platform changes. **Add an entry** when fixing a bug whose root
-  cause isn't obvious from the diff, when making a design choice
-  future-you might reasonably second-guess, or when working around
-  something a third party changed. Keep entries tight.
+- **Engineering journal.** The JOURNAL is the chronological log of
+  bugs, design decisions, and external platform changes. Entries live
+  in `docs/journal/YYYY-MM.md` — one file per month, oldest first.
+  **Append a new entry at the BOTTOM** of the current month's file,
+  then run `npm run docs:journal` to regenerate the index at
+  [`docs/JOURNAL.md`](docs/JOURNAL.md) (generated — never edit it by
+  hand; `tests/journal-index.test.mjs` fails when it is stale).
+  **Add an entry** when fixing a bug whose root cause isn't obvious
+  from the diff, when making a design choice future-you might
+  reasonably second-guess, or when working around something a third
+  party changed. Keep entries tight.
 - **Smoke test.** [`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md) is the
   manual checklist that exercises every shipped surface, phase by phase.
   Run it before any release tag, after any cross-cutting refactor, or
@@ -80,6 +85,7 @@ web-ext build          # produces a .zip in web-ext-artifacts/
 ## Testing before you submit
 
 - `npm test` green.
+- `npm run docs:journal -- --check` exits 0 — the JOURNAL index matches the monthly files (the drift guard in `tests/journal-index.test.mjs`; a new entry means a regenerated `docs/JOURNAL.md` in the same PR).
 - `npm run build` green (no errors, no new warnings).
 - Load in Chrome and smoke-test whatever path you touched end to
   end. For platform handlers: capture + publish on a live page, not
@@ -207,8 +213,10 @@ Art. 13 — the constitution governs where this summary and it disagree.
   (Claude) author PRs and never merge. A maintainer merge is the
   ratifying act for any normative change.
 - **Decision recording.** Every decision that accepts a design, kills
-  a feature, or resolves an open question gets a
-  [`docs/JOURNAL.md`](docs/JOURNAL.md) entry with date and rationale.
+  a feature, or resolves an open question gets a JOURNAL entry
+  (appended at the bottom of `docs/journal/YYYY-MM.md`; the index at
+  [`docs/JOURNAL.md`](docs/JOURNAL.md) is regenerated) with date and
+  rationale.
   Agent–maintainer disagreements are recorded, not silently resolved.
 - **Kill-and-revisit.** Kills are recorded with rationale and left
   git-recoverable. A killed plan is not frozen doctrine — inherited
