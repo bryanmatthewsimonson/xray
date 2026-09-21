@@ -43,12 +43,14 @@ codebase — here's what you need to know.
   (the markers are boundaries to it), `git add docs/JOURNAL.md
   docs/journal`, commit. GitHub's "Update branch" button is that
   merge and will report the conflict; resolve it locally the same way.
-  **After a merge to main** the `journal index` workflow
-  (`.github/workflows/journal-index.yml`) regenerates the index and
-  commits when it changed — two regenerated indexes union in merge
-  order and the generator sorts, so a clean merge of two green PRs can
-  still leave main stale. If that job is red, main needs the hand fix
-  its log names.
+  **Why `main` never carries a stale index.** Two PRs that each append
+  to the same month and each regenerate the index would union in merge
+  order while the generator sorts — but `main`'s branch protection
+  requires an up-to-date branch, so the second PR merges `main` first,
+  its CI runs the drift guard on the merged tree, and a stale index is
+  red there, one `npm run docs:journal` from green. No bot writes to
+  `main`. If that protection is ever relaxed, the same guard goes red
+  on `main`'s own push CI: loud, never silent.
 - **Smoke test.** [`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md) is the
   manual checklist that exercises every shipped surface, phase by phase.
   Run it before any release tag, after any cross-cutting refactor, or

@@ -25,8 +25,9 @@
 # makes forgetting impossible. What union on the index trades: a
 # conflict for a RED DRIFT GUARD, never for silent wrongness — two
 # regenerated indexes union in merge order while the generator sorts,
-# so main can need a regen after a clean merge; the push-to-main job
-# .github/workflows/journal-index.yml does it. Never hand-resolve
+# and main's branch protection (an up-to-date branch before merge) makes
+# the second PR's CI run the drift guard on the merged tree — a stale
+# index is red there, before it can land; no bot writes to main. Never hand-resolve
 # JOURNAL.md: regenerate. A branch from BEFORE the split still gets a
 # real conflict when it merges main (git reads this attribute from the
 # checked-out side, which lacks it): run `npm run docs:journal` on the
