@@ -16,3 +16,12 @@
 *.yml   text eol=lf
 *.svg   text eol=lf
 *.png   binary
+
+# The JOURNAL is split by month (docs/journal/YYYY-MM.md) and appended
+# at the bottom, so two concurrent entries merge cleanly under union.
+# Union on the GENERATED index too: a stale PR's prepended entry
+# survives the merge instead of conflicting, and `npm run docs:journal`
+# moves it into its month — the drift guard (tests/journal-index.test.mjs)
+# makes forgetting impossible. Never hand-resolve JOURNAL.md: regenerate.
+docs/journal/*.md merge=union
+docs/JOURNAL.md   merge=union
