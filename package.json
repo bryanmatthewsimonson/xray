@@ -29,7 +29,7 @@
     "web-ext": "^10.4.0"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "overrides": {
     "adm-zip": "^0.6.1",
