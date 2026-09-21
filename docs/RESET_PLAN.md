@@ -569,11 +569,26 @@ looking where the bugs are.
       rebase #374 and #324; land `scripts/branch-hygiene.mjs` and the
       weekly `hygiene.yml`; turn on auto-delete-on-merge and Dependabot
       auto-merge for devDependencies. (S.)
-- [ ] **Split the JOURNAL now, not in R6.** `docs/journal/YYYY-MM.md`,
-      append-at-bottom, `merge=union`, a generated index at the old path
-      so every existing citation still resolves. It is the one file
-      thirty of the forty-five open-PR pairs conflict on; nothing else in
-      the reset can run in parallel until it moves. (S.)
+- [x] **Split the JOURNAL now, not in R6.** *Landed 2026-09-21 as PR
+      #382 (`toolchain/journal-split`): `docs/journal/YYYY-MM.md` × 5,
+      oldest-first, new entries appended at the bottom; `merge=union`
+      on the monthly files and on the index; `docs/JOURNAL.md` at the
+      old path is a GENERATED index (`npm run docs:journal`, drift
+      guard in `tests/journal-index.test.mjs`) so every "JOURNAL
+      YYYY-MM-DD" citation still resolves — a citation-currency guard
+      now proves it. The generator moves a pre-split branch's stray
+      entry into its month and never discards text (unrecognised
+      lines, amendments and conflict markers refuse the write). The
+      migration was the script's first run, byte-preserving (246/246,
+      verified twice). One repair the verifier proposed — a
+      push-to-main regen bot — was cut: branch protection's
+      up-to-date rule already makes a stale index unreachable. 22 + 15
+      negative controls on the JOURNAL record (2026-09-21).* Original
+      scope: `docs/journal/YYYY-MM.md`, append-at-bottom, `merge=union`,
+      a generated index at the old path so every existing citation
+      still resolves. It is the one file thirty of the forty-five
+      open-PR pairs conflict on; nothing else in the reset can run in
+      parallel until it moves. (S.)
 - [ ] **PR template** gains the four body lines of §8 and loses the
       Firefox checkbox until Firefox parity is a stated goal; the CI
       PR-body checks and the JOURNAL-presence check for process-file PRs
@@ -1184,7 +1199,7 @@ wrong, but the reason it must hold is now mechanical.
 | #371 | merge now (Dependabot) | nltk 3.10.1 → 3.10.3 in the companion's `uv.lock` only | n/a — CI never touches the companion; nothing here exercises it | **unchanged, with the honest note**: the only test is the next transcription run; the auto-merge workflow deliberately excludes uv |
 | #372, #378 | merge now (Dependabot) | fast-uri and js-yaml, dev/transitive, lockfile-only | CI is the test | **unchanged**; both become auto-merge-eligible once `dependabot-automerge.yml` is on `main` |
 | #375 | merge now (Dependabot) | `softprops/action-gh-release` 3.0.2 → 3.0.3, one SHA pin | CI is the test | **unchanged**; auto-merge-eligible |
-| #376 | merge now (Dependabot, "lockfile bumps") | **CORRECTION.** Not lockfile-only and not dev-only: it bumps `pdfjs-dist` 6.2.108 → 6.3.289 — a RUNTIME dependency that ships in `pdf-engine.bundle.js` and whose cmaps / fonts / wasm the build copies into `dist/` — alongside esbuild and web-ext. It also conflicts with #377 on `package.json` + lockfile (#377 added `playwright`) | not run: the lockfile needs a real `npm install` to mean anything | **changed**: merge it BEFORE #377 (then #377 regenerates the lock at rebase) and only after the browser smoke is green on it plus one human row — capture one PDF and open it in the reader (~3 min). `.github/dependabot.yml` now splits the npm group by dependency type so a runtime bump never rides with dev bumps again; the auto-merge workflow keeps mixed groups manual by construction (fetch-metadata reports the highest type) |
+| #376 | merge now (Dependabot, "lockfile bumps") | **CORRECTION.** Not lockfile-only and not dev-only: it bumps `pdfjs-dist` 6.2.108 → 6.3.289 — a RUNTIME dependency that ships in `pdf-engine.bundle.js` and whose cmaps / fonts / wasm the build copies into `dist/` — alongside esbuild and web-ext. It also conflicts with #377 on `package.json` + lockfile (#377 added `playwright`) | not run: the lockfile needs a real `npm install` to mean anything | **changed**: merge it BEFORE #377 (then #377 regenerates the lock at rebase) and only after the browser smoke is green on it plus one human row — capture one PDF and open it in the reader (~3 min). `.github/dependabot.yml` now splits the npm group by dependency type so a runtime bump never rides with dev bumps again; the auto-merge workflow keeps mixed groups manual by construction (fetch-metadata reports the highest type). *2026-09-21:* its CI has been red on every run for a second reason — `pdfjs-dist` 6.3 constructs its loading task with `Promise.withResolvers`, a Node 22 API, and CI pinned Node 20; PR #381 bumps CI and the `engines` floor to 22 first, then #376 |
 | #366 | merge now into `docs/ideas/`, "rebase five commits" | 667 lines, one file; behind `main` by five commits but `merge-tree` is clean — no rebase needed | green / 3034 pass / green / n/a | **unchanged, minus the rebase** |
 | #364 | mark ready, merge (docs only) | `docs/GOVERNANCE_UX_REVIEW.md` +307 and a JOURNAL entry; draft | green / 3034 pass / green / n/a | **unchanged** |
 | #365 | fold (a 453-line skill mirroring the corpus) | 453 lines exact; also edits `architect/SKILL.md`, the skills README, `CLAUDE.md`, and the GENERATED `discipline-standards.html` (the drift guard stayed green on the net) | green / 3034 pass / green / n/a | **unchanged** |
