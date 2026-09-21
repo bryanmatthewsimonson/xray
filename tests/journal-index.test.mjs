@@ -14,7 +14,9 @@
 // identical duplicates are summarised, conflict markers are
 // boundaries so a conflicted index heals in one run; the post-merge
 // regen workflow's shape (two regenerated indexes union in merge
-// order on main; the generator sorts).
+// order on main; the generator sorts); every relative repo-path link in
+// a monthly file resolves from docs/journal/ (the entries moved one
+// directory deeper than they were written).
 //
 // Why: docs/RESET_PLAN.md §7 R0, "Split the JOURNAL now, not in R6" —
 // `docs/journal/YYYY-MM.md`, append-at-bottom, `merge=union`, a
@@ -39,7 +41,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, existsSync, statSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
-import { join, relative, sep } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 
 import {
     parseEntries, listHeadings, slugify, renderIndex, monthlyFileFor, extractStrays, collectEntries, readJournalDir,
@@ -459,4 +461,50 @@ test('pin: the journal-index workflow regenerates on a push to main and commits 
     assert.match(y, /git push$/m, 'pushes to main');
     assert.doesNotMatch(y, /^\s*run: .*npm (ci|install)/m, 'zero dependencies — no install step to rot (the comment may say so; a run: line may not)');
     for (const uses of y.match(/uses: .*/g)) assert.match(uses, /@[0-9a-f]{40} # v/, `${uses}: pinned to a full commit SHA, like ci.yml`);
+});
+
+// ---------------------------------------------------------------- relative links
+
+// The entries were written in docs/JOURNAL.md; docs/journal/ is one
+// directory deeper, so every relative repo-path link gained one `../`
+// (a mechanical rewrite AFTER the byte-preserving migration commit).
+// Targets that were dead BEFORE the split — files since deleted — as
+// repo-relative paths, shrink-only, set-equal both ways.
+const KNOWN_DEAD_LINK_TARGETS = [
+    'src/popup/index.js', 'src/popup/popup.html',                                  // the popup surface was removed
+    'src/shared/userscript-migration.js', 'tests/userscript-migration.test.mjs',  // the userscript migration was retired
+];
+// ../x, ./x, or a bare NAME.md[#frag] — not a scheme, a fragment, or a placeholder like `url`.
+const REPO_PATH_LINK = /^(?:\.\.?\/|[\w.-]+\.md(?:#|$))/;
+
+function repoPathLinks(text) {
+    const out = [];
+    text.split('\n').forEach((line, i) => {
+        for (const m of line.matchAll(/\]\(([^)\s]+)\)/g)) {
+            if (!REPO_PATH_LINK.test(m[1])) continue;
+            // `#fragment` and an editor-style `:line` suffix are not part of the path.
+            out.push({ line: i + 1, target: m[1], path: m[1].split('#')[0].replace(/:\d+$/, '') });
+        }
+    });
+    return out;
+}
+
+test('sanity: the link scanner sees the relative repo-path links in the monthly files', () => {
+    assert.deepEqual(repoPathLinks('see [a](../../src/x.js:12), [b](../CHANGELOG.md#v1), [c](https://x.y/z), [d](#frag), [e](url), [f](xray-figure:<sha256>), [g](./y.md)').map((l) => l.path),
+        ['../../src/x.js', '../CHANGELOG.md', './y.md']);
+    const total = monthly.reduce((n, { text }) => n + repoPathLinks(text).length, 0);
+    assert.ok(total >= 90, `scanner sees ${total} repo-path links (expected ≥ 90; the corpus had 98 at the rewrite)`);
+});
+
+test('guard: every relative repo-path link under docs/journal/ resolves (allowlist of pre-split dead targets, shrink-only)', () => {
+    const dead = new Map();
+    for (const { file, text } of monthly) {
+        for (const l of repoPathLinks(text)) {
+            const abs = resolve(ROOT, 'docs', 'journal', l.path);
+            if (!existsSync(abs)) { const key = rel(abs); dead.set(key, [...(dead.get(key) || []), `${file}:${l.line}`]); }
+        }
+    }
+    assert.deepEqual([...dead.keys()].sort(), [...KNOWN_DEAD_LINK_TARGETS].sort(),
+        `dead relative links (target → where) must EQUAL the shrink-only allowlist: ${JSON.stringify([...dead])} — ` +
+        'a link written from docs/ needs one more ../ from docs/journal/; a target that came back must leave KNOWN_DEAD_LINK_TARGETS');
 });
