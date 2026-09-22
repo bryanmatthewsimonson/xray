@@ -43,7 +43,7 @@ import { tmpdir } from 'node:os';
 import { join, relative, resolve, sep } from 'node:path';
 
 import {
-    parseEntries, listHeadings, slugify, renderIndex, monthlyFileFor, extractStrays, collectEntries, readJournalDir,
+    parseEntries, rebaseLinks, listHeadings, slugify, renderIndex, monthlyFileFor, extractStrays, collectEntries, readJournalDir,
     isEntryHeading, isCalendarDate, isIndexResidue, monthlyHeader, run,
     GENERATED_LINE, INDEX_START, INDEX_END, INDEX_PREAMBLE, LEGACY_PREAMBLE, ENTRY_HEADING_RE, MONTH_FILE_RE,
 } from '../tools/gen-journal-index.mjs';
@@ -295,6 +295,30 @@ test('mover: a stray entry prepended to the index comes out whole and leaves the
     const r = extractStrays(inside);
     assert.deepEqual(r.strays.map((s) => s.text), [stray]);
     assert.ok(!r.rest.includes(stray.split('\n')[0]));
+});
+
+test('mover: a moved stray has its relative repo-path links rebased one directory deeper; an original-depth copy is a duplicate, not an amendment', () => {
+    const entry = ['## 2026-09-20 — Links move with the entry', '', '**Tags:** design',
+        'See [a](../src/x.js:12), [b](CAPTURE_GUIDE.md#s), [c](./y.md), [d](https://example.com/z), [e](#frag), [f](journal/2026-09.md#x).'].join('\n');
+    const rebased = rebaseLinks(entry);
+    assert.equal(rebased, entry.replace('(../src/x.js:12)', '(../../src/x.js:12)').replace('(CAPTURE_GUIDE.md#s)', '(../CAPTURE_GUIDE.md#s)').replace('(./y.md)', '(../y.md)'),
+        'repo-path links gain one ../; absolute URLs, fragments and journal/ links are untouched');
+    const E = lab({ '2026-09.md': BASE_09 }, entry + '\n\n' + CLEAN);
+    try {
+        assert.equal(run({ root: E.root, log: E.log }), 0, E.logs.join('\n'));
+        const month = E.read('docs/journal/2026-09.md');
+        assert.ok(month.endsWith('\n' + rebased + '\n'), 'the moved entry lands with rebased links');
+        assert.ok(!month.includes('(../src/x.js:12)'), 'no original-depth link survives the move');
+        // The same entry at its original depth again (a branch from before
+        // the split merging main): identical after rebasing — nothing amended.
+        const E2 = lab({ '2026-09.md': month }, entry + '\n\n' + E.read('docs/JOURNAL.md'));
+        try {
+            assert.equal(run({ root: E2.root, log: E2.log }), 0, E2.logs.join('\n'));
+            assert.ok(E2.logs.some((l) => /1 already-migrated/.test(l)), E2.logs.join('\n'));
+            assert.ok(!E2.logs.some((l) => /DIFFERENT body/.test(l)), 'an original-depth copy is not an amendment');
+            assert.equal(E2.read('docs/journal/2026-09.md'), month, 'nothing appended twice');
+        } finally { E2.done(); }
+    } finally { E.done(); }
 });
 
 test('pin: index residue is every line a regen reproduces or replaced — both preambles, markers, bullets, month headings, blanks', () => {

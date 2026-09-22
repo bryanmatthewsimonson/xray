@@ -327,6 +327,18 @@ function sameEntry(a, b) {
     return norm(a) === norm(b);
 }
 
+// A stray was written in docs/JOURNAL.md, so its relative repo-path
+// links point from docs/; docs/journal/ is one directory deeper. Every
+// such link gains one `../` on the way in — the rewrite the migration
+// applied to the 246 originals — so a moved entry's links still
+// resolve, and an original-depth copy (a branch from before the split
+// merging main) compares EQUAL to the monthly file instead of reading
+// as an amendment. Found by the first real merge, not by a simulation.
+export const REPO_PATH_LINK_RE = /\]\((\.\.?\/[^)\s]*|[\w.-]+\.md(?:#[^)\s]*)?)\)/g;
+export function rebaseLinks(text) {
+    return text.replace(REPO_PATH_LINK_RE, (m, target) => `](../${target.startsWith('./') ? target.slice(2) : target})`);
+}
+
 const show = (text) => (text.length > 100 ? `${text.slice(0, 97)}...` : text).replace(/\r/g, '\\r');
 
 // `entriesByFile`: [{ file, entries }] (or a Map file → entries) in
@@ -421,14 +433,15 @@ export function run({ check = false, root = ROOT, log = console.log } = {}) {
     for (const s of strays) {
         const rel = monthlyFileFor(s.date);
         const text = monthly.get(rel) ?? monthlyHeader(s.month);
+        const moved = rebaseLinks(s.text);
         const existing = parseEntries(text).find((e) => e.heading === s.heading);
         if (existing) {
-            if (sameEntry(existing.text, s.text)) { identical++; continue; }
+            if (sameEntry(existing.text, moved)) { identical++; continue; }
             log(`skip  ${INDEX_PATH}:${s.line} — ${rel}:${existing.line} has this heading with a DIFFERENT body (amendment NOT applied): ${s.heading}`);
             blocking.push(`${INDEX_PATH}:${s.line} amends ${rel}:${existing.line} — edit the entry in its monthly file, then delete the copy from ${INDEX_PATH}`);
             continue;
         }
-        monthly.set(rel, endWithOneNewline(text) + '\n' + s.text + '\n');
+        monthly.set(rel, endWithOneNewline(text) + '\n' + moved + '\n');
         touched.add(rel);
         log(`move  ${INDEX_PATH}:${s.line} → ${rel}: ${s.heading}`);
     }
