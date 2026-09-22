@@ -1,0 +1,48 @@
+{
+  "builder": {
+    "fn": "buildVerdictMirrorEvent",
+    "module": "src/shared/truth-builders.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "",
+    "created_at": 1700000000,
+    "id": "c79763709de04f55e5d29e2dad35dc0ebe3e4508b0428db6c5471c6ae8f18031",
+    "kind": 1985,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "3e58972a37390a6dd54c07e30c70c69872b3eba3b609a9b75e3f758c543b4437e58b77a35867639c86b934f338ed87abaa1d30ad642b4740aaea7b8598b47eb5",
+    "tags": [
+      [
+        "L",
+        "xray/adjudication"
+      ],
+      [
+        "l",
+        "established-false",
+        "xray/adjudication"
+      ],
+      [
+        "a",
+        "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_c6bfed4695f9ee16"
+      ],
+      [
+        "r",
+        "https://example.com/article"
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "claimCoord": "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_c6bfed4695f9ee16",
+    "sourceUrl": "https://example.com/article",
+    "verdict": "established-false"
+  },
+  "kind": 1985,
+  "notes": "xray/adjudication label on the claim coordinate, never a pubkey.",
+  "rebuild": "exact",
+  "shape": "verdict-mirror",
+  "signer": "TV1"
+}

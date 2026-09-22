@@ -1,0 +1,132 @@
+{
+  "builder": {
+    "fn": "buildDossierSnapshotEvent",
+    "module": "src/shared/audit/builders.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "{\"per_module_means\":{\"omission\":71.5,\"source_quality\":68.2},\"predictions\":{\"calibration\":{\"confident\":{\"rate\":0.5,\"resolved\":2,\"true_count\":1},\"hedged\":{\"rate\":1,\"resolved\":2,\"true_count\":2},\"speculative\":{\"rate\":null,\"resolved\":0,\"true_count\":0}},\"calibration_v1\":{\"mean_brier\":0.305,\"multiplier\":null,\"resolved_count\":4,\"version\":\"calibration-v1\"},\"resolved\":4,\"total\":9},\"top_named_sources\":null,\"corrections\":null}",
+    "created_at": 1700000000,
+    "id": "ead0cea360eb4ac0392d365f0d94649dd3fe7956d4ff8f3cd471ebf6aacd7e68",
+    "kind": 30060,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "651090824e9ca0643ec94c511270140c265cf8f3ba697d5bc0767a99d0681082b83648a2a13774b058306ab37c761276c2390ddc490df5123cd24f654f2bc857",
+    "tags": [
+      [
+        "d",
+        "dossier:338aeec41250f7d8"
+      ],
+      [
+        "subject-kind",
+        "publication_x_beat"
+      ],
+      [
+        "p",
+        "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"
+      ],
+      [
+        "t",
+        "monetary-policy"
+      ],
+      [
+        "window-start",
+        "2023-01-01T00:00:00Z"
+      ],
+      [
+        "window-end",
+        "2023-11-14T00:00:00Z"
+      ],
+      [
+        "article-count",
+        "14"
+      ],
+      [
+        "score-mean",
+        "73.5"
+      ],
+      [
+        "score-median",
+        "75"
+      ],
+      [
+        "score-stdev",
+        "8.1"
+      ],
+      [
+        "shrinkage-k",
+        "10"
+      ],
+      [
+        "population-mean",
+        "77"
+      ],
+      [
+        "shrinkage-factor",
+        "0.42"
+      ],
+      [
+        "auditor",
+        "pipeline",
+        "xray-auditor/0.1.0/anthropic/claude-sonnet-4-6"
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "articleCount": 14,
+    "auditor": {
+      "id": "xray-auditor/0.1.0/anthropic/claude-sonnet-4-6",
+      "kind": "pipeline"
+    },
+    "beat": "monetary-policy",
+    "entityPubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+    "perModuleMeans": {
+      "omission": 71.5,
+      "source_quality": 68.2
+    },
+    "populationMean": 77,
+    "predictions": {
+      "calibration": {
+        "confident": {
+          "rate": 0.5,
+          "resolved": 2,
+          "true_count": 1
+        },
+        "hedged": {
+          "rate": 1,
+          "resolved": 2,
+          "true_count": 2
+        },
+        "speculative": {
+          "rate": null,
+          "resolved": 0,
+          "true_count": 0
+        }
+      },
+      "calibration_v1": {
+        "mean_brier": 0.305,
+        "multiplier": null,
+        "resolved_count": 4,
+        "version": "calibration-v1"
+      },
+      "resolved": 4,
+      "total": 9
+    },
+    "scoreMean": 73.5,
+    "scoreMedian": 75,
+    "scoreStdev": 8.1,
+    "shrinkageFactor": 0.42,
+    "shrinkageK": 10,
+    "subjectKind": "publication_x_beat",
+    "windowEnd": "2023-11-14T00:00:00Z",
+    "windowStart": "2023-01-01T00:00:00Z"
+  },
+  "kind": 30060,
+  "notes": "publication_x_beat subject (TV3) with a canonical beat slug; per-module means key order follows the input (canonical literal).",
+  "rebuild": "exact",
+  "shape": "dossier-snapshot",
+  "signer": "TV1"
+}

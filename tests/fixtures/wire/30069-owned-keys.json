@@ -1,0 +1,68 @@
+{
+  "builder": {
+    "fn": "buildOwnedKeysManifest",
+    "module": "src/shared/identity-builders.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "",
+    "created_at": 1700000000,
+    "id": "621f4c520acc1f6517e51474e41ff8386604aa55161859ee2ec157d45c6d238a",
+    "kind": 30069,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "7597980f228e6926425bc2437692948f1c6762aa0456f817618f6b332f83b1865c71825b29119555edb0e5b24bb1c6a78ec1ac555ed61ec27fb87396c895c2a9",
+    "tags": [
+      [
+        "d",
+        "xray-owned-keys"
+      ],
+      [
+        "client",
+        "xray"
+      ],
+      [
+        "p",
+        "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+        "",
+        "owned"
+      ],
+      [
+        "owned",
+        "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+        "entity_8d478ab5eac9a43d",
+        "COVID origins"
+      ],
+      [
+        "p",
+        "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+        "",
+        "owned"
+      ],
+      [
+        "owned",
+        "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+        "entity_8f345c643bec5da6",
+        "Jane Roe"
+      ]
+    ]
+  },
+  "inputs": {
+    "entities": [
+      {
+        "id": "entity_8f345c643bec5da6",
+        "name": "Jane Roe",
+        "pubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"
+      },
+      {
+        "id": "entity_8d478ab5eac9a43d",
+        "name": "COVID origins",
+        "pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+      }
+    ]
+  },
+  "kind": 30069,
+  "notes": "Creator-binding manifest: rows sorted by pubkey (TV3 sorts before TV2 by hex); primary-signed, pubkey spread in by the reader.",
+  "rebuild": "exact",
+  "shape": "owned-keys",
+  "signer": "TV1"
+}

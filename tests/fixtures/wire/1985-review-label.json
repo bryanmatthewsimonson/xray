@@ -1,0 +1,55 @@
+{
+  "builder": {
+    "fn": "buildReviewRequestLabelEvent",
+    "module": "src/shared/metadata/builders.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "",
+    "created_at": 1700000000,
+    "id": "ac7eb9158cb5c46b54c503a2803e25b0e1806378e0478775d407718b5500371e",
+    "kind": 1985,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "72dbe13bb0f7d2bc853c5f57d03f30f2ccb8f164c84dc20b95ff340a791e305ede8ddea688698f47f06d68ba3604d0e656cdae1974d5138c3bdf0b71552054de",
+    "tags": [
+      [
+        "L",
+        "xray/review"
+      ],
+      [
+        "l",
+        "review-requested",
+        "xray/review"
+      ],
+      [
+        "a",
+        "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_c6bfed4695f9ee16",
+        "wss://relay.example"
+      ],
+      [
+        "e",
+        "c6bfed4695f9ee16a8033311940a5a41d06952ef7dfdb7d505cd4236c29f9cce"
+      ],
+      [
+        "r",
+        "https://example.com/story"
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "relayHint": "wss://relay.example",
+    "targetCoord": "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_c6bfed4695f9ee16",
+    "targetEventId": "c6bfed4695f9ee16a8033311940a5a41d06952ef7dfdb7d505cd4236c29f9cce",
+    "url": "https://example.com/story",
+    "value": "review-requested"
+  },
+  "kind": 1985,
+  "notes": "xray/review label on an addressable coordinate; never a p.",
+  "rebuild": "exact",
+  "shape": "review-label",
+  "signer": "TV1"
+}

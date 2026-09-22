@@ -1,0 +1,199 @@
+{
+  "db": "xray-audits",
+  "producedBy": {
+    "commitOfRung": "84a2556",
+    "generator": "tests/tools/gen-idb-fixtures.mjs",
+    "note": "adds corpus-extracts in the 84a2556 literal (no partial — e544406, no bump)."
+  },
+  "schema": {
+    "case-briefs": {
+      "autoIncrement": false,
+      "indexes": [],
+      "keyPath": "caseId"
+    },
+    "corpus-extracts": {
+      "autoIncrement": false,
+      "indexes": [],
+      "keyPath": "key"
+    },
+    "predictions": {
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "keyPath": "articleHash",
+          "name": "articleHash",
+          "unique": false
+        },
+        {
+          "keyPath": "horizon_iso",
+          "name": "horizonIso",
+          "unique": false
+        },
+        {
+          "keyPath": "resolution_status",
+          "name": "resolutionStatus",
+          "unique": false
+        }
+      ],
+      "keyPath": "id"
+    },
+    "resolutions": {
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "keyPath": "prediction_coord",
+          "name": "predictionCoord",
+          "unique": false
+        }
+      ],
+      "keyPath": "id"
+    },
+    "runs": {
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "keyPath": "articleHash",
+          "name": "articleHash",
+          "unique": false
+        },
+        {
+          "keyPath": "runAt",
+          "name": "runAt",
+          "unique": false
+        }
+      ],
+      "keyPath": "id"
+    }
+  },
+  "stores": {
+    "case-briefs": [
+      {
+        "analyzed": 1,
+        "brief": {
+          "sections": [],
+          "summary": "A one-paragraph fixture brief."
+        },
+        "caseId": "ent_case_fixture",
+        "failed": 0,
+        "grounding": {
+          "checked": 1,
+          "dropped": 0
+        },
+        "inputHash": "fd367f15a000ae8c6a118621d3cbd38dee456bee97434ea7f344196bac3fe448",
+        "members": 1,
+        "model": "claude-fixture",
+        "promptVersion": "corpus-v1",
+        "usage": null
+      }
+    ],
+    "corpus-extracts": [
+      {
+        "cachedAt": 1700000000,
+        "extract": {
+          "key_assertions": [],
+          "open_questions": [],
+          "source_references": []
+        },
+        "key": "5dfa42045879663f9496676621be0f38d6fce9b861df542a7bc24a4f3a43867f",
+        "model": "claude-fixture"
+      }
+    ],
+    "predictions": [
+      {
+        "anchor": null,
+        "articleHash": "43dcfff79d68796afb750aa9c9616acc38447237980a00259de6b96b0ab2b040",
+        "attributed_source_name": null,
+        "attributed_to": "article_voice",
+        "auditor": null,
+        "claim_ref": null,
+        "condition": null,
+        "created": 1700000000,
+        "criteria": "",
+        "evidence_quote": "",
+        "extracted_at": null,
+        "hedge_level": "hedged",
+        "horizon": "by 2027",
+        "horizon_iso": "2027-01-01",
+        "id": "pred_7da79a5d7f2f3747",
+        "latest_resolution_id": null,
+        "publishedAt": null,
+        "publishedEventId": null,
+        "resolution_status": "open",
+        "text": "Example will publish a second article by 2027.",
+        "tractability": "ambiguous",
+        "type": "explicit",
+        "updated": 1700000000
+      },
+      {
+        "anchor": null,
+        "articleHash": "43dcfff79d68796afb750aa9c9616acc38447237980a00259de6b96b0ab2b040",
+        "attributed_source_name": null,
+        "attributed_to": "article_voice",
+        "auditor": {
+          "id": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "kind": "human"
+        },
+        "claim_ref": null,
+        "condition": null,
+        "created": 1700000000,
+        "criteria": "",
+        "evidence_quote": "",
+        "extracted_at": 1700000000,
+        "hedge_level": "hedged",
+        "horizon": "within a year",
+        "horizon_iso": "2024-11-14",
+        "id": "pred_925f41c7643ab07a",
+        "latest_resolution_id": "res_72a51fb5e249facb",
+        "publishedAt": null,
+        "publishedEventId": null,
+        "resolution_status": "resolved_true",
+        "text": "Example will retire the v1 store within a year.",
+        "tractability": "ambiguous",
+        "type": "explicit",
+        "updated": 1700003600
+      }
+    ],
+    "resolutions": [
+      {
+        "auditor": null,
+        "confidence": null,
+        "created": 1700003600,
+        "evidence": [],
+        "id": "res_72a51fb5e249facb",
+        "notes": "Resolved in the fixture.",
+        "outcome": "true",
+        "prediction_coord": "30058:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:pred_925f41c7643ab07a",
+        "publishedAt": null,
+        "publishedEventId": null,
+        "resolved_at": 1700003600,
+        "updated": 1700003600
+      }
+    ],
+    "runs": [
+      {
+        "aggregate": null,
+        "articleHash": "43dcfff79d68796afb750aa9c9616acc38447237980a00259de6b96b0ab2b040",
+        "auditor": {
+          "id": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "kind": "human"
+        },
+        "created": 1700000000,
+        "events": {},
+        "id": "audit_37f6b351008dcc57",
+        "moduleResults": [
+          {
+            "failed": false,
+            "findings": {},
+            "module": "prediction_extraction",
+            "module_version": "1.0",
+            "run_at": "2023-11-14T22:13:20.000Z"
+          }
+        ],
+        "runAt": "2023-11-14T22:13:20.000Z",
+        "source": "manual",
+        "updated": 1700000000
+      }
+    ]
+  },
+  "version": 3
+}
