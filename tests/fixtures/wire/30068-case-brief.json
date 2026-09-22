@@ -1,0 +1,162 @@
+{
+  "builder": {
+    "fn": "buildCaseBriefEvent",
+    "module": "src/shared/corpus-publish.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "{\"case_name\":\"COVID origins\",\"scope_question\":\"Where did it start?\",\"summary\":\"Two camps disagree on the origin.\",\"positions\":[{\"core_argument\":\"A research-related incident.\",\"holders\":[{\"article_hash\":\"8f345c643bec5da64712b546114f94bbffbe5e4dacf6b89108e0da9dd37b1f20\"}],\"label\":\"Lab leak\"},{\"core_argument\":\"A natural spillover.\",\"holders\":[{\"article_hash\":\"8d478ab5eac9a43ddc6f3f426d55879bfcc2ab8262a48b54a4f467e91df2ac67\"}],\"label\":\"Zoonosis\"}],\"cruxes\":[{\"evidence_refs\":[{\"article_hash\":\"8d478ab5eac9a43ddc6f3f426d55879bfcc2ab8262a48b54a4f467e91df2ac67\",\"quote\":\"No signatures of engineering were found.\"}],\"question\":\"Does the genome show engineering?\",\"sides\":[{\"position_label\":\"Lab leak\",\"view\":\"The furin site is suspicious.\"},{\"position_label\":\"Zoonosis\",\"view\":\"The site occurs in nature.\"}],\"what_would_resolve\":\"An early-case sequence from the market.\"}],\"load_bearing\":[{\"article_hash\":\"8f345c643bec5da64712b546114f94bbffbe5e4dacf6b89108e0da9dd37b1f20\",\"claim_ref\":null,\"quote\":\"The lab studied related coronaviruses.\",\"why\":\"Establishes capability.\"}],\"coverage_gaps\":[\"No primary lab records in the corpus.\"]}",
+    "created_at": 1700000000,
+    "id": "22f4dac284f83e76057bd5045495d756e511fa54a6c23b9090822cec18695f0d",
+    "kind": 30068,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "2eb58601eb29be5d4a730741789b053fc097306827cde59bd1b18f2b7e284af1f5141cadd9f532224a5491d381a4de80d7e3a2bc3a863d29a40bae2ff88da6e4",
+    "tags": [
+      [
+        "d",
+        "xray-brief:entity_8d478ab5eac9a43d"
+      ],
+      [
+        "title",
+        "Case brief — COVID origins"
+      ],
+      [
+        "t",
+        "xray-case-brief"
+      ],
+      [
+        "client",
+        "xray"
+      ],
+      [
+        "prompt_version",
+        "corpus-v1"
+      ],
+      [
+        "grounded",
+        "5:1"
+      ],
+      [
+        "published_at",
+        "1700000000"
+      ],
+      [
+        "a",
+        "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:xray-brief:entity_8d478ab5eac9a43d"
+      ],
+      [
+        "a",
+        "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:aaaa1111",
+        "",
+        "member"
+      ],
+      [
+        "x",
+        "8f345c643bec5da64712b546114f94bbffbe5e4dacf6b89108e0da9dd37b1f20"
+      ],
+      [
+        "a",
+        "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:bbbb2222",
+        "",
+        "member"
+      ],
+      [
+        "x",
+        "8d478ab5eac9a43ddc6f3f426d55879bfcc2ab8262a48b54a4f467e91df2ac67"
+      ]
+    ]
+  },
+  "inputs": {
+    "caseName": "COVID origins",
+    "memberIndex": {
+      "8d478ab5eac9a43ddc6f3f426d55879bfcc2ab8262a48b54a4f467e91df2ac67": {
+        "coord": "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:bbbb2222",
+        "title": "The Zoonosis Case",
+        "url": "https://example.com/zoo"
+      },
+      "8f345c643bec5da64712b546114f94bbffbe5e4dacf6b89108e0da9dd37b1f20": {
+        "coord": "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:aaaa1111",
+        "title": "The Lab-Leak Case",
+        "url": "https://example.com/leak"
+      }
+    },
+    "record": {
+      "brief": {
+        "coverage_gaps": [
+          "No primary lab records in the corpus."
+        ],
+        "cruxes": [
+          {
+            "evidence_refs": [
+              {
+                "article_hash": "8d478ab5eac9a43ddc6f3f426d55879bfcc2ab8262a48b54a4f467e91df2ac67",
+                "quote": "No signatures of engineering were found."
+              }
+            ],
+            "question": "Does the genome show engineering?",
+            "sides": [
+              {
+                "position_label": "Lab leak",
+                "view": "The furin site is suspicious."
+              },
+              {
+                "position_label": "Zoonosis",
+                "view": "The site occurs in nature."
+              }
+            ],
+            "what_would_resolve": "An early-case sequence from the market."
+          }
+        ],
+        "load_bearing": [
+          {
+            "article_hash": "8f345c643bec5da64712b546114f94bbffbe5e4dacf6b89108e0da9dd37b1f20",
+            "claim_ref": null,
+            "quote": "The lab studied related coronaviruses.",
+            "why": "Establishes capability."
+          }
+        ],
+        "positions": [
+          {
+            "core_argument": "A research-related incident.",
+            "holders": [
+              {
+                "article_hash": "8f345c643bec5da64712b546114f94bbffbe5e4dacf6b89108e0da9dd37b1f20"
+              }
+            ],
+            "label": "Lab leak"
+          },
+          {
+            "core_argument": "A natural spillover.",
+            "holders": [
+              {
+                "article_hash": "8d478ab5eac9a43ddc6f3f426d55879bfcc2ab8262a48b54a4f467e91df2ac67"
+              }
+            ],
+            "label": "Zoonosis"
+          }
+        ],
+        "proposals": [
+          {
+            "claim_id": "c1",
+            "kind": "is_key"
+          }
+        ],
+        "summary": "Two camps disagree on the origin."
+      },
+      "caseId": "entity_8d478ab5eac9a43d",
+      "grounding": {
+        "checked": 5,
+        "dropped": 1
+      },
+      "members": 2,
+      "promptVersion": "corpus-v1"
+    },
+    "scopeQuestion": "Where did it start?",
+    "userPubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+  },
+  "kind": 30068,
+  "notes": "Structured CaseBrief: content JSON {case_name, scope_question, summary, positions, cruxes, load_bearing, coverage_gaps} — no proposals, no score.",
+  "rebuild": "exact",
+  "shape": "case-brief",
+  "signer": "TV1"
+}

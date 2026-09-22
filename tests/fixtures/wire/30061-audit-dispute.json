@@ -1,0 +1,100 @@
+{
+  "builder": {
+    "fn": "buildAuditDisputeEvent",
+    "module": "src/shared/audit/builders.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "The omission module missed a published stakeholder response.",
+    "created_at": 1700000000,
+    "id": "2c7984e82fad1659dafced77cc73584dc9605d37a0626efaa36a17575a697b2c",
+    "kind": 30061,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "69ec62ba65b1329321c5610a9885003a633910540966736e36a366e559cbfe717cd17ee74d74e41bc30b5f854e491b4730e058c24ab9cd84b4d73e2ffe23747a",
+    "tags": [
+      [
+        "d",
+        "dispute:b1545f427610873d"
+      ],
+      [
+        "a",
+        "30057:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:agg:2222222222222222",
+        "",
+        "target"
+      ],
+      [
+        "target-kind",
+        "aggregate_audit"
+      ],
+      [
+        "x",
+        "8985c947c93381b7710bec87af9ab745569fce4fa35b50c2cf5ab769ede07cd6"
+      ],
+      [
+        "status",
+        "open"
+      ],
+      [
+        "contested",
+        "the omission finding quoting \"no parent was reached\""
+      ],
+      [
+        "evidence",
+        "url",
+        "https://example.com/parents-statement",
+        "parents were quoted here"
+      ],
+      [
+        "evidence",
+        "quote",
+        "we spoke to the reporter on Tuesday",
+        "from the statement"
+      ],
+      [
+        "auditor",
+        "human",
+        "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+      ],
+      [
+        "p",
+        "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "",
+        "auditor"
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "articleHash": "8985c947c93381b7710bec87af9ab745569fce4fa35b50c2cf5ab769ede07cd6",
+    "auditor": {
+      "id": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+      "kind": "human"
+    },
+    "contested": [
+      "the omission finding quoting \"no parent was reached\""
+    ],
+    "disputeSummary": "The omission module missed a published stakeholder response.",
+    "evidence": [
+      {
+        "description": "parents were quoted here",
+        "kind": "url",
+        "value": "https://example.com/parents-statement"
+      },
+      {
+        "description": "from the statement",
+        "kind": "quote",
+        "value": "we spoke to the reporter on Tuesday"
+      }
+    ],
+    "targetCoord": "30057:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:agg:2222222222222222",
+    "targetKind": "aggregate_audit"
+  },
+  "kind": 30061,
+  "notes": "Dispute of an aggregate audit by a human auditor (TV1); content = the dispute summary.",
+  "rebuild": "exact",
+  "shape": "audit-dispute",
+  "signer": "TV1"
+}

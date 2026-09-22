@@ -1,0 +1,37 @@
+{
+  "builder": {
+    "fn": "EventBuilder.buildRelayListEvent",
+    "module": "src/shared/event-builder.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "",
+    "created_at": 1700000000,
+    "id": "c29413398558eb49f9a97fdf7034cdbe48d6a243dbb400168fd5abefb80a8922",
+    "kind": 10002,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "6123f942c3552433fe1f4e27f2a21b1382412c79b10de1557871650757688426ac085ba9bb5c459baea0dc26d413e307e1c6e4ed9a22ee079379a9475babdfe2",
+    "tags": [
+      [
+        "r",
+        "wss://relay.example"
+      ],
+      [
+        "r",
+        "wss://relay.example/archive"
+      ]
+    ]
+  },
+  "inputs": {
+    "relayUrls": [
+      "wss://relay.example",
+      "wss://relay.example/archive"
+    ],
+    "userPubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+  },
+  "kind": 10002,
+  "notes": "NIP-65: one r tag per relay in input order, empty content.",
+  "rebuild": "exact",
+  "shape": "relay-list",
+  "signer": "TV1"
+}
