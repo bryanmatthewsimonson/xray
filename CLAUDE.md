@@ -71,7 +71,8 @@ the single most important thing here.
    DOM extraction. Injects no in-page chrome except a transient error toast.
    Cannot open WebSockets to relays on CSP-strict sites, so it delegates
    publish.
-2. **Background service worker** (`src/background/index.js`, ESM) — owns
+2. **Background service worker** (`src/background/index.js`, ESM; the
+   LLM-job dispatch sits beside it in `src/background/llm-jobs.js`) — owns
    the **relay WebSocket pool** (connections survive tab navigation and
    aren't subject to page CSP — this is *why* the pool lives here, not in
    the content script), context menus, toolbar/keyboard commands,

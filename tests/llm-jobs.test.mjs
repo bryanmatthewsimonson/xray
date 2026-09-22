@@ -450,23 +450,32 @@ const strip = (x) => x.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$
 const read = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
 
 test('GUARD: the three long passes never ride a held-open message in the service worker', () => {
+    // The dispatch chain stays in index.js (the structure guard derives
+    // the message registry from it); the runner and its pass table live
+    // in background/llm-jobs.js (extracted under the surface ceiling).
     const bg = strip(read('src/background/index.js'));
+    const jobs = strip(read('src/background/llm-jobs.js'));
     // The held-open shape: a direct handler awaiting the pass into sendResponse.
     for (const t of ['xray:llm:corpus-map', 'xray:llm:corpus-reduce', 'xray:llm:entity-page']) {
         assert.ok(!bg.includes(`message.type === '${t}'`), `${t} is handled as a single held-open message again`);
     }
     for (const fn of ['runCorpusMapPass', 'runCorpusReducePass', 'runEntityPagePass']) {
-        assert.ok(!new RegExp(`${fn}\\(message`).test(bg), `${fn} is invoked straight from a message handler`);
-        assert.ok(!new RegExp(`${fn}\\([^)]*\\)\\s*\\.then\\(\\s*\\(result\\) => sendResponse`).test(bg),
+        assert.ok(!bg.includes(fn), `${fn} is referenced from index.js — the chain reaches it only through ./llm-jobs.js`);
+        assert.ok(!new RegExp(`${fn}\\(message`).test(jobs), `${fn} is invoked straight from a message handler`);
+        assert.ok(!new RegExp(`${fn}\\([^)]*\\)\\s*\\.then\\(\\s*\\(result\\) => sendResponse`).test(jobs),
             `${fn} is awaited into sendResponse`);
         // The ONLY reference outside the import is the runner's pass table.
-        const refs = bg.split(fn).length - 1;
-        assert.equal(refs, 2, `${fn} referenced ${refs} times — expected the import + the pass table`);
+        const refs = jobs.split(fn).length - 1;
+        assert.equal(refs, 2, `${fn} referenced ${refs} times in llm-jobs.js — expected the import + the pass table`);
     }
-    for (const t of ['xray:llm:job:start', 'xray:llm:job:status', 'xray:llm:job:find', 'xray:llm:job:ack']) {
-        assert.ok(bg.includes(`message.type === '${t}'`), `${t} handler missing`);
+    for (const op of ['start', 'status', 'find', 'ack']) {
+        assert.ok(bg.includes(`message.type === 'xray:llm:job:${op}'`), `xray:llm:job:${op} handler missing`);
+        assert.ok(bg.includes(`return respondLlmJob('${op}', message, sendResponse)`),
+            `xray:llm:job:${op} does not delegate to background/llm-jobs.js`);
     }
-    assert.match(bg, /createLlmJobRunner\(\{/);
+    assert.match(jobs, /createLlmJobRunner\(\{/);
+    assert.ok(!bg.includes('createLlmJobRunner'), 'the runner is built in background/llm-jobs.js, never in index.js');
+    assert.ok(!/onMessage\.addListener/.test(jobs), 'background/llm-jobs.js must not open a second dispatch chain');
 });
 
 test('GUARD: no page sends the retired single-message types; every map/reduce/page call goes through the job client', () => {
