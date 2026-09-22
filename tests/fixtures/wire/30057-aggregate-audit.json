@@ -1,0 +1,149 @@
+{
+  "builder": {
+    "fn": "buildAggregateAuditEvent",
+    "module": "src/shared/audit/builders.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "{\"module_contributions\":[{\"module\":\"internal_coherence\",\"score\":62,\"confidence\":0.78,\"weight\":0.1,\"ref\":\"30056:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:mod:1111111111111111\"},{\"module\":\"source_quality\",\"score\":58,\"confidence\":0.8,\"weight\":0.2,\"ref\":\"30056:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:mod:2222222222222222\"}],\"knowability_notes\":\"Ceiling derived from sourcing pattern: 50% named.\",\"model_estimated_ceiling\":null,\"top_strengths\":[\"headline_body_fidelity: 88\"],\"top_concerns\":[\"source_quality: 58\"]}",
+    "created_at": 1700000000,
+    "id": "42d0b67f075fb7ad2933c7c5de335c38fde71d97c5bd7b983af80f930187563f",
+    "kind": 30057,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "b83d55966469b760499043dd98c3c12a08ad90d2c7e4d08ace4cc1e46ccda2cc3577a60ac33ba3b8a1720d991d4525757a4ce598153698a8e50632b66d1f80b6",
+    "tags": [
+      [
+        "d",
+        "agg:a057d75d9c5752c1"
+      ],
+      [
+        "x",
+        "8985c947c93381b7710bec87af9ab745569fce4fa35b50c2cf5ab769ede07cd6"
+      ],
+      [
+        "r",
+        "https://example.com/story"
+      ],
+      [
+        "i",
+        "https://example.com/story"
+      ],
+      [
+        "k",
+        "web"
+      ],
+      [
+        "t",
+        "monetary-policy"
+      ],
+      [
+        "run-at",
+        "2023-11-14T22:13:25Z"
+      ],
+      [
+        "score",
+        "64.5"
+      ],
+      [
+        "raw-score",
+        "71.2"
+      ],
+      [
+        "ceiling",
+        "80"
+      ],
+      [
+        "ceiling-source",
+        "heuristic:source-quality/1.0"
+      ],
+      [
+        "confidence",
+        "0.71"
+      ],
+      [
+        "a",
+        "30056:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:mod:1111111111111111",
+        "",
+        "internal_coherence"
+      ],
+      [
+        "a",
+        "30056:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:mod:2222222222222222",
+        "",
+        "source_quality"
+      ],
+      [
+        "e",
+        "5f9d5ac313b200871093dae34071c7aa6cbd37ee5de0a0ba6b597a2488eb6de5",
+        "",
+        "internal_coherence"
+      ],
+      [
+        "auditor",
+        "pipeline",
+        "xray-auditor/0.1.0/anthropic/claude-sonnet-4-6"
+      ],
+      [
+        "auditor-constituent",
+        "model",
+        "anthropic/claude-sonnet-4-6"
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "articleHash": "8985c947c93381b7710bec87af9ab745569fce4fa35b50c2cf5ab769ede07cd6",
+    "articleUrl": "https://example.com/story",
+    "auditor": {
+      "id": "xray-auditor/0.1.0/anthropic/claude-sonnet-4-6",
+      "kind": "pipeline"
+    },
+    "beats": [
+      "monetary-policy"
+    ],
+    "ceiling": 80,
+    "ceilingSource": "heuristic:source-quality/1.0",
+    "confidence": 0.71,
+    "constituents": [
+      {
+        "id": "anthropic/claude-sonnet-4-6",
+        "kind": "model"
+      }
+    ],
+    "finalScore": 64.5,
+    "knowabilityNotes": "Ceiling derived from sourcing pattern: 50% named.",
+    "moduleContributions": [
+      {
+        "confidence": 0.78,
+        "coord": "30056:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:mod:1111111111111111",
+        "eventId": "5f9d5ac313b200871093dae34071c7aa6cbd37ee5de0a0ba6b597a2488eb6de5",
+        "module": "internal_coherence",
+        "score": 62,
+        "weight": 0.1
+      },
+      {
+        "confidence": 0.8,
+        "coord": "30056:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:mod:2222222222222222",
+        "module": "source_quality",
+        "score": 58,
+        "weight": 0.2
+      }
+    ],
+    "rawScore": 71.2,
+    "runAt": "2023-11-14T22:13:25Z",
+    "topConcerns": [
+      "source_quality: 58"
+    ],
+    "topStrengths": [
+      "headline_body_fidelity: 88"
+    ]
+  },
+  "kind": 30057,
+  "notes": "raw (71.2) > ceiling (80)? no — so NO ceiling-binding tag; finalScore <= min(raw, ceiling) invariant holds.",
+  "rebuild": "exact",
+  "shape": "aggregate-audit",
+  "signer": "TV1"
+}

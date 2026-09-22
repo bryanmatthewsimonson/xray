@@ -18,7 +18,18 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
     groups:
-      npm-minor-and-patch:
+      # Split by dependency type so a runtime bump (readability, pdfjs-dist,
+      # turndown — they ship inside the bundles) never rides in the same PR
+      # as a devDependency bump: the dev group auto-merges on green
+      # (.github/workflows/dependabot-automerge.yml), the runtime group is
+      # reviewed by a human with the browser smoke and a PDF capture.
+      npm-dev-minor-and-patch:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+      npm-runtime-minor-and-patch:
+        dependency-type: "production"
         update-types:
           - "minor"
           - "patch"

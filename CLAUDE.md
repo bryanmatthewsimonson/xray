@@ -18,7 +18,9 @@ modules still carry userscript-era idioms (see Conventions).
 npm install            # required first — a fresh clone has no node_modules
 npm run build          # esbuild → dist/*.bundle.js (+ .map). No transpile step.
 npm run watch          # incremental rebuild
-npm test               # node --test tests/*.test.mjs  (~2500 tests, must be green)
+npm test               # node --test tests/*.test.mjs  (~3000 tests, must be green)
+npm run smoke          # browser smoke: loads the built extension in headless Chromium
+                       #   (needs `npx playwright install chromium` once); CI runs it too
 npm run lint           # web-ext lint --self-hosted (what CI gates on)
 npm run version:set X  # bump package.json + manifest.json in lockstep
 npm run clean          # rm -rf dist
@@ -260,7 +262,30 @@ without the other is the design's named long-term risk.
   to build Markdown, not UI). The legacy `nac-*` / `nmd-*` prefixes are
   fully gone; don't reintroduce them.
 - **Logging:** use `Utils.log` / `Utils.error` (no-ops when `CONFIG.debug`
-  is false). Don't add bare `console.log`.
+  is false). Don't add bare `console.log`. Note `Utils.error` always
+  prints, and the browser smoke's `pages` scenario FAILS a page that
+  emits one during init — an error the product reports is a defect the
+  gate observes, not noise.
+- **Golden fixtures + structure guard (RESET_PLAN R0):**
+  `tests/fixtures/idb/` (one dump per shipped schema rung),
+  `tests/fixtures/wire/` (one signed event per emitted kind and shape),
+  and `tests/fixtures/backup/` (the `xray-backup/1` envelope) are
+  byte-deterministic outputs of `tests/tools/gen-{idb,wire,backup}-fixtures.mjs`
+  under the three BIP-340 vector keys in `tests/tools/fixture-keys.mjs`
+  — never any other key. A `DB_VERSION` bump, a builder tag/content
+  change, or an envelope change is red until you regenerate and commit
+  the diff (and call it out — `Wire format:` — in the PR).
+  `tests/structure-guards.test.mjs` pins the import graph, the
+  `xray:*` message registry, DOM use in `src/shared`, per-surface
+  `index.js` line ceilings, and a bare-`console` ratchet; every
+  allowlist and ceiling is **shrink-only** — extract, never raise.
+- **Browser-smoke seams:** every extension page ends its init with
+  `markReady('<dir>')` from `src/shared/smoke-anchors.js` (the `pages`
+  scenario waits for the stamp; a new page under `src/<dir>/` whose
+  shell loads a `dist/` bundle is discovered automatically). Elements a
+  smoke scenario selects get a `data-xr` value from `SMOKE_ANCHORS` in
+  that module — never a literal — and `tests/smoke-selectors.test.mjs`
+  fails when a table value is set nowhere in `src/`.
 - **User-visible strings** use "X-Ray" (hyphenated). Avoid emoji in code
   unless it's genuinely part of the UI.
 - **Version lockstep:** `package.json` and `manifest.json` versions MUST
@@ -448,10 +473,20 @@ without the other is the design's named long-term risk.
   lenses. **Consult it before starting 1.0 work** — it carries the
   `file:line` evidence and says which track a change belongs to. Kills
   need maintainer ratification (Art. 11) before anything is removed.
-- **`docs/JOURNAL.md`** — chronological log of bugs, design decisions, and
-  external-platform changes. **Add a tight entry** when fixing a non-obvious
-  bug, making a second-guessable design choice, or working around a
-  third-party change. Skim it first when a capture target breaks.
+- **`docs/JOURNAL.md`** — the GENERATED index (newest first) of the
+  engineering journal: bugs, design decisions, and external-platform
+  changes. The entries live in **`docs/journal/YYYY-MM.md`**, one file
+  per month, oldest first. **Add a tight entry at the BOTTOM of the
+  current month's file** when fixing a non-obvious bug, making a
+  second-guessable design choice, or working around a third-party
+  change, then run `npm run docs:journal` to regenerate the index —
+  never edit the index by hand (`tests/journal-index.test.mjs` goes red
+  when it is stale or when an entry landed in it). The generator never
+  discards text: when it refuses it lists the lines and writes nothing;
+  a conflicted or union-merged index is healed by running it, never by
+  hand (recipes: CONTRIBUTING.md, "Engineering journal"). "JOURNAL YYYY-MM-DD"
+  still means the entry of that date. Grep `docs/journal/` first when a
+  capture target breaks.
 - **`docs/SMOKE_TEST.md`** — ~20-min manual checklist; run before any
   release tag or after a cross-cutting refactor.
 - **`docs/CAPTURE_GUIDE.md`** — per-platform URL-shape/timing requirements

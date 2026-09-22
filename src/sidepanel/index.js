@@ -20,6 +20,7 @@
 // see reader/index.js `resolveEntitiesToPublish`).
 
 import { EntityModel, ENTITY_TYPES, ENTITY_ICONS, installEntityStorageBridge } from '../shared/entity-model.js';
+import { markReady } from '../shared/smoke-anchors.js';
 import { CASE_STATUS_VALUES } from '../shared/entity-field-schemas.js';
 import { parseClaimEvent, ClaimModel } from '../shared/claim-model.js';
 import { EvidenceLinker, EVIDENCE_RELATIONSHIP_ICONS } from '../shared/evidence-linker.js';
@@ -2239,4 +2240,6 @@ async function init() {
     setView('list');
 }
 
-document.addEventListener('DOMContentLoaded', init);
+// The ready stamp follows init on every resolved path; a throw never
+// stamps, and the browser smoke waits for it (src/shared/smoke-anchors.js).
+document.addEventListener('DOMContentLoaded', () => init().then(() => markReady('sidepanel')));
