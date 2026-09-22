@@ -1,0 +1,438 @@
+{
+  "databases": {
+    "xray-archive": {
+      "annotations": [
+        {
+          "author": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "body": "A fixture annotation.",
+          "createdAt": 1700000100,
+          "eventId": "ca17b35e328fcab61931b15a957dbc54fdb47c1f90efa60ad54ad8b081087aef",
+          "motivation": "commenting",
+          "urlHash": "ba64827a64edde3d"
+        }
+      ],
+      "articles": [
+        {
+          "article": {
+            "byline": "A. Fixture",
+            "content": "The fixture council approved the relay budget on 14 November 2023.\n\nA second paragraph carries the second load-bearing sentence. Every published event in this archive is signed by the fixture identity.\n\nA closing line with no claim in it.\n",
+            "siteName": "Example",
+            "title": "Fixture Article A",
+            "url": "https://example.com/articles/fixture-a"
+          },
+          "articleHash": "568d723f94c70deb80f0f0587ec2632991bde4d3b92369ff4c6bde3ec49624fc",
+          "cachedAt": 1700000000,
+          "lastAccessed": 1700000060,
+          "priorVersions": [],
+          "publishedEventId": "3eede98e1a5efa042f35492c3294d5164bb0d11be413564ae70dc951e7e30205",
+          "publishedToRelay": true,
+          "source": "capture",
+          "url": "https://example.com/articles/fixture-a",
+          "urlHash": "ba64827a64edde3d"
+        }
+      ],
+      "factchecks": [
+        {
+          "claim": "The fixture council approved the relay budget on 14 November 2023.",
+          "createdAt": 1700000110,
+          "eventId": "acd8cbc7993acd3d910ac03385ade6d199c5501a3725f7790f0888bd8da96bf5",
+          "ratingValue": "true",
+          "urlHash": "ba64827a64edde3d"
+        }
+      ],
+      "helpfulness": [
+        {
+          "createdAt": 1700000130,
+          "eventId": "067b8bc1f1d83f2a86a19326a5774da54be3eb626ff94f0e812698d9eac0d4df",
+          "helpful": true,
+          "targetEventId": "ca17b35e328fcab61931b15a957dbc54fdb47c1f90efa60ad54ad8b081087aef",
+          "voter": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+        }
+      ],
+      "ratings": [
+        {
+          "createdAt": 1700000120,
+          "eventId": "6fed0c50b8640cc8de037e1245b14cd5bc6f9f6e4882e994152df83ce3704bcf",
+          "urlHash": "ba64827a64edde3d",
+          "value": 4
+        }
+      ],
+      "source_documents": [
+        {
+          "bytes": {
+            "__xrayBytes": "JVBERi0xLjcKAP+Afw=="
+          },
+          "fetchedAt": 1700000000,
+          "hash": "509ed58f63eec54fe8a5ab0dcff9e77455dbd52e03ad06aee7e841bfd757011e",
+          "mime": "application/pdf",
+          "size": 13,
+          "url": "https://example.com/articles/fixture-a.pdf"
+        }
+      ],
+      "trust_graph": [
+        {
+          "follows": [
+            "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+          ],
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "updatedAt": 1700000140
+        }
+      ]
+    },
+    "xray-audits": {
+      "article-extractions": [
+        {
+          "articleHash": "568d723f94c70deb80f0f0587ec2632991bde4d3b92369ff4c6bde3ec49624fc",
+          "assertions": [
+            {
+              "accepted_claim_id": null,
+              "end": 66,
+              "first_seen": {
+                "at": 1700000000,
+                "caseName": "",
+                "model": "claude-fixture",
+                "producer": "map",
+                "promptVersion": "corpus-v9",
+                "scopeQuestion": ""
+              },
+              "key": "a:0-66",
+              "quote": "The fixture council approved the relay budget on 14 November 2023.",
+              "start": 0,
+              "status": "open",
+              "text": null,
+              "triaged_at": null,
+              "why": "The budget decision is the article's central fact."
+            },
+            {
+              "accepted_claim_id": null,
+              "end": 201,
+              "first_seen": {
+                "at": 1700000000,
+                "caseName": "",
+                "model": "claude-fixture",
+                "producer": "map",
+                "promptVersion": "corpus-v9",
+                "scopeQuestion": ""
+              },
+              "key": "a:129-201",
+              "quote": "Every published event in this archive is signed by the fixture identity.",
+              "start": 129,
+              "status": "open",
+              "text": null,
+              "triaged_at": null,
+              "why": "The signing claim is what the archive rests on."
+            }
+          ],
+          "dropped_ungrounded": 0,
+          "imported_unlocated": [],
+          "merged_keys": [
+            "2b9183ddf040e90654ec5c4849cba7bbe337a226603e9724295487fddcd14881"
+          ],
+          "open_questions": [
+            {
+              "first_seen": {
+                "at": 1700000000,
+                "caseName": "",
+                "model": "claude-fixture",
+                "producer": "map",
+                "promptVersion": "corpus-v9",
+                "scopeQuestion": ""
+              },
+              "key": "q:who-voted-against-the-budget",
+              "text": "Who voted against the budget?"
+            }
+          ],
+          "positions": [],
+          "sources": [
+            {
+              "first_seen": {
+                "at": 1700000000,
+                "caseName": "",
+                "model": "claude-fixture",
+                "producer": "map",
+                "promptVersion": "corpus-v9",
+                "scopeQuestion": ""
+              },
+              "key": "s:relay-budget-minutes",
+              "quote": "the relay budget",
+              "target_hint": "council minutes"
+            }
+          ],
+          "title": "Fixture Article A",
+          "updatedAt": 1700000000,
+          "url": "https://example.com/articles/fixture-a"
+        }
+      ],
+      "case-briefs": [
+        {
+          "analyzed": 1,
+          "brief": {
+            "sections": [],
+            "summary": "A one-paragraph fixture brief."
+          },
+          "caseId": "ent_org_fixture",
+          "failed": 0,
+          "grounding": {
+            "checked": 1,
+            "dropped": 0
+          },
+          "inputHash": "dd610cad85cf43ca871060f6a86cda11953a9880b89757b5886a5c934ca09fe5",
+          "members": 1,
+          "model": "claude-fixture",
+          "promptVersion": "corpus-v9",
+          "usage": null
+        }
+      ],
+      "case-link-suggestions": [
+        {
+          "acceptable": [],
+          "caseId": "ent_org_fixture",
+          "claimCount": 1,
+          "createdAt": 1700000000,
+          "model": "claude-fixture",
+          "promptVersion": "claim-links-v1",
+          "rejected": [],
+          "triage": {},
+          "truncatedClaims": 0
+        }
+      ],
+      "corpus-extracts": [
+        {
+          "cachedAt": 1700000000,
+          "extract": {
+            "key_assertions": [],
+            "open_questions": [],
+            "source_references": []
+          },
+          "key": "2b9183ddf040e90654ec5c4849cba7bbe337a226603e9724295487fddcd14881",
+          "model": "claude-fixture"
+        }
+      ],
+      "entity-pages": [
+        {
+          "analyzed": 1,
+          "createdAt": 1700000000,
+          "entityId": "ent_person_fixture",
+          "grounding": {
+            "checked": 0,
+            "dropped": 0
+          },
+          "inputHash": "eecc39487e696994c19d207eb85923727dac5f9dbc863720ee74d40ff3c558a2",
+          "members": 1,
+          "model": "claude-fixture",
+          "page": {
+            "sections": []
+          },
+          "promptVersion": "entity-page-v1"
+        }
+      ],
+      "pending-suggestions": [
+        {
+          "articleHash": "568d723f94c70deb80f0f0587ec2632991bde4d3b92369ff4c6bde3ec49624fc",
+          "createdAt": 1700000000,
+          "model": "claude-fixture",
+          "proposals": [
+            {
+              "kind": "claim",
+              "text": "The fixture council approved the relay budget."
+            }
+          ],
+          "source": "url-import",
+          "title": "Fixture Article A",
+          "url": "https://example.com/articles/fixture-a"
+        }
+      ],
+      "predictions": [
+        {
+          "anchor": null,
+          "articleHash": "568d723f94c70deb80f0f0587ec2632991bde4d3b92369ff4c6bde3ec49624fc",
+          "attributed_source_name": null,
+          "attributed_to": "article_voice",
+          "auditor": null,
+          "claim_ref": null,
+          "condition": null,
+          "created": 1700000000,
+          "criteria": "",
+          "evidence_quote": "The fixture council approved the relay budget on 14 November 2023.",
+          "extracted_at": null,
+          "hedge_level": "hedged",
+          "horizon": "by 2025",
+          "horizon_iso": "2025-01-01",
+          "id": "pred_df2022071f24e464",
+          "latest_resolution_id": "res_dc9ed23d90b39a8a",
+          "publishedAt": null,
+          "publishedEventId": null,
+          "resolution_status": "resolved_true",
+          "text": "The relay budget will be spent by 2025.",
+          "tractability": "ambiguous",
+          "type": "explicit",
+          "updated": 1700003600
+        }
+      ],
+      "resolutions": [
+        {
+          "auditor": null,
+          "confidence": null,
+          "created": 1700003600,
+          "evidence": [],
+          "id": "res_dc9ed23d90b39a8a",
+          "notes": "Resolved in the fixture.",
+          "outcome": "true",
+          "prediction_coord": "30058:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:pred_df2022071f24e464",
+          "publishedAt": null,
+          "publishedEventId": null,
+          "resolved_at": 1700003600,
+          "updated": 1700003600
+        }
+      ],
+      "runs": [
+        {
+          "aggregate": null,
+          "articleHash": "568d723f94c70deb80f0f0587ec2632991bde4d3b92369ff4c6bde3ec49624fc",
+          "auditor": {
+            "id": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "kind": "human"
+          },
+          "created": 1700000000,
+          "events": {},
+          "id": "audit_051432ad9e5f0bca",
+          "moduleResults": [
+            {
+              "failed": false,
+              "findings": {},
+              "module": "prediction_extraction",
+              "module_version": "1.0",
+              "run_at": "2023-11-14T22:13:20.000Z"
+            }
+          ],
+          "runAt": "2023-11-14T22:13:20.000Z",
+          "source": "manual",
+          "updated": 1700000000
+        }
+      ]
+    },
+    "xray-events": {
+      "published_events": [
+        {
+          "address": "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_fixture_budget",
+          "articleUrl": "https://example.com/articles/fixture-a",
+          "createdAt": 1700000040,
+          "event": {
+            "content": "The fixture council approved the relay budget.",
+            "created_at": 1700000040,
+            "id": "1af882e020282230a3023aa012527911726be6b165f1a6d75d66337506bdd4e0",
+            "kind": 30040,
+            "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "sig": "888c14cf54d34978a4717be019b72ab0baf05bf9ff99b64e55863760a53317b9344170f0b8135737545b225a6c89abc05fe317a02b9f0bed4836ad2cff747d23",
+            "tags": [
+              [
+                "d",
+                "claim_fixture_budget"
+              ],
+              [
+                "r",
+                "https://example.com/articles/fixture-a"
+              ]
+            ]
+          },
+          "eventId": "1af882e020282230a3023aa012527911726be6b165f1a6d75d66337506bdd4e0",
+          "flush": {
+            "attempts": 0,
+            "nextAttemptAt": 1700000640,
+            "state": "pending"
+          },
+          "kind": 30040,
+          "ledger": {
+            "extra": null,
+            "localId": "claim_fixture_budget",
+            "markedAt": null,
+            "model": "claim"
+          },
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "publishedAt": null,
+          "relays": [],
+          "signedAt": 1700000040
+        },
+        {
+          "address": "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:fixture-article-a",
+          "articleUrl": "https://example.com/articles/fixture-a",
+          "createdAt": 1700000020,
+          "event": {
+            "content": "# Fixture Article A\n\nThe fixture council approved the relay budget on 14 November 2023.\n\nA second paragraph carries the second load-bearing sentence. Every published event in this archive is signed by the fixture identity.\n\nA closing line with no claim in it.\n",
+            "created_at": 1700000020,
+            "id": "3eede98e1a5efa042f35492c3294d5164bb0d11be413564ae70dc951e7e30205",
+            "kind": 30023,
+            "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "sig": "d907bea26d86cf8e18a6d58911dfa9fe49228f3ebae82ac8d7a8878adf0b6189652e8763dd2a061c4552e77fc3bac63435f80c89b20c84d621c52ccb0054eaa5",
+            "tags": [
+              [
+                "d",
+                "fixture-article-a"
+              ],
+              [
+                "title",
+                "Fixture Article A"
+              ],
+              [
+                "r",
+                "https://example.com/articles/fixture-a"
+              ]
+            ]
+          },
+          "eventId": "3eede98e1a5efa042f35492c3294d5164bb0d11be413564ae70dc951e7e30205",
+          "flush": {
+            "attempts": 1,
+            "nextAttemptAt": null,
+            "state": "flushed"
+          },
+          "kind": 30023,
+          "ledger": null,
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "publishedAt": 1700000025,
+          "relays": [
+            {
+              "assumed": false,
+              "success": true,
+              "url": "wss://relay.example"
+            }
+          ],
+          "signedAt": 1700000020
+        }
+      ]
+    }
+  },
+  "dbVersions": {
+    "xray-archive": 3,
+    "xray-audits": 7,
+    "xray-events": 2
+  },
+  "exportedAt": "2023-11-14T22:13:20.000Z",
+  "format": "xray-backup/1",
+  "includesSourceBytes": true,
+  "shareable": true,
+  "storage": {
+    "adjudicable_propositions": "{\"prop_fixture_1\":{\"claims\":[\"claim_052d04328b3a265c\"],\"class\":\"factual\",\"created\":1700000000,\"id\":\"prop_fixture_1\",\"text\":\"The relay budget was approved.\"}}",
+    "adjudicated_verdicts": "{\"verdict_fixture_1\":{\"created\":1700000000,\"id\":\"verdict_fixture_1\",\"proposition_id\":\"prop_fixture_1\",\"standard\":\"preponderance\",\"state\":\"established\"}}",
+    "article_claims": "{\"claim_052d04328b3a265c\":{\"created\":1700000000,\"entities\":[\"ent_org_fixture\"],\"id\":\"claim_052d04328b3a265c\",\"is_key\":false,\"publishedAt\":null,\"publishedEventId\":null,\"publishedPubkeys\":[],\"quote\":\"The fixture council approved the relay budget on 14 November 2023.\",\"source_url\":\"https://example.com/articles/fixture-a\",\"text\":\"The fixture council approved the relay budget.\",\"updated\":1700000000}}",
+    "behavioral_findings": "{\"finding_fixture_1\":{\"claims\":[\"claim_052d04328b3a265c\"],\"created\":1700000000,\"entity_id\":\"ent_org_fixture\",\"id\":\"finding_fixture_1\",\"pattern\":\"fixture-pattern\"}}",
+    "case_hypotheses": "{\"hyp_3ac388567c2f77cb\":{\"case_id\":\"ent_org_fixture\",\"created\":1700000000,\"id\":\"hyp_3ac388567c2f77cb\",\"status\":\"open\",\"text\":\"The budget approval was routine.\"}}",
+    "claim_assessments": "{\"assess_fixture_1\":{\"claim_id\":\"claim_052d04328b3a265c\",\"created\":1700000000,\"id\":\"assess_fixture_1\",\"notes\":\"A fixture assessment.\",\"verdict\":\"supported\"}}",
+    "entities": "{\"ent_org_fixture\":{\"created\":1700000000,\"id\":\"ent_org_fixture\",\"name\":\"Fixture Council\",\"npub\":\"npub1lycg5qvjtrp3qjf5f7zl382j9x6nrjz9sdhenvyxq8c3808qxmus6gq266\",\"pubkey\":\"f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9\",\"type\":\"organization\",\"updated\":1700000000},\"ent_person_fixture\":{\"created\":1700000000,\"id\":\"ent_person_fixture\",\"name\":\"A. Fixture\",\"type\":\"person\",\"updated\":1700000000}}",
+    "entity_dedupe_dismissals": "{\"ent_org_fixture|ent_person_fixture\":{\"a\":\"ent_org_fixture\",\"at\":1700000000,\"b\":\"ent_person_fixture\",\"id\":\"ent_org_fixture|ent_person_fixture\"}}",
+    "entity_fact_dismissals": "{\"dismiss_fact_fixture_1\":{\"at\":1700000000,\"entity_id\":\"ent_org_fixture\",\"fact_key\":\"retired\",\"id\":\"dismiss_fact_fixture_1\"}}",
+    "evidence_links": "{\"link_fixture_1\":{\"created\":1700000000,\"from\":\"claim_052d04328b3a265c\",\"id\":\"link_fixture_1\",\"relation\":\"supports\",\"to\":\"claim_052d04328b3a265c\"}}",
+    "follow_sets": "{\"follow_fixture_1\":{\"added\":1700000000,\"id\":\"follow_fixture_1\",\"label\":\"A followed author\",\"npub\":\"npub1ccz8l9zpa47k6vz9gphftsrumpw80rjt3nhnefat4symjhrsnmjs38mnyd\",\"pubkey\":\"c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5\",\"relays\":[\"wss://relay.example\"]}}",
+    "hypothesis_edges": "{\"edge_fixture_1\":{\"claim_id\":\"claim_052d04328b3a265c\",\"created\":1700000000,\"hypothesis_id\":\"hyp_3ac388567c2f77cb\",\"id\":\"edge_fixture_1\",\"relation\":\"supports\"}}",
+    "incorporated_artifacts": "{\"incorporated_fixture_1\":{\"address\":\"30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:fixture-article-a\",\"at\":1700000000,\"from\":\"c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5\",\"id\":\"incorporated_fixture_1\",\"kind\":30023}}",
+    "incorporation_dismissals": "{\"dismissed_fixture_1\":{\"address\":\"30040:c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5:claim-declined\",\"at\":1700000000,\"id\":\"dismissed_fixture_1\"}}",
+    "integrity_findings": "{\"integrity_fixture_1\":{\"created\":1700000000,\"deeds\":[],\"entity_id\":\"ent_org_fixture\",\"id\":\"integrity_fixture_1\",\"words\":[\"claim_052d04328b3a265c\"]}}",
+    "lens_jurisdictions": "{\"jur_fixture_1\":{\"corpus\":[],\"created\":1700000000,\"id\":\"jur_fixture_1\",\"name\":\"Fixture jurisdiction\",\"type\":\"civic\"}}",
+    "platform_accounts": "{\"acct_fixture_1\":{\"created\":1700000000,\"entity_id\":\"ent_org_fixture\",\"handle\":\"fixture-council\",\"id\":\"acct_fixture_1\",\"platform\":\"web\",\"url\":\"https://example.com/fixture-council\"}}",
+    "portal_identities": "{\"npub1ccz8l9zpa47k6vz9gphftsrumpw80rjt3nhnefat4symjhrsnmjs38mnyd\":{\"added\":1700000000,\"id\":\"npub1ccz8l9zpa47k6vz9gphftsrumpw80rjt3nhnefat4symjhrsnmjs38mnyd\",\"label\":\"A followed portal viewer\",\"npub\":\"npub1ccz8l9zpa47k6vz9gphftsrumpw80rjt3nhnefat4symjhrsnmjs38mnyd\"}}",
+    "preferences": "{\"debug\":false,\"default_relays\":[\"wss://relay.example\"],\"signing_method\":\"local\"}",
+    "published_mentions": "{\"ent_org_fixture|30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:fixture-article-a\":{\"address\":\"30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:fixture-article-a\",\"at\":1700000000,\"entity_id\":\"ent_org_fixture\",\"id\":\"ent_org_fixture|30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:fixture-article-a\"}}",
+    "url_aliases": "{\"https://example.com/articles/fixture-a?utm=1\":{\"canonical\":\"https://example.com/articles/fixture-a\",\"created\":1700000000,\"id\":\"https://example.com/articles/fixture-a?utm=1\"}}",
+    "xray:flags": "{\"captureAutomation\":false}"
+  },
+  "xrayVersion": "0.0.0-fixture"
+}

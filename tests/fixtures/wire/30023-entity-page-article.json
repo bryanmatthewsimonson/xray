@@ -1,0 +1,162 @@
+{
+  "builder": {
+    "fn": "buildEntityPageArticle",
+    "module": "src/shared/entity-page-publish.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "# W.H.O.\n\nThe corpus presents the W.H.O. as the central agency in the dispute.\n\n## Key facts\n\n_Each entry is a captured claim; the quote is its verification._\n\n- Founded in 1948. — example.com\n  > “founded in 1948”\n- HQ in Geneva. — example.org\n  > “headquartered in Geneva”\n- Unpublished claim.\n\n## Early response\n\nAccording to the Times, the agency moved slowly.\n\n> “the agency moved slowly in January” _(source 8f345c64…)_\n\n## Unanchored context\n\nBackground summary.\n\n_No verbatim citation survived grounding for this section — read it as unanchored summary._\n\n## Where sources disagree\n\n### Timeline\n\n- Slow\n  > “moved slowly” _(source 8f345c64…)_\n- Fast\n  > “acted within days” _(source 8d478ab5…)_\n\n## What this corpus does not establish\n\n- Nothing on funding sources.\n\n---\n\n_Assembled by an X-Ray archive from 2 captured sources; 3 quotes machine-checked, 1 dropped. Model: claude-test (entity-page-v1). Generated 2023-11-14. Every line reports what the captured sources say — this page adjudicates nothing._",
+    "created_at": 1700000000,
+    "id": "2edb7394d18112aa0be9a8a13b8173d790a7cc6e3c5337940bd3895185edd80a",
+    "kind": 30023,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "09a900d952b6f62c348c1c1a6423696edd79b37292f6465073239c9c247564761752072d8a497017552185c63bdc511825fcc804369ca727cb14708112570227",
+    "tags": [
+      [
+        "d",
+        "xray-entity-page:entity_8f345c643bec5da6"
+      ],
+      [
+        "title",
+        "W.H.O. — entity page"
+      ],
+      [
+        "t",
+        "xray-entity-page"
+      ],
+      [
+        "client",
+        "xray"
+      ],
+      [
+        "published_at",
+        "1700000000"
+      ],
+      [
+        "p",
+        "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+        "",
+        "subject"
+      ],
+      [
+        "a",
+        "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_2",
+        "",
+        "key-fact"
+      ],
+      [
+        "a",
+        "30040:f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9:claim_1",
+        "",
+        "key-fact"
+      ],
+      [
+        "x",
+        "8d478ab5eac9a43ddc6f3f426d55879bfcc2ab8262a48b54a4f467e91df2ac67"
+      ],
+      [
+        "x",
+        "8f345c643bec5da64712b546114f94bbffbe5e4dacf6b89108e0da9dd37b1f20"
+      ]
+    ]
+  },
+  "inputs": {
+    "entity": {
+      "id": "entity_8f345c643bec5da6",
+      "name": "W.H.O."
+    },
+    "entityPubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+    "keyClaims": [
+      {
+        "id": "claim_1",
+        "publishedEventId": "evt1",
+        "publishedPubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+        "quote": "founded in 1948",
+        "source_url": "https://example.com/a",
+        "text": "Founded in 1948."
+      },
+      {
+        "id": "claim_2",
+        "publishedEventId": "evt2",
+        "publishedPubkey": null,
+        "quote": "headquartered in Geneva",
+        "source_url": "https://example.org/b",
+        "text": "HQ in Geneva."
+      },
+      {
+        "id": "claim_3",
+        "publishedEventId": null,
+        "publishedPubkey": null,
+        "quote": null,
+        "source_url": null,
+        "text": "Unpublished claim."
+      }
+    ],
+    "record": {
+      "analyzed": 2,
+      "createdAt": 1700000000,
+      "entityId": "entity_8f345c643bec5da6",
+      "grounding": {
+        "checked": 3,
+        "dropped": 1
+      },
+      "inputHash": "b72b74defaa1ab17ebf90560119da6cf553c510fc493b47b17d19592c8456c6e",
+      "members": 2,
+      "model": "claude-test",
+      "page": {
+        "disputes": [
+          {
+            "sides": [
+              {
+                "article_hash": "8f345c643bec5da64712b546114f94bbffbe5e4dacf6b89108e0da9dd37b1f20",
+                "quote": "moved slowly",
+                "view": "Slow"
+              },
+              {
+                "article_hash": "8d478ab5eac9a43ddc6f3f426d55879bfcc2ab8262a48b54a4f467e91df2ac67",
+                "quote": "acted within days",
+                "view": "Fast"
+              }
+            ],
+            "topic": "Timeline"
+          }
+        ],
+        "gaps": [
+          "Nothing on funding sources."
+        ],
+        "key_claim_ids": [
+          "claim_1",
+          "claim_2",
+          "claim_3"
+        ],
+        "lead": "The corpus presents the W.H.O. as the central agency in the dispute.",
+        "sections": [
+          {
+            "body": "According to the Times, the agency moved slowly.",
+            "citations": [
+              {
+                "article_hash": "8f345c643bec5da64712b546114f94bbffbe5e4dacf6b89108e0da9dd37b1f20",
+                "quote": "the agency moved slowly in January"
+              }
+            ],
+            "heading": "Early response",
+            "uncited": false
+          },
+          {
+            "body": "Background summary.",
+            "citations": [],
+            "heading": "Unanchored context",
+            "uncited": true
+          }
+        ]
+      },
+      "promptVersion": "entity-page-v1"
+    },
+    "userPubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+  },
+  "kind": 30023,
+  "notes": "USER-signed entity page: marker t=xray-entity-page, d=xray-entity-page:<entityId>, subject p tag (TV3), a key-fact refs only for PUBLISHED claims, x tags for cited member hashes.",
+  "rebuild": "exact",
+  "shape": "entity-page-article",
+  "signer": "TV1"
+}

@@ -1,0 +1,130 @@
+{
+  "builder": {
+    "fn": "buildIntegrityFindingEvent",
+    "module": "src/shared/truth-builders.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "",
+    "created_at": 1700000000,
+    "id": "eb022237dc39d4808aa1474f6b8b9e7e62cddaa6a09a6d7c7c2cb35169e431ca",
+    "kind": 30064,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "4cebe2dc1b37dffa00038904f776f0b4964268ee7a8ca79577f925666aa585aa7cf701a828c8890ed36a9aca9125d9cbc6edc808df66d43c0326dd27a6b8cc13",
+    "tags": [
+      [
+        "d",
+        "integrity:d68250cb3311e360"
+      ],
+      [
+        "p",
+        "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+        "",
+        "subject"
+      ],
+      [
+        "L",
+        "xray/adjudication"
+      ],
+      [
+        "l",
+        "broken",
+        "xray/adjudication"
+      ],
+      [
+        "word",
+        "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_word000000000000",
+        "stated-commitment",
+        "1600000000",
+        "day"
+      ],
+      [
+        "a",
+        "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_word000000000000",
+        "",
+        "word"
+      ],
+      [
+        "deed",
+        "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_deed100000000000",
+        "event-fact",
+        "1614729600",
+        "day"
+      ],
+      [
+        "a",
+        "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_deed100000000000",
+        "",
+        "deed"
+      ],
+      [
+        "deed",
+        "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_deed200000000000",
+        "state-fact"
+      ],
+      [
+        "a",
+        "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_deed200000000000",
+        "",
+        "deed"
+      ],
+      [
+        "standard",
+        "clear-and-convincing"
+      ],
+      [
+        "evidence-for",
+        "Roll-call 88: Yea.",
+        "tier-1"
+      ],
+      [
+        "caveat",
+        "Single vote against a multi-year pledge."
+      ],
+      [
+        "suggested-by",
+        "user"
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "caveats": [
+      "Single vote against a multi-year pledge."
+    ],
+    "deeds": [
+      {
+        "class": "event-fact",
+        "coord": "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_deed100000000000",
+        "occurredAt": 1614729600,
+        "occurredPrecision": "day"
+      },
+      {
+        "class": "state-fact",
+        "coord": "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_deed200000000000"
+      }
+    ],
+    "evidenceFor": [
+      {
+        "quote": "Roll-call 88: Yea.",
+        "tier": "tier-1"
+      }
+    ],
+    "match": "broken",
+    "subjectPubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+    "word": {
+      "class": "stated-commitment",
+      "coord": "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_word000000000000",
+      "occurredAt": 1600000000,
+      "occurredPrecision": "day"
+    }
+  },
+  "kind": 30064,
+  "notes": "Words-vs-deeds finding: subject IS p-tagged (TV3, role subject); deliberately NO 1985 mirror exists for this kind.",
+  "rebuild": "exact",
+  "shape": "integrity-finding",
+  "signer": "TV1"
+}

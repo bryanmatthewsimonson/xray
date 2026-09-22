@@ -1,4 +1,6 @@
-# Walk output — regenerated on every run.
+# Walk output — regenerated on every run (XR_SMOKE_OUT defaults here).
+out/
+# Pre-2026-09 output names, in case an old run left them behind.
 ma6-*.png
 ma6-block.txt
 ma6-event.json

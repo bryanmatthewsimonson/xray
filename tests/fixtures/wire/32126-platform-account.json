@@ -1,0 +1,79 @@
+{
+  "builder": {
+    "fn": "EventBuilder.buildPlatformAccountEvent (record: identity/platform-account.js makeAccountRecord)",
+    "module": "src/shared/event-builder.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "",
+    "created_at": 1700000000,
+    "id": "09a5339ed753d2e20faa57fa030f07ff9008e9a551e357c10938d05185ed0c6f",
+    "kind": 32126,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "8e503bcbff8ce419cd4a03ea7e0df8bef75455668e8995bde37671b7efb8e4eb660dc212ac80915ad03f2dc80bd2540ad1d78d980ec074e2666a34fdd560bba5",
+    "tags": [
+      [
+        "d",
+        "youtube:UCabc"
+      ],
+      [
+        "p",
+        "383c5575936d3cbfc199f126c0469b167df262cf8bef4590cfc54118aa7517eb",
+        "",
+        "account"
+      ],
+      [
+        "account-platform",
+        "youtube"
+      ],
+      [
+        "account-id",
+        "UCabc"
+      ],
+      [
+        "account-username",
+        "@jane"
+      ],
+      [
+        "account-name",
+        "Jane"
+      ],
+      [
+        "r",
+        "https://example.com/@jane"
+      ],
+      [
+        "account-verified",
+        "true"
+      ],
+      [
+        "p",
+        "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+        "",
+        "linked-entity"
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "linkedEntityPubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+    "now": 1700000000,
+    "platform": "youtube",
+    "profileUrl": "https://example.com/@jane",
+    "raw": {
+      "channelId": "UCabc",
+      "displayName": "Jane",
+      "handle": "@jane",
+      "verified": true
+    },
+    "userPubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+  },
+  "kind": 32126,
+  "notes": "The account p is the DERIVED identifier for youtube:UCabc (an allowed non-key pubkey in the hygiene test); linked-entity p is TV3.",
+  "rebuild": "exact",
+  "shape": "platform-account",
+  "signer": "TV1"
+}

@@ -1,0 +1,98 @@
+{
+  "builder": {
+    "fn": "buildBehavioralFindingEvent",
+    "module": "src/shared/metadata/builders.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "Shifts the axis from is-it-true to is-it-useful.\n\n### Counter-read\n\nHe may simply be conceding utility alongside the truth claim.",
+    "created_at": 1700000000,
+    "id": "60e8dbdf6d31961acf616d88fd1436368cb2256d8fd7cd00136b5ce4d4619162",
+    "kind": 30062,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "09e600d1dfd5acf60c7d1c558eebd46bcbddeeb889842227a8600648a969881092aa46cc1defe3af020e3e19384bd61a4b3419c48a81a6596fbf3a02bdceed04",
+    "tags": [
+      [
+        "d",
+        "find:d68296511d8fdcdc"
+      ],
+      [
+        "p",
+        "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+        "",
+        "subject"
+      ],
+      [
+        "L",
+        "xray/forensic"
+      ],
+      [
+        "l",
+        "defense/usefulness-pivot",
+        "xray/forensic"
+      ],
+      [
+        "role",
+        "apologist"
+      ],
+      [
+        "r",
+        "https://example.com/clip?utm_source=x"
+      ],
+      [
+        "i",
+        "https://example.com/clip"
+      ],
+      [
+        "k",
+        "web"
+      ],
+      [
+        "maneuver-step",
+        "0",
+        "I care about the truth, not what the church says.",
+        "[{\"exact\":\"I care about the truth\",\"type\":\"TextQuoteSelector\"}]",
+        ""
+      ],
+      [
+        "basis",
+        "quoted"
+      ],
+      [
+        "suggested-by",
+        "user"
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "anchors": [
+      {
+        "quote": "I care about the truth, not what the church says.",
+        "selector": [
+          {
+            "exact": "I care about the truth",
+            "type": "TextQuoteSelector"
+          }
+        ]
+      }
+    ],
+    "basis": "quoted",
+    "counterNote": "He may simply be conceding utility alongside the truth claim.",
+    "maneuver": "defense/usefulness-pivot",
+    "note": "Shifts the axis from is-it-true to is-it-useful.",
+    "relationshipCoord": null,
+    "role": "apologist",
+    "sourceUrl": "https://example.com/clip?utm_source=x",
+    "subjectPubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+    "suggestedBy": "user"
+  },
+  "kind": 30062,
+  "notes": "counterNote and one quoted anchor are REQUIRED; content = note + \"### Counter-read\" + counterNote; subject p = TV3.",
+  "rebuild": "exact",
+  "shape": "forensic-finding",
+  "signer": "TV1"
+}
