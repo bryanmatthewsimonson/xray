@@ -1,0 +1,61 @@
+{
+  "builder": {
+    "fn": "buildAssessmentMirrorEvent",
+    "module": "src/shared/metadata/builders.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "",
+    "created_at": 1700000000,
+    "id": "ead747119b1b1346fcd02b9ad354df6c747cf0a6df650bb6918cc61fdfdb01ea",
+    "kind": 1985,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "abbb534add48ea17b3ba18b20b0f27d6214b9e3eba423426ef1284bd03cd9808928b71ab7b6d8ca4b786d4421e8c3d0fd160116e38cbf679d2ce030264bf2b0f",
+    "tags": [
+      [
+        "L",
+        "xray/assessment"
+      ],
+      [
+        "l",
+        "misleading",
+        "xray/assessment"
+      ],
+      [
+        "l",
+        "fallacy/strawman",
+        "xray/assessment"
+      ],
+      [
+        "a",
+        "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_c6bfed4695f9ee16",
+        "wss://relay.example"
+      ],
+      [
+        "r",
+        "https://example.com/video?utm_source=feed"
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "claimCoord": "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_c6bfed4695f9ee16",
+    "claimUrl": "https://example.com/video?utm_source=feed",
+    "labels": [
+      {
+        "label": "misleading",
+        "note": "note stays on the 30054"
+      },
+      "fallacy/strawman"
+    ],
+    "relayHint": "wss://relay.example"
+  },
+  "kind": 1985,
+  "notes": "NIP-32 mirror of the 30054 labels under xray/assessment; no p by design (never labels the author).",
+  "rebuild": "exact",
+  "shape": "assessment-mirror",
+  "signer": "TV1"
+}

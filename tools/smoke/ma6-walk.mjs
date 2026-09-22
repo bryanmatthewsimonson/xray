@@ -17,60 +17,38 @@
 // BUILT in-page and inspected rather than sent. Do not point this at a
 // real relay — a kind 30070 is permanent once accepted.
 //
-// Env: XR_CHROME / XR_PW override the browser and Playwright paths.
-import { mkdtempSync, writeFileSync, existsSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+// Browser, Playwright, the seed bundle, the profile and the output dir
+// all come from lib/browser.mjs (XR_CHROME / XR_PW / XR_SMOKE_OUT
+// override them). Run it through `npm run smoke`, or directly:
+//   node tools/smoke/ma6-walk.mjs
+import { writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
+import {
+    assertBuilt, ensureOut, launchExtension, loadPlaywright, resolveChrome, seedBundle
+} from './lib/browser.mjs';
+import { SMOKE_ANCHORS } from '../../src/shared/smoke-anchors.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO = join(HERE, '..', '..');
-const OUT = process.env.XR_SMOKE_OUT || HERE;
-const CHROME = process.env.XR_CHROME
-    || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
-const PW = process.env.XR_PW
-    || '/opt/node22/lib/node_modules/playwright/index.mjs';
-if (!existsSync(CHROME)) {
-    console.error(`No Chromium at ${CHROME} — set XR_CHROME. (The headless_shell build cannot load extensions.)`);
-    process.exit(2);
-}
-const { chromium } = await import(PW);
+const OUT = ensureOut();
+await assertBuilt();
+const pw = await loadPlaywright();
+const CHROME = resolveChrome(pw);
 
-// Bundle the seed harness so the page can use the real models. It is
-// written into dist/ because only files inside the extension package are
-// loadable by an extension page — and REMOVED on the way out, because
-// `web-ext lint` scans dist/ and a leftover bundle inflates the warning
-// count for whoever lints next.
-const SEED_BUNDLE = join(REPO, 'dist', '_smoke-seed.bundle.js');
-createRequire(import.meta.url)('esbuild').buildSync({
-    entryPoints: [join(HERE, 'seed-entry.js')],
-    outfile: SEED_BUNDLE,
-    bundle: true, format: 'iife', platform: 'browser', target: 'chrome120'
-});
-const cleanup = () => { try { rmSync(SEED_BUNDLE, { force: true }); } catch (_) { /* best effort */ } };
-process.on('exit', cleanup);
-
-const profile = mkdtempSync(join(tmpdir(), 'xr-profile-'));
+// The seed harness, bundled into dist/ so the portal page can load it
+// as a same-origin script (removed on exit — see lib/browser.mjs).
+const seed_ = seedBundle(join(HERE, 'seed-entry.js'), '_smoke-seed.bundle.js');
 
 const findings = [];
 const note = (s) => console.log(s);
 const fail = (s) => { findings.push(s); console.log('  ✗ ' + s); };
 const ok = (s) => console.log('  ✓ ' + s);
 
-const ctx = await chromium.launchPersistentContext(profile, {
-    executablePath: CHROME,
-    args: ['--headless=new', '--no-sandbox',
-           `--disable-extensions-except=${REPO}`, `--load-extension=${REPO}`],
-    viewport: { width: 1400, height: 1100 }
-});
-let [sw] = ctx.serviceWorkers();
-if (!sw) sw = await ctx.waitForEvent('serviceworker', { timeout: 15000 });
-const extId = new URL(sw.url()).host;
+const { ctx, extId, close } = await launchExtension({ pw, chrome: CHROME });
 note(`extension ${extId}`);
 
 const PORTAL = `chrome-extension://${extId}/src/portal/index.html`;
-const SEED_JS = `chrome-extension://${extId}/dist/_smoke-seed.bundle.js`;
+const SEED_JS = `chrome-extension://${extId}/${seed_.urlPath}`;
 
 const page = await ctx.newPage();
 const pageErrors = [];
@@ -105,6 +83,11 @@ const seed = await page.evaluate(async () => {
     await X.Storage.preferences.set({ ...(await X.Storage.preferences.get() || {}),
         default_relays: ['ws://127.0.0.1:1'], signing_method: 'local' });
     log.push(`throwaway signing identity npub ${String(ident.npub).slice(0, 16)}…`);
+    const pinned = ((await X.Storage.preferences.get()) || {}).default_relays;
+    if (JSON.stringify(pinned) !== JSON.stringify(['ws://127.0.0.1:1'])) {
+        return { error: `the relay pin did not take: default_relays is ${JSON.stringify(pinned)}`, log };
+    }
+    log.push('default_relays pinned to ws://127.0.0.1:1 (verified by read-back)');
 
     const kase = await X.EntityModel.create({ type: 'case', name: 'SMOKE — COVID origins' });
     log.push(`case ${kase.id}`);
@@ -193,7 +176,12 @@ const seed = await page.evaluate(async () => {
              hashes: members.map((m) => m.rec.articleHash) };
 });
 for (const l of seed.log || []) note('  ' + l);
-if (seed.error) { fail(`seed failed: ${seed.error}`); }
+if (seed.error) {
+    // Nothing past this point may run unpinned: stop here.
+    fail(`seed failed: ${seed.error}`);
+    await close();
+    process.exit(1);
+}
 else {
     if (seed.results.some((r) => r.status === 'failed')) fail(`a fold failed: ${JSON.stringify(seed.results)}`);
     else ok(`both folds saved (${seed.results.map((r) => r.added).join(' + ')} atoms added)`);
@@ -225,27 +213,30 @@ if (!(await dash.count())) fail('the case row has no "☰ Dashboard" button');
 else {
     await dash.click({ timeout: 15000 })
         .catch((e) => fail(`opening the case dashboard failed: ${String(e.message).split('\n')[0]}`));
-    await page.waitForTimeout(5000);
 }
-await page.screenshot({ path: join(OUT, 'ma6-01-case.png'), fullPage: true });
 
-let blockText = await page.evaluate(() => {
-    const h = [...document.querySelectorAll('h3')].find((e) => /Extracted assertions/.test(e.textContent || ''));
-    if (!h) return null;
-    const box = h.closest('.xr-synth') || h.parentElement;
-    return box.innerText;
-});
+// The block is found by its data-xr anchor, never by heading copy — the
+// heading was renamed once (UA.3, 2026-08-12) and this walk went stale
+// for weeks. The value is the SHARED constant the renderer sets
+// (src/shared/smoke-anchors.js); tests/smoke-selectors.test.mjs pins that
+// every anchor in that table is set somewhere in src/.
+const BLOCK = `[data-xr="${SMOKE_ANCHORS.extractionBlock}"]`;
+await page.waitForSelector(BLOCK, { state: 'attached', timeout: 20000 }).catch(() => { /* diagnosed below */ });
+await page.screenshot({ path: join(OUT, 'ma6-01-case.png'), fullPage: true });
+let blockText = await page.evaluate((sel) => {
+    const box = document.querySelector(sel);
+    return box ? box.innerText : null;
+}, BLOCK);
 if (!blockText) {
     // The block may live inside a collapsed section — open everything.
     await page.evaluate(() => {
         for (const d of document.querySelectorAll('details')) d.open = true;
     });
-    await page.waitForTimeout(2000);
-    blockText = await page.evaluate(() => {
-        const h = [...document.querySelectorAll('h3')].find((e) => /Extracted assertions/.test(e.textContent || ''));
-        if (!h) return null;
-        return (h.closest('.xr-synth') || h.parentElement).innerText;
-    });
+    await page.waitForTimeout(500);
+    blockText = await page.evaluate((sel) => {
+        const box = document.querySelector(sel);
+        return box ? box.innerText : null;
+    }, BLOCK);
 }
 if (!blockText) {
     fail('the extraction block did not render on the case dashboard');
@@ -276,6 +267,11 @@ else {
 }
 await page.evaluate(() => { for (const d of document.querySelectorAll('details')) d.open = true; });
 await page.waitForTimeout(2500);
+// Attached is not shown: innerText of a hidden node falls back to its
+// textContent, so the block must also be VISIBLE once every fold is open.
+if (blockText && !(await page.locator(BLOCK).first().isVisible())) {
+    fail('the extraction block is in the DOM but not visible with every section open');
+}
 await page.screenshot({ path: join(OUT, 'ma6-02-expanded.png'), fullPage: true });
 
 // ------------------------------------------------- publish affordance
@@ -441,10 +437,19 @@ page.on('dialog', (d) => d.accept());   // accept the confirm; the relay is ws:/
 const pub = page.locator('button', { hasText: /^Publish analysis…$/ }).first();
 if (!(await pub.count())) fail('the per-article publish button vanished after review');
 else {
-    await pub.click();
-    await page.waitForTimeout(9000);
-    const status = await page.evaluate(() =>
+    // Earlier steps leave status lines in the DOM; only a line that is NEW
+    // since the click counts, so a stale match cannot pass this step.
+    const statusTexts = () => page.evaluate(() =>
         [...document.querySelectorAll('.xr-synth__status')].map((e) => e.textContent.trim()).filter(Boolean));
+    const before = await statusTexts();
+    await pub.click();
+    // The transport answers as soon as the dead relay refuses; wait for
+    // the status line that reports it (either outcome) instead of sleeping.
+    await page.waitForFunction((prev) => [...document.querySelectorAll('.xr-synth__status')]
+        .map((e) => e.textContent.trim())
+        .some((t) => !prev.includes(t) && /Publish failed|No relays|not accept|No local identity|Published/i.test(t)),
+        before, { timeout: 30000 }).catch(() => { /* asserted below */ });
+    const status = (await statusTexts()).filter((t) => !before.includes(t));
     note('  status text: ' + JSON.stringify(status));
     if (status.some((t) => /No local identity/i.test(t))) {
         fail('the publish path stopped at the identity check — the transport was never exercised');
@@ -466,9 +471,19 @@ await page.screenshot({ path: join(OUT, 'ma6-03-reviewed.png'), fullPage: true }
 writeFileSync(join(OUT, 'ma6-block.txt'), blockText || '(absent)');
 writeFileSync(join(OUT, 'ma6-pageerrors.txt'), pageErrors.join('\n') || '(none)');
 note('\n[8] page errors across the whole walk');
-note(pageErrors.length ? pageErrors.slice(0, 12).map((e) => '  ! ' + e).join('\n') : '  (none)');
+note(pageErrors.length ? pageErrors.slice(0, 12).map((e) => '  ! ' + e.split('\n')[0]).join('\n') : '  (none)');
+// Every uncaught exception fails the walk. So does every console.error
+// the product itself emitted (Utils.error's `[X-Ray` prefix) except the
+// one step [7] provokes on purpose — the publish against the dead relay.
+const EXPECTED_CONSOLE = [/extraction analysis publish failed[\s\S]*no relay accepted it/];
+const uncaught = pageErrors.filter((e) => e.startsWith('pageerror:'));
+const product = pageErrors.filter((e) => e.startsWith('console: [X-Ray') && !EXPECTED_CONSOLE.some((re) => re.test(e)));
+if (uncaught.length) fail(`${uncaught.length} uncaught exception(s) during the walk — ${uncaught[0].split('\n')[0]}`);
+else ok('no uncaught exception anywhere in the walk');
+if (product.length) fail(`${product.length} product console.error(s) beyond the provoked publish failure — ${product[0].split('\n')[0].slice(0, 160)}`);
+else ok('no product console.error beyond the provoked publish failure');
 
 note(findings.length ? `\nFINDINGS (${findings.length}):\n` + findings.map((f) => ' - ' + f).join('\n')
                      : '\nNO FINDINGS — every check passed');
-await ctx.close();
+await close();
 process.exit(findings.length ? 1 : 0);

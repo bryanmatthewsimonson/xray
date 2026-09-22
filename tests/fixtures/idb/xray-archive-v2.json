@@ -1,0 +1,158 @@
+{
+  "db": "xray-archive",
+  "producedBy": {
+    "commitOfRung": "7e614c2",
+    "generator": "tests/tools/gen-idb-fixtures.mjs",
+    "note": "articles rows byte-identical to v1 (7e614c2 changed no row); the five metadata stores were minted with no writer or reader in any commit — carried with ZERO rows, as every real install has them."
+  },
+  "schema": {
+    "annotations": {
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "keyPath": "author",
+          "name": "author",
+          "unique": false
+        },
+        {
+          "keyPath": "createdAt",
+          "name": "createdAt",
+          "unique": false
+        },
+        {
+          "keyPath": "motivation",
+          "name": "motivation",
+          "unique": false
+        },
+        {
+          "keyPath": "urlHash",
+          "name": "urlHash",
+          "unique": false
+        }
+      ],
+      "keyPath": "eventId"
+    },
+    "articles": {
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "keyPath": "cachedAt",
+          "name": "cachedAt",
+          "unique": false
+        },
+        {
+          "keyPath": "lastAccessed",
+          "name": "lastAccessed",
+          "unique": false
+        },
+        {
+          "keyPath": "publishedToRelay",
+          "name": "publishedToRelay",
+          "unique": false
+        }
+      ],
+      "keyPath": "urlHash"
+    },
+    "factchecks": {
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "keyPath": "createdAt",
+          "name": "createdAt",
+          "unique": false
+        },
+        {
+          "keyPath": "ratingValue",
+          "name": "ratingValue",
+          "unique": false
+        },
+        {
+          "keyPath": "urlHash",
+          "name": "urlHash",
+          "unique": false
+        }
+      ],
+      "keyPath": "eventId"
+    },
+    "helpfulness": {
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "keyPath": "createdAt",
+          "name": "createdAt",
+          "unique": false
+        },
+        {
+          "keyPath": "targetEventId",
+          "name": "targetEventId",
+          "unique": false
+        },
+        {
+          "keyPath": "voter",
+          "name": "voter",
+          "unique": false
+        }
+      ],
+      "keyPath": "eventId"
+    },
+    "ratings": {
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "keyPath": "createdAt",
+          "name": "createdAt",
+          "unique": false
+        },
+        {
+          "keyPath": "urlHash",
+          "name": "urlHash",
+          "unique": false
+        }
+      ],
+      "keyPath": "eventId"
+    },
+    "trust_graph": {
+      "autoIncrement": false,
+      "indexes": [],
+      "keyPath": "pubkey"
+    }
+  },
+  "stores": {
+    "annotations": [],
+    "articles": [
+      {
+        "article": {
+          "content": "<p>Article A body.</p>",
+          "title": "Article A",
+          "url": "https://example.com/a"
+        },
+        "cachedAt": 1700000000,
+        "lastAccessed": 1700000060,
+        "publishedEventId": null,
+        "publishedToRelay": false,
+        "source": "capture",
+        "url": "https://example.com/a",
+        "urlHash": "2dce0a4c50441bfc"
+      },
+      {
+        "article": {
+          "content": "<p>Article B body.</p>",
+          "title": "Article B",
+          "url": "https://example.com/b"
+        },
+        "cachedAt": 1700000100,
+        "lastAccessed": 1700000100,
+        "publishedEventId": "4c63cd635b68470f62fcab2b1ec909e025d48994b1a93b8b4e5178a92390573d",
+        "publishedToRelay": true,
+        "source": "relay",
+        "url": "https://example.com/b",
+        "urlHash": "d7fe568b31ae0fb9"
+      }
+    ],
+    "factchecks": [],
+    "helpfulness": [],
+    "ratings": [],
+    "trust_graph": []
+  },
+  "version": 2
+}
