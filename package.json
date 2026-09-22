@@ -15,7 +15,8 @@
     "smoke": "node tools/smoke/run.mjs",
     "version:set": "node scripts/set-version.mjs",
     "icons": "node scripts/build-icons.mjs",
-    "docs:disciplines": "node tools/gen-discipline-docs.mjs"
+    "docs:disciplines": "node tools/gen-discipline-docs.mjs",
+    "docs:journal": "node tools/gen-journal-index.mjs"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",

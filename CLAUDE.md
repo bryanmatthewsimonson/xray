@@ -462,10 +462,20 @@ without the other is the design's named long-term risk.
   lenses. **Consult it before starting 1.0 work** — it carries the
   `file:line` evidence and says which track a change belongs to. Kills
   need maintainer ratification (Art. 11) before anything is removed.
-- **`docs/JOURNAL.md`** — chronological log of bugs, design decisions, and
-  external-platform changes. **Add a tight entry** when fixing a non-obvious
-  bug, making a second-guessable design choice, or working around a
-  third-party change. Skim it first when a capture target breaks.
+- **`docs/JOURNAL.md`** — the GENERATED index (newest first) of the
+  engineering journal: bugs, design decisions, and external-platform
+  changes. The entries live in **`docs/journal/YYYY-MM.md`**, one file
+  per month, oldest first. **Add a tight entry at the BOTTOM of the
+  current month's file** when fixing a non-obvious bug, making a
+  second-guessable design choice, or working around a third-party
+  change, then run `npm run docs:journal` to regenerate the index —
+  never edit the index by hand (`tests/journal-index.test.mjs` goes red
+  when it is stale or when an entry landed in it). The generator never
+  discards text: when it refuses it lists the lines and writes nothing;
+  a conflicted or union-merged index is healed by running it, never by
+  hand (recipes: CONTRIBUTING.md, "Engineering journal"). "JOURNAL YYYY-MM-DD"
+  still means the entry of that date. Grep `docs/journal/` first when a
+  capture target breaks.
 - **`docs/SMOKE_TEST.md`** — ~20-min manual checklist; run before any
   release tag or after a cross-cutting refactor.
 - **`docs/CAPTURE_GUIDE.md`** — per-platform URL-shape/timing requirements
