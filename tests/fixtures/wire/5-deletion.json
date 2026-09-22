@@ -1,0 +1,41 @@
+{
+  "builder": {
+    "fn": "clearRemote (inline literal — no builder function)",
+    "module": "src/shared/entity-sync.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "X-Ray entity sync — clear remote",
+    "created_at": 1700000000,
+    "id": "fff9d569fef4558df4603b45642950cd711c7245b7486a020e431bacc6b1aefe",
+    "kind": 5,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "18706e4ca83854d03340cd6e2908f9950f658e951987097171d1bddfc91c5b401c153fd543b90379819184f5370a96247b6180476967ee99b1513a368cba2aea",
+    "tags": [
+      [
+        "e",
+        "c46475cfeb4725b2555854c1d6edef9781dc8f70403c790012e76bc10a614674"
+      ],
+      [
+        "e",
+        "1205a8b29b3faee2e256e2103ddfc558d4df92c7ba4e14efde644dfe772a14a6"
+      ],
+      [
+        "k",
+        "30078"
+      ]
+    ]
+  },
+  "inputs": {
+    "syncEventIds": [
+      "c46475cfeb4725b2555854c1d6edef9781dc8f70403c790012e76bc10a614674",
+      "1205a8b29b3faee2e256e2103ddfc558d4df92c7ba4e14efde644dfe772a14a6"
+    ],
+    "userPubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+  },
+  "kind": 5,
+  "notes": "Hand-built to the exact clearRemote literal: e tags for the user's own 30078 ids (relay order), then [k, 30078], content \"X-Ray entity sync — clear remote\". verify-only because there is no builder to call; the test pins the literal shape.",
+  "rebuild": "verify-only",
+  "shape": "deletion",
+  "signer": "TV1"
+}

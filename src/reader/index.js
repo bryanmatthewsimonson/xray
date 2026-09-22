@@ -11,6 +11,7 @@
 //      commit; for now the button shows an "about to publish" toast.)
 
 import { ContentExtractor } from '../shared/content-extractor.js';
+import { markReady } from '../shared/smoke-anchors.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { EntityModel, installEntityStorageBridge, mergeEntityRefs, findEntityByName, canonicalIdOf } from '../shared/entity-model.js';
@@ -8291,4 +8292,6 @@ async function init() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', init);
+// The ready stamp follows init on every resolved path; a throw never
+// stamps, and the browser smoke waits for it (src/shared/smoke-anchors.js).
+document.addEventListener('DOMContentLoaded', () => init().then(() => markReady('reader')));

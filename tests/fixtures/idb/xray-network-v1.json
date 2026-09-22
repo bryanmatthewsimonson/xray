@@ -1,0 +1,128 @@
+{
+  "db": "xray-network",
+  "producedBy": {
+    "commitOfRung": "d2dda97",
+    "generator": "tests/tools/gen-idb-fixtures.mjs",
+    "note": "the d2dda97 rowFromRecord literal (no dTag — unlike xray-portal): addressable, replaceable (addr kind:pubkey) and regular (addr \"\") events, plus the lastLookedAt cursor and one profile:<pubkey> row in meta. Events signed by TV1 (own) and TV2 (a followed author)."
+  },
+  "schema": {
+    "events": {
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "keyPath": "addr",
+          "name": "addr",
+          "unique": false
+        },
+        {
+          "keyPath": "created_at",
+          "name": "created_at",
+          "unique": false
+        },
+        {
+          "keyPath": "kind",
+          "name": "kind",
+          "unique": false
+        },
+        {
+          "keyPath": "pubkey",
+          "name": "pubkey",
+          "unique": false
+        }
+      ],
+      "keyPath": "id"
+    },
+    "meta": {
+      "autoIncrement": false,
+      "indexes": [],
+      "keyPath": "key"
+    }
+  },
+  "stores": {
+    "events": [
+      {
+        "addr": "0:c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+        "created_at": 1700000001,
+        "event": {
+          "content": "{\"name\":\"Followed\"}",
+          "created_at": 1700000001,
+          "id": "1e33c3da79579d1964a76231917b597ef1d1102ebdce478e75985254411e704e",
+          "kind": 0,
+          "pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+          "sig": "a2f198a23ca9542b3648217c5262ca764a332c9a2aa70b950cd0b80693c6c3cdef38c95d4254f9a00964d2ad3e7c49dce74a0a075f3441897d6a30ff4409e8ff",
+          "tags": []
+        },
+        "firstSeenAt": 1700000005,
+        "id": "1e33c3da79579d1964a76231917b597ef1d1102ebdce478e75985254411e704e",
+        "kind": 0,
+        "lastSeenAt": 1700000005,
+        "pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+        "relays": [
+          "wss://relay.example"
+        ]
+      },
+      {
+        "addr": "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:a1",
+        "created_at": 1700000000,
+        "event": {
+          "content": "# Article A",
+          "created_at": 1700000000,
+          "id": "83a62182829714d32e2358bc011a07061e0aba661e987eaec1dd4b53888b89c2",
+          "kind": 30023,
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "sig": "42e0f0ec591c4e3fd9b0b0b23ac060cae6b1269e3b247cc76afe0937ade7a43fca34a445d4d9376476eb6ee10a2d8fa3c6a20ebd0b325d1ce26578163dba2a7a",
+          "tags": [
+            [
+              "d",
+              "a1"
+            ]
+          ]
+        },
+        "firstSeenAt": 1700000005,
+        "id": "83a62182829714d32e2358bc011a07061e0aba661e987eaec1dd4b53888b89c2",
+        "kind": 30023,
+        "lastSeenAt": 1700000005,
+        "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "relays": [
+          "wss://relay.example"
+        ]
+      },
+      {
+        "addr": "",
+        "created_at": 1700000002,
+        "event": {
+          "content": "A note.",
+          "created_at": 1700000002,
+          "id": "dcb229e711acac7ae3f04e5a8a94140f82f85106ce76a6b9e07c208c382b9b17",
+          "kind": 1,
+          "pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+          "sig": "0a7dab9fb0903d66f4fffe6049fedc3ef6fd966c27b7edc178216cfe546d4eef657f7db0fd87f21ed54e204879eea569206154192f77307ad1a3a27adcaf98dc",
+          "tags": []
+        },
+        "firstSeenAt": 1700000005,
+        "id": "dcb229e711acac7ae3f04e5a8a94140f82f85106ce76a6b9e07c208c382b9b17",
+        "kind": 1,
+        "lastSeenAt": 1700000005,
+        "pubkey": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+        "relays": [
+          "wss://relay.example"
+        ]
+      }
+    ],
+    "meta": [
+      {
+        "key": "lastLookedAt",
+        "value": 1700000005
+      },
+      {
+        "key": "profile:c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+        "value": {
+          "about": "A fixture profile.",
+          "name": "Followed",
+          "updatedAt": 1700000001
+        }
+      }
+    ]
+  },
+  "version": 1
+}

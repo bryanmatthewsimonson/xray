@@ -1,0 +1,60 @@
+{
+  "builder": {
+    "fn": "EventBuilder.buildEntitySyncEvent (content: entity-sync.js pushEntities)",
+    "module": "src/shared/event-builder.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "As7MuQbrfbGE+acUBuSb0P0A1e5rxRgrvQm6tng/7CGm8yWJs8CjYg9ocIxWf+iJEQToXKZf30vpMe9opHNFLlFBF8+LcvYniX9acCVpo9yf4Yd5B0m+2KibU3laOEyVM/5ErkfT7ONJN5Np7fc5QIkuzFi7lkO0MqKmEqEph7k9NXNbBgfiNmnb+LtsY5mIVlcXebIHv65f1AEk9mjYp70nzMhHhp6ZQ3SiVHxe95z72U9RL+Z2sBaSsM2zqsGuWfzn8vPdINc5I8RSryiEPMwAL+bMKNde9AvlMhP7CkH7zNDDXBFTusE9Hqp0igAKprk+SwTxW/HyOus8JkJhC9nIJYsvL8g0tj5ldsM48TY5xLleXDqMu4N1kTI6HLkKvL7TP/9Vi8t6SwRGby+ds3SOJYHm9AAkCR1Ad2IbIOVceKAphM2Bm93SnDxIQJy2o/0qd658K+Ii7hLS6VeeF4/WK9xmw6ZyA1GcE+bYROdhSDB3ZWzvXWaJSyR8jI/zYJkEIGu1otoeGTTMtmYGAwMLMRogYEcND4ta0SWruWP5NUixa2ZtjlpbwkmLekBazqBhWI9/DUacgEReTc1S0gpwpbQCJsvVSQo924kxDLTYye0WcN+WubI7lkISUL1Z3fAb5LOejkdaHwoQ/MGuhcesCB13dNclksf4neNkWEnkb4sya/uUNfH3svOi3oiyqIuQuMjy79rmsrndZ1dGMevnBAq3/xF4IQpcrH7RHqLdF7GlQJ1cDYtluIO4quPx/w8Rm2iAori7Z0rm8SOv8NbUeDGa10KESWhKG5RLkZ8ZOMyxoKzAsQpPO7HGSon0+6u78Ce7wlFsqGyF75BxYklrBWCdYiD377j/ZSUhemaC0wn5foNiuvkUDEQicFeymjbdcOpla53qbffR3qewXZIk5PkOTzA0dReICihvblaGPcE=",
+    "created_at": 1700000000,
+    "id": "0ed1e7d402c5b250380a38e75a250def7b02a8986cf135d97723ed3a6a014cbf",
+    "kind": 30078,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "6afe8dad7e935bf1c8e325377881bfb5a78d79dfa1754b8d1c3c47d750aaa629e636707d1011e2ad07f58ae53846649b4a290c606b31f546c125207f42f94bc0",
+    "tags": [
+      [
+        "d",
+        "entity_8f345c643bec5da6"
+      ],
+      [
+        "client",
+        "xray"
+      ],
+      [
+        "entity-type",
+        "person"
+      ],
+      [
+        "L",
+        "xray/entity-sync"
+      ],
+      [
+        "l",
+        "v1",
+        "xray/entity-sync"
+      ]
+    ]
+  },
+  "inputs": {
+    "entity": {
+      "canonical_id": null,
+      "created": 1699996400,
+      "description": "A person entity.",
+      "id": "entity_8f345c643bec5da6",
+      "name": "Jane Roe",
+      "nip05": "",
+      "publishedAt": null,
+      "publishedEventId": null,
+      "type": "person",
+      "updated": 1700000000
+    },
+    "entityId": "entity_8f345c643bec5da6",
+    "entityType": "person",
+    "userPubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+  },
+  "kind": 30078,
+  "notes": "Content is NIP-44 v2 ciphertext (random nonce — pinned once) of serializeEntityForSync(entity with TV3 keypair) under the TV1<->TV1 self conversation key. The plaintext carries TV3's private key ONLY inside the ciphertext; the fixture inputs hold the public record and the test re-attaches the keypair from fixture-keys.",
+  "rebuild": "verify-only",
+  "shape": "entity-sync",
+  "signer": "TV1"
+}

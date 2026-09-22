@@ -1,0 +1,70 @@
+{
+  "databases": {
+    "xray-archive": {
+      "articles": [
+        {
+          "article": {
+            "content": "A legacy fixture claim.",
+            "title": "Legacy Article",
+            "url": "https://example.com/legacy"
+          },
+          "cachedAt": 1699913600,
+          "lastAccessed": 1699913600,
+          "publishedEventId": null,
+          "publishedToRelay": false,
+          "source": "capture",
+          "url": "https://example.com/legacy",
+          "urlHash": "cc7fb8f76ad74d6d"
+        }
+      ]
+    },
+    "xray-events": {
+      "published_events": [
+        {
+          "address": "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_legacy_fixture",
+          "articleUrl": null,
+          "createdAt": 1699913600,
+          "event": {
+            "content": "A legacy fixture claim.",
+            "created_at": 1699913600,
+            "id": "b14a75c05a5c3feb18fdd7cd570702d40d69d56ac4880224ca2712ea5efd2615",
+            "kind": 30040,
+            "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "sig": "57ce53535d9ccd8963d56ad9812df0308f20cb8e6c054ee55454c272c8f0b75dcb5be5ced4d9f32f9d7f2351462be3fb3a7711a3f88fcbee38f6854d7bac868b",
+            "tags": [
+              [
+                "d",
+                "claim_legacy_fixture"
+              ]
+            ]
+          },
+          "eventId": "b14a75c05a5c3feb18fdd7cd570702d40d69d56ac4880224ca2712ea5efd2615",
+          "kind": 30040,
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "publishedAt": 1699913605,
+          "relays": [
+            {
+              "assumed": true,
+              "success": true,
+              "url": "wss://relay.example"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "exportedAt": "2023-11-14T22:13:20.000Z",
+  "format": "xray-backup/1",
+  "storage": {
+    "article_claims": {
+      "claim_legacy_fixture": {
+        "created": 1699913600,
+        "id": "claim_legacy_fixture",
+        "source_url": "https://example.com/legacy",
+        "text": "A legacy fixture claim."
+      }
+    },
+    "local_primary_identity": "{\"created\":1699913600,\"npub\":\"npub10xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqpkge6d\",\"nsec\":\"nsec1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsmhltgl\",\"privateKey\":\"0000000000000000000000000000000000000000000000000000000000000001\",\"pubkey\":\"79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798\"}",
+    "preferences": "{\"debug\":false,\"default_relays\":[\"wss://relay.example\"]}"
+  }
+}

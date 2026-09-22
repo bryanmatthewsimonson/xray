@@ -1,0 +1,48 @@
+{
+  "builder": {
+    "fn": "buildForensicFindingMirrorEvent",
+    "module": "src/shared/metadata/builders.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "",
+    "created_at": 1700000000,
+    "id": "084b24d6d1f1ca68fa7342b55a1c7ff7665b90369971c33f9aca471c544d37e9",
+    "kind": 1985,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "dd5c13ea8206091c48f814e1e15c2467af02f4f86af3bc50213f72248823532ca9b9c47478ee0f5a88ab99840c036ee41dfef04a9dddd9f3b3dd9a688b82a6a8",
+    "tags": [
+      [
+        "L",
+        "xray/forensic"
+      ],
+      [
+        "l",
+        "darvo/attack",
+        "xray/forensic"
+      ],
+      [
+        "p",
+        "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"
+      ],
+      [
+        "r",
+        "https://example.com/x"
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "maneuver": "darvo/attack",
+    "sourceUrl": "https://example.com/x",
+    "subjectPubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"
+  },
+  "kind": 1985,
+  "notes": "The ONE 1985 shape that carries a p (the labeled subject, TV3) under xray/forensic.",
+  "rebuild": "exact",
+  "shape": "forensic-mirror",
+  "signer": "TV1"
+}

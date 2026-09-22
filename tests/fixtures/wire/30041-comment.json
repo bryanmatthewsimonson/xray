@@ -1,0 +1,98 @@
+{
+  "builder": {
+    "fn": "EventBuilder.buildCommentEvent",
+    "module": "src/shared/event-builder.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "This completely contradicts what he said last week.",
+    "created_at": 1700000000,
+    "id": "10077d251ae680b43792721b4986a0de3d3bbae5736dfde51f04eedbe356349f",
+    "kind": 30041,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "973fe2694216264e16b0d01a49b49dc6c8ee5987b0f417c7c6c726fa24150ea4f657f6a9cf79b02be344bd7d9a55d767310433c4e5739ea0a82ae6d662a39a40",
+    "tags": [
+      [
+        "d",
+        "cmt:substack:98765"
+      ],
+      [
+        "r",
+        "https://example.com/p/post"
+      ],
+      [
+        "title",
+        "The Post"
+      ],
+      [
+        "comment-text",
+        "This completely contradicts what he said last week."
+      ],
+      [
+        "comment-author",
+        "Jane Reader"
+      ],
+      [
+        "platform",
+        "substack"
+      ],
+      [
+        "author-handle",
+        "janereader"
+      ],
+      [
+        "author-url",
+        "https://example.com/@janereader"
+      ],
+      [
+        "p",
+        "383c5575936d3cbfc199f126c0469b167df262cf8bef4590cfc54118aa7517eb",
+        "",
+        "commenter"
+      ],
+      [
+        "comment-date",
+        "1700000120"
+      ],
+      [
+        "reply-to",
+        "cmt:substack:98000"
+      ],
+      [
+        "reaction-count",
+        "12"
+      ],
+      [
+        "restack-count",
+        "3"
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "accountPubkey": "383c5575936d3cbfc199f126c0469b167df262cf8bef4590cfc54118aa7517eb",
+    "articleTitle": "The Post",
+    "articleUrl": "https://example.com/p/post",
+    "comment": {
+      "authorHandle": "janereader",
+      "authorName": "Jane Reader",
+      "authorUrl": "https://example.com/@janereader",
+      "id": "cmt:substack:98765",
+      "platform": "substack",
+      "reactionCount": 12,
+      "replyTo": "cmt:substack:98000",
+      "restacks": 3,
+      "text": "This completely contradicts what he said last week.",
+      "timestamp": 1700000120000
+    },
+    "userPubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+  },
+  "kind": 30041,
+  "notes": "Full captured-comment shape (ms timestamp normalized to seconds, reply-to, reaction/restack counts, commenter p). accountPubkey is the DERIVED platform-account identifier for youtube:UCabc (deriveAccountPubkey), not a held key.",
+  "rebuild": "exact",
+  "shape": "comment",
+  "signer": "TV1"
+}
