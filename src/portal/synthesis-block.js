@@ -28,7 +28,7 @@ import {
     groundCaseBrief, filterProposals, computeEntitySummary, foldMemberAliases
 } from '../shared/case-synthesis.js';
 import { renderProposals } from './synthesis-review.js';
-import { runLlmJob, ackLlmJob, findLlmJob, llmJobScopeKey } from '../shared/llm-jobs.js';
+import { runLlmJob, ackLlmJob, findLlmJob, llmJobScopeKey, jobElapsedSeconds } from '../shared/llm-jobs.js';
 import {
     recordArticleExtraction, unionExtractWithRecord, reduceExtractFromRecord
 } from '../shared/map-artifacts.js';
@@ -932,7 +932,10 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                     },
                     onTick: (st) => {
                         if (!stillCurrent() || st.status !== 'running') return;
-                        const secs = Math.round((Date.now() - reduceStartedAt) / 1000);
+                        // Anchored to the record's own start, so a tab that
+                        // reattached after a reload shows the real elapsed
+                        // time rather than a counter restarted at 0.
+                        const secs = jobElapsedSeconds(st, reduceStartedAt);
                         status.textContent = `${synthLabel} ${secs}s — running in the background; `
                             + 'a reload picks it up where it is.';
                     }
@@ -949,7 +952,13 @@ export function renderSynthesisBlock(host, { data, dossier, callbacks = {} }) {
                             ? ' Lost contact with the service worker; if the call finished, its result is kept '
                               + 'and "Analyze corpus…" picks it up with no new synthesis call.'
                             : '';
-                    status.textContent = `Synthesis failed: ${detail}.${retryNote}`;
+                    // A brief already on screen is the PREVIOUS run's, not
+                    // this call's result — say so, or a reader takes it
+                    // for the output of the call that just failed.
+                    const priorNote = briefHost.childElementCount
+                        ? ' The brief below is from the previous run and is unchanged.'
+                        : '';
+                    status.textContent = `Synthesis failed: ${detail}.${retryNote}${priorNote}`;
                     return;
                 }
                 const v = validateCaseBrief(reduce.briefInput);
