@@ -166,12 +166,23 @@ async function contentTemplates() {
     const flushedArticleAddress = `30023:${TV1.pubkey}:fixture-article-a`;
     return {
         entities: {
-            [orgId]: { id: orgId, type: 'organization', name: 'Fixture Council', pubkey: TV3.pubkey, npub: TV3.npub, created: T, updated: T },
+            // A LEGACY local entity: the exact field set EntityModel.create
+            // writes, on its pre-derivation path (no primary identity at
+            // create time, so a random key and derived_from null). Its key
+            // is the local_keys entry below, reached ONLY through keyName —
+            // the record carries no pubkey of its own (I14 pins that it
+            // loads, survives restoreDerivedKeys, and signs).
+            [orgId]: {
+                id: orgId, name: 'Fixture Council', type: 'organization',
+                description: '', nip05: '', canonical_id: null,
+                keyName: `entity:${orgId}`, derived_from: null, suggested_by: 'user',
+                created: T, updated: T
+            },
             [personId]: { id: personId, type: 'person', name: 'A. Fixture', created: T, updated: T }
         },
         local_keys: {
             'xray:user': keyData(TV2, 'xray:user', { purpose: 'entity-sync' }),
-            [`entity:${orgId}`]: keyData(TV3, `entity:${orgId}`, { entityId: orgId })
+            [`entity:${orgId}`]: keyData(TV3, `entity:${orgId}`, { entityId: orgId, entityName: 'Fixture Council', entityType: 'organization' })
         },
         article_claims: {
             [claimId]: {
