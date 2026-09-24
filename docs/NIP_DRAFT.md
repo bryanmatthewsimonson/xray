@@ -1155,6 +1155,8 @@ Where:
 
 Semantics: absent an `evidence-role`, `link` asserts **linkage only** — the body contains a hyperlink to the target, no stance. The role, when present, adds the citing article's declared intent; broader endorsement/rebuttal of a whole work is still the separate `responds-to` relationship. Internal links (same-host navigation) are not emitted. Publishers extract links under a cap (X-Ray: 100 distinct targets), so **the absence of a `link` tag is not evidence the article does not link somewhere** — consumers needing certainty must consult the captured body.
 
+From a PDF capture (`extraction-method` `pdfjs-…`), the links are the document's URI link annotations and the anchor text is the text each annotation's rectangle covers. The published body is the reconstructed text, which does not itself carry the hyperlinks; the original document pinned by `source-hash` does.
+
 Publishers SHOULD co-emit an indexed `r` tag for the first **25** linked targets (after the primary `r` and every other co-emit; deduplicated against `r` tags already on the event — the FIRST `r` remains the article's own URL). This makes the edge queryable from the linked side:
 
 ```jsonc
