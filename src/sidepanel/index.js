@@ -45,6 +45,7 @@ import { Storage } from '../shared/storage.js';
 import { listArticles } from '../shared/archive-cache.js';
 import { listAddableArticles, addArticlesToCase } from '../shared/case-membership.js';
 import { getCaseBrief } from '../shared/audit/audit-cache.js';
+import { escapeHtml, fmtRelative, hostOf } from './format.js';
 
 // Reserved key name in LocalKeyManager for the user's primary
 // identity. Used only by the sync flow — article publishing still
@@ -72,12 +73,6 @@ const state = {
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
-function escapeHtml(s) {
-    return String(s ?? '')
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
-}
-
 function toast(message, type = 'success', timeoutMs = 3200) {
     const el = $('#xr-toast');
     el.textContent = message;
@@ -85,16 +80,6 @@ function toast(message, type = 'success', timeoutMs = 3200) {
     el.hidden = false;
     clearTimeout(toast._t);
     toast._t = setTimeout(() => { el.hidden = true; }, timeoutMs);
-}
-
-function fmtRelative(unixSec) {
-    if (!unixSec) return '';
-    const diffSec = Math.floor(Date.now() / 1000) - unixSec;
-    if (diffSec < 60)      return 'just now';
-    if (diffSec < 3600)    return Math.floor(diffSec / 60)   + 'm ago';
-    if (diffSec < 86400)   return Math.floor(diffSec / 3600) + 'h ago';
-    if (diffSec < 2592000) return Math.floor(diffSec / 86400) + 'd ago';
-    return new Date(unixSec * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 async function copyToClipboard(text) {
@@ -937,10 +922,6 @@ async function renderInconsistencies(entity) {
     } catch (err) {
         host.innerHTML = `<div class="xr-side__canonical-none">${escapeHtml(err.message || String(err))}</div>`;
     }
-}
-
-function hostOf(url) {
-    try { return new URL(url).host; } catch { return String(url || ''); }
 }
 
 /** Share a case's entity keys for collaboration (Phase 11.8). */
