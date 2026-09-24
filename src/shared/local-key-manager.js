@@ -16,20 +16,33 @@
 // module instance and its own `keys` Map over the ONE stored
 // `local_keys` value (workspace-mapped by Storage). The stored value is
 // the truth; the Map is a read cache for getKey/listKeys/signEvent.
-// So, three rules:
+// So, four rules:
 //   1. Every write is a read-modify-write of FRESH storage that applies
 //      exactly its own change (add/replace one name, delete one name,
 //      upsert a set) — never a dump of this page's Map. The pre-fix
 //      whole-Map save() let one tab erase every key another tab made
 //      after both loaded; save() is gone for that reason (an add-only
 //      merge would still resurrect a key another page just deleted).
-//   2. Writers serialize on the Web Lock `xray.local_keys` (all writers
-//      are same-origin extension pages). Web Locks are NOT re-entrant:
-//      no locked section here calls another locked method, and callers
-//      must never hold the lock across a call into this module.
-//   3. init() is a true refresh (clear + load) and attaches one change
-//      listener per module instance, so a page's Map follows other
-//      pages' writes, raw restores, resets and workspace switches.
+//      A read that FAILS aborts the write (Storage.getStrict): writing
+//      back "{ my key }" over an unreadable store would erase the rest.
+//   2. Writers serialize on the Web Lock `xray.local_keys`. That
+//      includes the wholesale writers outside this module — the
+//      replace-all backup restore and the workspace reset / removal —
+//      through `withKeyStoreLock`. Web Locks are NOT re-entrant: no
+//      locked section here calls another locked method, and nobody may
+//      call into this module's writers while holding the lock.
+//   3. Nothing locked runs outside an extension origin. A lock is
+//      scoped to the origin of the document that requests it: in an
+//      extension page or the service worker that is the extension's
+//      own origin, but in a content script it is the WEB PAGE's, whose
+//      script could hold the same name. Content scripts hold no
+//      keystore (JOURNAL 2026-09-24, THREAT_MODEL G10).
+//   4. The Map is written ONLY by the refresh loop, which always ends on
+//      a read that started after the latest request. init() is a true
+//      refresh (clear + load) and attaches one change listener per
+//      module instance; every change event and every finished write
+//      requests a refresh, so a page's Map converges on storage after
+//      other pages' writes, raw restores, resets and workspace switches.
 // A page's Map is replaced in place (clear/set) — callers and tests
 // hold references to LocalKeyManager.keys.
 
@@ -41,20 +54,34 @@ const STORE_KEY = 'local_keys';
 // Deliberately NOT `xray:…`: that prefix is the message-bus namespace,
 // and structure-guard rule 4 holds every `xray:` literal in src/ to the
 // closed message registry. A lock name is neither a message nor a
-// storage key. (Lock names are origin-scoped: only this extension's
-// pages and worker share it.)
+// storage key. It is shared by everything running in the REQUESTING
+// document's origin — which is why rule 3 above exists.
 const LOCK_NAME = 'xray.local_keys';
 // Fallback mutex slot for contexts without navigator.locks (Node's test
 // runner). On globalThis, not in module scope, so two module instances
 // in one realm — the tests' "two pages" — share it.
 const FALLBACK_MUTEX = Symbol.for('xray.local_keys.mutex');
+const EXTENSION_PROTOCOLS = new Set(['chrome-extension:', 'moz-extension:']);
 const HEX64 = /^[0-9a-f]{64}$/;
 
-let generation = 0;         // bumps on every Map replacement; stale reads lose
-let pendingRefresh = null;  // the newest in-flight refresh
+let refreshWanted = false;  // a refresh was requested since the loop's last read began
+let refreshLoop = null;     // the running refresh loop, if any
 let watching = false;       // one change listener per module instance
 
-function withKeysLock(fn) {
+// Rule 3. No location at all (Node's test runner) passes; any location
+// that is not an extension page or worker is refused before a lock is
+// requested.
+function assertExtensionOrigin() {
+    const loc = globalThis.location;
+    if (loc === undefined || loc === null) return;
+    const protocol = String(loc.protocol || '');
+    if (!EXTENSION_PROTOCOLS.has(protocol)) {
+        throw new Error(`LocalKeyManager: the keystore is written only from extension pages — refused under a ${protocol || 'non-extension'} origin`);
+    }
+}
+
+async function withKeysLock(fn) {
+    assertExtensionOrigin();
     const locks = (typeof navigator !== 'undefined' && navigator && navigator.locks
         && typeof navigator.locks.request === 'function') ? navigator.locks : null;
     if (locks) return locks.request(LOCK_NAME, () => fn());
@@ -62,6 +89,19 @@ function withKeysLock(fn) {
     const run = tail.then(() => fn());
     globalThis[FALLBACK_MUTEX] = run.then(() => undefined, () => undefined);
     return run;
+}
+
+/**
+ * Run `fn` holding the keystore lock — for the few writers OUTSIDE this
+ * module that replace or clear `local_keys` wholesale (the replace-all
+ * backup restore, the workspace reset, the workspace removal), so a key
+ * write in flight on another page cannot land after them and undo
+ * them. Same refusal outside an extension origin as every write. NOT
+ * re-entrant: `fn` must never call a LocalKeyManager writer (it would
+ * wait on itself forever).
+ */
+export function withKeyStoreLock(fn) {
+    return withKeysLock(fn);
 }
 
 const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -86,7 +126,6 @@ function buildKeyData(name, privateKeyHex, metadata, created) {
 }
 
 function replaceMap(stored) {
-    generation++;
     const map = LocalKeyManager.keys;
     map.clear();
     for (const [name, keyData] of Object.entries(stored)) {
@@ -94,22 +133,39 @@ function replaceMap(stored) {
     }
 }
 
-// Reload the Map from storage. A read that another refresh or a write
-// superseded is dropped (it may predate that newer state); the caller
-// then waits for the newest refresh so `await init()` still means
-// "the Map now reflects storage".
+// Rule 4 — reload the Map from storage. ONE loop per module instance:
+// a request made while a read is in flight marks the loop dirty and it
+// reads again afterwards, so the Map always ends on a read that STARTED
+// after the latest request, and `await init()` / `await refresh()` still
+// mean "the Map now reflects storage". Nothing else writes the Map, so
+// no newer read can be dropped or overwritten by an older view. (The
+// pre-hardening write path installed what IT wrote and dropped any
+// listener refresh in flight — which, after an unlocked change such as
+// a workspace switch, had read NEWER state and was never retried.)
+// A read that fails keeps the last good Map: an empty one would make
+// every key look missing.
 function refresh() {
-    const gen = ++generation;
-    const run = (async () => {
-        const stored = await Storage.get(STORE_KEY, {});
-        if (gen === generation) {
-            replaceMap(isPlainObject(stored) ? stored : {});
-        } else if (pendingRefresh && pendingRefresh !== run) {
-            await pendingRefresh;
-        }
-    })();
-    pendingRefresh = run;
-    return run;
+    refreshWanted = true;
+    if (!refreshLoop) {
+        refreshLoop = (async () => {
+            try {
+                while (refreshWanted) {
+                    refreshWanted = false;
+                    let stored;
+                    try {
+                        stored = await Storage.getStrict(STORE_KEY, {});
+                    } catch (err) {
+                        Utils.error('LocalKeyManager: reading local_keys failed — keeping the keys loaded before:', err);
+                        continue;
+                    }
+                    replaceMap(isPlainObject(stored) ? stored : {});
+                }
+            } finally {
+                refreshLoop = null;
+            }
+        })();
+    }
+    return refreshLoop;
 }
 
 // Any workspace's local_keys (the bare default key or `ws:<id>:local_keys`)
@@ -153,26 +209,37 @@ function watchStorage() {
 }
 
 // The one write path. Under the lock: read local_keys FRESH, let
-// `apply` change exactly its own names on that object, write it back
-// (only when `apply` says so), then make this page's Map what storage
-// now holds. `apply` must be synchronous and must not call back into
-// this module (the lock is not re-entrant).
+// `apply` change exactly its own names on that object, and write it
+// back (only when `apply` says so). After the lock is released the
+// page's Map is refreshed from storage (rule 4) — never set to what
+// this write produced, because an unlocked change (another page's
+// workspace switch, say) can land between the write and that install.
+// `apply` must be synchronous and must not call back into this module
+// (the lock is not re-entrant).
+//
+// The read is STRICT: an unreadable store aborts the write instead of
+// being read as empty (rule 1).
 //
 // Storage maps the key per call, so a workspace switch landing between
 // the read and the write would carry one workspace's keys into the
 // other. The pointer is re-checked right before the write (no event can
 // run between that check and the write's own mapping) and the whole
 // read-modify-write is redone if it moved.
-function mutate(apply) {
-    return withKeysLock(async () => {
+async function mutate(apply) {
+    const result = await withKeysLock(async () => {
         for (let attempt = 1; ; attempt++) {
             const ws = await Storage.activeWorkspaceId();
-            const raw = await Storage.get(STORE_KEY, {});
+            let raw;
+            try {
+                raw = await Storage.getStrict(STORE_KEY, {});
+            } catch (err) {
+                throw new Error(`LocalKeyManager: reading local_keys failed — nothing written (${(err && err.message) || err})`);
+            }
             if (!isPlainObject(raw)) {
                 throw new Error('LocalKeyManager: stored local_keys is not an object — refusing to overwrite it');
             }
             const stored = { ...raw };
-            const { write, result } = apply(stored);
+            const { write, result: out } = apply(stored);
             if (await Storage.activeWorkspaceId() !== ws) {
                 if (attempt < 3) continue;
                 throw new Error('LocalKeyManager: the workspace kept changing during a key write — nothing written');
@@ -181,10 +248,11 @@ function mutate(apply) {
                 const ok = await Storage.set(STORE_KEY, stored);
                 if (ok === false) throw new Error('LocalKeyManager: writing local_keys failed');
             }
-            replaceMap(stored);
-            return result;
+            return out;
         }
     });
+    await refresh();
+    return result;
 }
 
 // importKey / installDerivedKey: add under a free name, idempotent for
