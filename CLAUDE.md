@@ -71,7 +71,8 @@ the single most important thing here.
    DOM extraction. Injects no in-page chrome except a transient error toast.
    Cannot open WebSockets to relays on CSP-strict sites, so it delegates
    publish.
-2. **Background service worker** (`src/background/index.js`, ESM) — owns
+2. **Background service worker** (`src/background/index.js`, ESM; the
+   LLM-job dispatch sits beside it in `src/background/llm-jobs.js`) — owns
    the **relay WebSocket pool** (connections survive tab navigation and
    aren't subject to page CSP — this is *why* the pool lives here, not in
    the content script), context menus, toolbar/keyboard commands,
@@ -101,9 +102,16 @@ extension approves in-context.
 (e.g. `xray:capture`, `xray:capture:transcribe`, `xray:capture:publish`,
 `xray:relay:publish`, `xray:relay:query`, `xray:sign`,
 `xray:youtube:fetchTranscript`, `xray:screenshot:capture`,
-`xray:llm:corpus-map`, `xray:audit:run`, `xray:transcribe:{start,status,
+`xray:llm:job:{start,status,find,ack}` — the corpus map / corpus reduce /
+entity-page passes as **jobs** (`shared/llm-jobs.js`: start answers at
+once, the raw result is persisted under the job id before any response
+hop, the page long-polls; a held-open message dies at MV3's 5-minute
+request kill and takes the paid result with it — JOURNAL 2026-09-05),
+`xray:audit:run`, `xray:transcribe:{start,status,
 config,ping,claims}`, `xray:transcribe:direct:{start,status}`, `xray:vision:describe`). When adding a cross-context
 call, add an `xray:*` message rather than reaching across contexts directly.
+**A pass that can run past a few minutes must be a job, never a single
+held-open message** — the transcribe and LLM-job families are the precedents.
 
 ### Shared layer (`src/shared/`)
 
@@ -197,6 +205,10 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   Integrity" never appear in lens exports, storage keys, or UI strings.
 - Also: `nostr-client.js` (relay pool, used from background),
   `archive-cache.js` (IndexedDB + paywall reconstruction),
+  `llm-jobs.js` (the LLM job runner + page client — the long
+  corpus-map / corpus-reduce / entity-page passes as start/status jobs
+  with the raw result persisted under `xray:llm-job:*` before any
+  response hop; backup-excluded; JOURNAL 2026-09-05),
   `build-info.js` (the build stamp shown on the Options page),
   `transcriber-client.js` + `diarized-transcript.js` (local
   transcription: the loopback companion client — pinned to

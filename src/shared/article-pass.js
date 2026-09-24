@@ -29,6 +29,7 @@ import {
 } from './case-synthesis.js';
 import { getCorpusExtract, saveCorpusExtract } from './audit/audit-cache.js';
 import { recordArticleExtraction } from './map-artifacts.js';
+import { runLlmJob, ackLlmJob } from './llm-jobs.js';
 import { getArticle as getArchivedArticle } from './archive-cache.js';
 
 /**
@@ -122,7 +123,7 @@ export function describeExtractErrors(errors) {
 
 /**
  * Ensure THE extract exists for one article: cache hit → free; miss →
- * one `xray:llm:corpus-map` call, saved under its content-only key.
+ * one `corpus-map` job (`xray:llm:job:*`), saved under its content-only key.
  * Either way the extract folds into the durable article-extractions
  * record (MA.1) when the article's canonical hash is known — an
  * unhashed (edited-body) article still gets its extract, but the fold
@@ -143,9 +144,9 @@ export function describeExtractErrors(errors) {
  * @param {function} [opts.keepalive]  () → {stop()} — pings the SW while
  *                                   the map call is in flight. Injected
  *                                   (not imported) so this module stays
- *                                   chrome-free and testable; omitting
- *                                   it only risks an MV3 teardown on a
- *                                   long call, never correctness.
+ *                                   chrome-free and testable. Since the
+ *                                   job pattern the worker heartbeats
+ *                                   itself; this is belt-and-braces.
  * @param {object} [io]  injectable: getExtract, saveExtract, record, now
  * @returns {Promise<{status:'cached'|'ran'|'failed'|'no-text',
  *                    key?:string, extract?:object, model?:string, error?:string}>}
@@ -196,22 +197,23 @@ export async function ensureArticleExtract({ article, articleHash = null, url = 
                  truncated: unit.truncated, partial: !!hit.partial, text: unit.text };
     }
 
-    // The wire call can REJECT, not just return {ok:false} — an MV3
-    // service-worker teardown mid-call surfaces as "the message port
-    // closed". A rejection here must become a reportable failure, never
-    // an unhandled rejection past the caller's toast.
-    //
-    // This is ONE long cold call — a long-form transcript at the raised
-    // map bound can run minutes with nothing else messaging the SW,
-    // which is precisely the teardown that produced "Synthesis failed:
-    // no response" (JOURNAL 2026-07-18). The keepalive spans exactly the
-    // fetch and stops on every exit path.
+    // The call runs as a JOB (shared/llm-jobs.js, JOURNAL 2026-09-05):
+    // start returns at once, the worker persists the raw extract under
+    // the job id before any response hop, and the page long-polls. A
+    // long-form transcript at the raised map bound can run minutes; the
+    // old single held-open message died at MV3's 5-minute request kill
+    // and took the paid result with it. The scope key is the extract's
+    // content-only cache key, so a result that finished after this page
+    // went away is picked up by the next run, not re-bought. The
+    // injected keepalive is now belt-and-braces (the worker heartbeats
+    // itself while a job runs) and still stops on every exit path.
     let res;
     const ka = typeof keepalive === 'function' ? keepalive() : null;
-    try { res = await sendMessage({ type: 'xray:llm:corpus-map', request }); }
+    try { res = await runLlmJob({ sendMessage, pass: 'corpus-map', request, scopeKey: key }); }
     catch (err) { res = { ok: false, error: (err && err.message) || String(err) }; }
     finally { if (ka && typeof ka.stop === 'function') ka.stop(); }
     if (!res || !res.ok) return { status: 'failed', key, error: (res && res.error) || 'no response' };
+    const jobId = res.jobId || null;
     // Repair BEFORE validate — and use the repaired object for the save
     // and the fold below, so a double-encoded field never reaches the
     // cache (the 2026-08-13 poison was exactly a raw value cached behind
@@ -254,6 +256,9 @@ export async function ensureArticleExtract({ article, articleHash = null, url = 
         partial: !!res.partial
     })).catch(() => {});
     await fold(res.extract, res.model);
+    // Cached page-side — the job record has done its job. (A cache-save
+    // failure leaves the record for the TTL, which is the point.)
+    if (jobId) ackLlmJob(sendMessage, jobId).catch(() => {});
     // `truncated` disclosed: the map bound (MAX_MEMBER_INPUT_CHARS,
     // 400k — ~6.5h of transcript) still cuts a long enough capture, so
     // on one the claim half reads the head only — the caller says so

@@ -43,7 +43,7 @@ Mirrors the thorough-audit topology (per-unit messages + a bounded pool,
 so a lost channel costs one retryable unit, never the whole paid run,
 and each message resets the MV3 idle timer).
 
-- **MAP** — `xray:llm:corpus-map`, one call per member article. Forced
+- **MAP** — the `corpus-map` pass, one call per member article. Forced
   tool `emit_corpus_extract`: the article's position (summary +
   side_label), its load-bearing assertions (each a verbatim quote, with
   an optional existing claim_ref), the outside sources it cites, and its
@@ -51,12 +51,22 @@ and each message resets the MV3 idle timer).
   covers, sliced to `MAX_MEMBER_INPUT_CHARS` (60k) with truncation
   surfaced. The portal drives these through `orchestrateModuleRuns`
   (concurrency 2) over the member article-hash list.
-- **REDUCE** — `xray:llm:corpus-reduce`, one call over the compact map
+- **REDUCE** — the `corpus-reduce` pass, one call over the compact map
   extracts + a deterministic `digestDossier` (verdict distribution,
   knots, coverage). Forced tool `emit_case_brief`: summary, positions
   (attributed to member article_hashes), cruxes (each side's view side
   by side + evidence + what-would-resolve), load-bearing claims,
   coverage gaps, and proposals.
+
+Both passes run as **jobs** since 2026-09-05 (`xray:llm:job:{start,
+status,find,ack}`, [`llm-jobs.js`](../src/shared/llm-jobs.js)): `start`
+answers with a job id at once, the worker persists the RAW result under
+that id before any response hop, and the page long-polls `status`. The
+old single held-open message died at MV3's five-minute request kill on a
+long reduce and took the paid brief with it (JOURNAL 2026-09-05). The
+reduce job is scoped by case + input fingerprint, so a result that
+finished after the tab went away is found and reused, never re-billed;
+the page acks (deletes) the record only after `saveCaseBrief`.
 
 Pure prompt/tool layer: [`corpus-prompts.js`](../src/shared/corpus-prompts.js).
 Pure assembly/validation/grounding: [`case-synthesis.js`](../src/shared/case-synthesis.js).

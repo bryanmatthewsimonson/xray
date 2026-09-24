@@ -16,6 +16,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { jobSendMessage } from './helpers/llm-job-stub.mjs';
 import { WRONG_TYPES, WRONG_ROWS, assertTotal } from './helpers/hostile.mjs';
 
 // case-dossier pulls the model modules, which read chrome.storage at
@@ -86,11 +87,11 @@ test('the Suggest-time request and cache key are BYTE-IDENTICAL to the Analyze p
     let sentReq = null, saved = null;
     const out = await ensureArticleExtract(
         { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
-          sendMessage: async (msg) => {
+          sendMessage: jobSendMessage(async (msg) => {
               assert.equal(msg.type, 'xray:llm:corpus-map');
               sentReq = msg.request;
               return { ok: true, extract: V8_EXTRACT, model: 'test-model' };
-          } },
+          }) },
         io({ saveExtract: async (rec) => { saved = rec; } }));
 
     assert.equal(out.status, 'ran');
@@ -118,7 +119,7 @@ test('cache hit → no call, no save; the hit still folds into the durable recor
     const out = await ensureArticleExtract(
         { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
           frame: { caseName: 'Egg case', scopeQuestion: 'Q?' },
-          sendMessage: async () => { sent++; return { ok: true }; } },
+          sendMessage: jobSendMessage(async () => { sent++; return { ok: true }; }) },
         io({ getExtract: async () => ({ extract: V8_EXTRACT, model: 'cached-model' }),
              saveExtract: async () => { savedCount++; },
              record: async (opts) => { folded = opts; return { status: 'unchanged' }; } }));
@@ -134,7 +135,7 @@ test('an INVALID cached extract does not count as a hit — the pass re-runs', a
     let sent = 0;
     const out = await ensureArticleExtract(
         { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
-          sendMessage: async () => { sent++; return { ok: true, extract: V8_EXTRACT, model: 'm' }; } },
+          sendMessage: jobSendMessage(async () => { sent++; return { ok: true, extract: V8_EXTRACT, model: 'm' }; }) },
         io({ getExtract: async () => ({ extract: { no: 'position' }, model: 'stale' }) }));
     assert.equal(out.status, 'ran');
     assert.equal(sent, 1);
@@ -144,13 +145,13 @@ test('a failed or invalid live call reports "failed" and saves nothing', async (
     let savedCount = 0;
     const failed = await ensureArticleExtract(
         { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
-          sendMessage: async () => ({ ok: false, error: 'rate limit' }) },
+          sendMessage: jobSendMessage(async () => ({ ok: false, error: 'rate limit' })) },
         io({ saveExtract: async () => { savedCount++; } }));
     assert.equal(failed.status, 'failed');
     assert.equal(failed.error, 'rate limit');
     const invalid = await ensureArticleExtract(
         { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
-          sendMessage: async () => ({ ok: true, extract: { not: 'an extract' } }) },
+          sendMessage: jobSendMessage(async () => ({ ok: true, extract: { not: 'an extract' } })) },
         io({ saveExtract: async () => { savedCount++; } }));
     assert.equal(invalid.status, 'failed');
     assert.equal(savedCount, 0);
@@ -168,13 +169,13 @@ test('keepalive: started around the live call, stopped on success, failure, AND 
 
     await ensureArticleExtract(
         { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title', keepalive,
-          sendMessage: async () => ({ ok: true, extract: V8_EXTRACT, model: 'm' }) }, io());
+          sendMessage: jobSendMessage(async () => ({ ok: true, extract: V8_EXTRACT, model: 'm' })) }, io());
     assert.deepEqual(trace, ['start', 'stop'], 'success stops it');
 
     trace.length = 0;
     await ensureArticleExtract(
         { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title', keepalive,
-          sendMessage: async () => ({ ok: false, error: 'rate limit' }) }, io());
+          sendMessage: jobSendMessage(async () => ({ ok: false, error: 'rate limit' })) }, io());
     assert.deepEqual(trace, ['start', 'stop'], 'a failed call stops it');
 
     trace.length = 0;
@@ -190,7 +191,7 @@ test('keepalive: a cache hit never starts one (no call, nothing to keep alive)',
     const out = await ensureArticleExtract(
         { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
           keepalive: () => { started++; return { stop: () => {} }; },
-          sendMessage: async () => ({ ok: true, extract: V8_EXTRACT, model: 'm' }) },
+          sendMessage: jobSendMessage(async () => ({ ok: true, extract: V8_EXTRACT, model: 'm' })) },
         io({ getExtract: async () => ({ extract: V8_EXTRACT, model: 'cached-model' }) }));
     assert.equal(out.status, 'cached');
     assert.equal(started, 0);
@@ -199,7 +200,7 @@ test('keepalive: a cache hit never starts one (no call, nothing to keep alive)',
 test('keepalive: omitting it is legal — the pass runs unchanged (injection, not a dependency)', async () => {
     const out = await ensureArticleExtract(
         { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
-          sendMessage: async () => ({ ok: true, extract: V8_EXTRACT, model: 'm' }) }, io());
+          sendMessage: jobSendMessage(async () => ({ ok: true, extract: V8_EXTRACT, model: 'm' })) }, io());
     assert.equal(out.status, 'ran');
 });
 
@@ -219,7 +220,7 @@ test('a truncation that loses a required field reports TRUNCATION, not a shape e
     };
     const out = await ensureArticleExtract(
         { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
-          sendMessage: async () => ({ ok: true, extract: salvagedNoPosition, model: 'm', partial: true }) },
+          sendMessage: jobSendMessage(async () => ({ ok: true, extract: salvagedNoPosition, model: 'm', partial: true })) },
         io());
     assert.equal(out.status, 'failed');
     assert.match(out.error, /hit its output limit/, 'named as a truncation');
@@ -231,7 +232,7 @@ test('a truncation that loses a required field reports TRUNCATION, not a shape e
 test('a COMPLETE response with an unusable shape is a different message, and still names the field', async () => {
     const out = await ensureArticleExtract(
         { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
-          sendMessage: async () => ({ ok: true, extract: { key_assertions: [] }, model: 'm' }) },
+          sendMessage: jobSendMessage(async () => ({ ok: true, extract: { key_assertions: [] }, model: 'm' })) },
         io());
     assert.equal(out.status, 'failed');
     assert.match(out.error, /cannot use/);
@@ -414,7 +415,7 @@ test('force bypasses the cache — the only escape from a valid-but-poor reading
     const io_ = { getExtract: async () => ({ extract: CACHED, model: 'old' }),
                   saveExtract: async () => {}, record: async () => ({ status: 'unchanged' }), now: () => 0 };
     const args = { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
-                   sendMessage: async () => { calls += 1; return { ok: true, extract: FRESH, model: 'm' }; } };
+                   sendMessage: jobSendMessage(async () => { calls += 1; return { ok: true, extract: FRESH, model: 'm' }; }) };
 
     const cached = await ensureArticleExtract(args, io_);
     assert.equal(cached.status, 'cached');
@@ -475,7 +476,7 @@ test('no articleHash (edited body) → the extract still runs, the fold is skipp
     let folded = 0;
     const out = await ensureArticleExtract(
         { article: ARTICLE, articleHash: null, url: URL_A, title: 'A title',
-          sendMessage: async () => ({ ok: true, extract: V8_EXTRACT, model: 'm' }) },
+          sendMessage: jobSendMessage(async () => ({ ok: true, extract: V8_EXTRACT, model: 'm' })) },
         io({ record: async () => { folded++; return { status: 'saved' }; } }));
     assert.equal(out.status, 'ran');
     assert.equal(folded, 0, 'a record keyed by a hash that no longer describes this text must not fold');
@@ -582,7 +583,7 @@ test('articleSourceForExtract prefers the ARCHIVE row — reader-object drift ca
 test('ensureArticleExtract returns the unit text — the slim call and modal ground in what the extract read', async () => {
     const out = await ensureArticleExtract(
         { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
-          sendMessage: async () => ({ ok: true, extract: V8_EXTRACT, model: 'm' }) },
+          sendMessage: jobSendMessage(async () => ({ ok: true, extract: V8_EXTRACT, model: 'm' })) },
         io());
     assert.equal(out.status, 'ran');
     const unit = articleMemberUnit({ article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title' });
@@ -683,7 +684,7 @@ test('a FRESH run folds the extract into the durable record (MA.1) with the fing
     const out = await ensureArticleExtract(
         { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
           frame: { caseName: 'Egg case', scopeQuestion: 'Q?' },
-          sendMessage: async () => ({ ok: true, extract: V8_EXTRACT, model: 'test-model' }) },
+          sendMessage: jobSendMessage(async () => ({ ok: true, extract: V8_EXTRACT, model: 'test-model' })) },
         io({ record: async (opts) => { folded = opts; return { status: 'saved' }; } }));
     assert.equal(out.status, 'ran');
     assert.ok(folded, 'the fold ran');
@@ -697,7 +698,7 @@ test('a FRESH run folds the extract into the durable record (MA.1) with the fing
 test('fold and cache-save failures never disturb the paid run', async () => {
     const out = await ensureArticleExtract(
         { article: ARTICLE, articleHash: 'a'.repeat(64), url: URL_A, title: 'A title',
-          sendMessage: async () => ({ ok: true, extract: V8_EXTRACT, model: 'm' }) },
+          sendMessage: jobSendMessage(async () => ({ ok: true, extract: V8_EXTRACT, model: 'm' })) },
         io({ record: async () => { throw new Error('idb closed'); },
              saveExtract: async () => { throw new Error('quota'); } }));
     assert.equal(out.status, 'ran', 'the extract still reaches the caller');
@@ -720,7 +721,7 @@ test('a double-encoded field is repaired IN THE CACHED EXTRACT, not just for val
     const out = await ensureArticleExtract(
         { article: { title: 'T', content: '<p>Body text long enough to matter.</p>', url: 'https://e.com/a' },
           articleHash: 'a'.repeat(64), url: 'https://e.com/a', title: 'T',
-          sendMessage: async () => ({ ok: true, extract: DOUBLE_ENCODED, model: 'm' }) },
+          sendMessage: jobSendMessage(async () => ({ ok: true, extract: DOUBLE_ENCODED, model: 'm' })) },
         { getExtract: async () => null,
           saveExtract: async (row) => { saved = row; },
           record: async () => ({ status: 'unchanged' }), now: () => 0 });
