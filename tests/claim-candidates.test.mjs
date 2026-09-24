@@ -36,8 +36,9 @@ const { ClaimModel } = await import('../src/shared/claim-model.js');
 const { AssessmentModel } = await import('../src/shared/assessment-model.js');
 const { EntityModel } = await import('../src/shared/entity-model.js');
 const { buildClaimCoord } = await import('../src/shared/claim-ref.js');
+const { seedPrimary } = await import('./seed-primary.mjs');
 
-function resetState() { _stateStore.clear(); }
+function resetState() { _stateStore.clear(); seedPrimary(_stateStore); }
 
 const PUBKEY_A = 'a'.repeat(64);
 const FOREIGN_COORD = `30040:${'f'.repeat(64)}:their-claim-1`;

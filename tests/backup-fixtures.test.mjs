@@ -2,6 +2,9 @@
 // through the CURRENT applyBackup, re-export it through collectBackup,
 // and pin the round-trip invariants I1–I13 of the mapping pass's
 // fixturePlan, plus a key-material hygiene sweep over the raw files.
+// I14 (added 2026-09-24) is not from the fixturePlan: it pins that the
+// fixture's legacy random-keyed local entity loads, keeps its key, and
+// signs after a restore.
 //
 // Pins (RESET_PLAN §7 R0 "Golden fixtures before any refactor thread
 // starts"; audit finding WIRE-05 in docs/audit-2026-09-05/wire-and-
@@ -70,7 +73,7 @@ const { replaceableKey } = await import('../src/shared/nostr-events.js');
 const { Crypto } = await import('../src/shared/crypto.js');
 const { readAllDbConstants, sortKeysDeep } = await import('./tools/idb-fixture-harness.mjs');
 const {
-    TV1, TEST_KEYS, ALLOWED_PRIVATE_KEYS, ALLOWED_PUBKEYS, ALLOWED_NSECS, FIXED_ISO
+    TV1, TV3, TEST_KEYS, ALLOWED_PRIVATE_KEYS, ALLOWED_PUBKEYS, ALLOWED_NSECS, FIXED_ISO
 } = await import('./tools/fixture-keys.mjs');
 const generator = await import('./tools/gen-backup-fixtures.mjs');
 
@@ -404,6 +407,68 @@ test('I13 a live credential survives applyBackup(full-v1) untouched and is absen
     const S = await collectBackup({ shareable: true });
     assert.ok(!(credKey in S.storage));
     _stateStore.delete(credKey);
+});
+
+// ------------------------------------------------------------------
+// I14: a legacy (pre-derivation, random-keyed) local entity
+// ------------------------------------------------------------------
+
+// ent_org_fixture is the shape EntityModel.create wrote before a primary
+// identity existed: keyName 'entity:<id>' pointing at a local_keys entry,
+// derived_from null. Every UI signing site reads the key through
+// entity.keyName, so a record without one would load as keyless and
+// could never sign. LocalKeyManager caches keys in a module-level Map:
+// the test re-inits it from the restored storage and clears it on the
+// way out, so no key state leaks into the other tests.
+test('I14 a legacy random-keyed local entity survives restore: loads with its key, is left alone by restoreDerivedKeys, and signs through the UI call shape', async () => {
+    const { EntityModel } = await import('../src/shared/entity-model.js');
+    const { LocalKeyManager } = await import('../src/shared/local-key-manager.js');
+    const { EventBuilder } = await import('../src/shared/event-builder.js');
+    const ORG = 'ent_org_fixture';
+    const KEY_NAME = `entity:${ORG}`;
+
+    await restore(FULL);
+    LocalKeyManager.keys.clear();
+    try {
+        await LocalKeyManager.init();
+
+        // Loads as a LOCAL entity, with its private key.
+        const entity = await EntityModel.get(ORG);
+        assert.ok(entity, 'the entity loads');
+        assert.equal(entity.keyName, KEY_NAME, 'keyName points at its local_keys entry');
+        assert.equal(entity.derived_from, null, 'a legacy random key records no derivation source');
+        assert.equal(EntityModel.isForeign(entity), false);
+        assert.ok(entity.keypair, 'a keypair is merged in');
+        assert.equal(entity.keypair.pubkey, TV3.pubkey);
+        assert.ok(entity.keypair.privateKey === TV3.privateKey, 'the private key is the stored one (value not printed)');
+
+        // restoreDerivedKeys, with the fixture's primary present, never re-keys it.
+        assert.equal(JSON.parse(_stateStore.get('local_primary_identity')).pubkey, TV1.pubkey, 'the fixture primary is present');
+        const entitiesBefore = _stateStore.get('entities');
+        const keysBefore = _stateStore.get('local_keys');
+        const result = await EntityModel.restoreDerivedKeys();
+        assert.ok(!result.restored.some((r) => r.id === ORG), 'not restored');
+        assert.ok(!result.skipped.some((r) => r.id === ORG), 'not skipped either — its key is present');
+        assert.equal(LocalKeyManager.getKey(KEY_NAME).pubkey, TV3.pubkey, 'pubkey unchanged');
+        assert.ok(!(LocalKeyManager.getKey(KEY_NAME).metadata || {}).derived, 'not replaced by a derived key');
+        assert.equal(_stateStore.get('entities'), entitiesBefore, 'entities storage untouched (no derived_from stamp)');
+        assert.ok(_stateStore.get('local_keys') === keysBefore, 'local_keys storage untouched (value not printed)');
+        const after = await EntityModel.get(ORG);
+        assert.equal(after.keypair.pubkey, TV3.pubkey);
+        assert.equal(after.derived_from, null);
+
+        // Signs through the reader/portal call shape: build from the
+        // merged entity, sign with entity.keyName.
+        const unsigned = EventBuilder.buildProfileEvent(after, null, null, []);
+        const signed = await LocalKeyManager.signEvent(unsigned, after.keyName);
+        assert.equal(signed.pubkey, TV3.pubkey);
+        assert.equal(await Crypto.verifySignature(signed), true, 'the signature verifies');
+        const tampered = { ...signed, content: signed.content + ' ' };
+        assert.equal(await Crypto.verifySignature(tampered), false, 'a tampered copy is rejected');
+    } finally {
+        LocalKeyManager.keys.clear();
+        await restore(FULL);
+    }
 });
 
 // ------------------------------------------------------------------

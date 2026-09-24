@@ -291,14 +291,15 @@ const HANDLERS_BACKGROUND = [
     'xray:openEntities', 'xray:openPortal', 'xray:openNetwork', 'xray:openCaptureTips', 'xray:pdf:open',
     'xray:reader:open', 'xray:capture:getPubkey', 'xray:capture:publish', 'xray:llm:extract', 'xray:audit:run',
     'xray:audit:module', 'xray:llm:config', 'xray:lens:read', 'xray:vision:describe', 'xray:vision:config',
-    'xray:lens:config', 'xray:llm:forensic-corpus', 'xray:llm:entity-audit', 'xray:llm:corpus-map',
-    'xray:llm:corpus-reduce', 'xray:llm:entity-page', 'xray:llm:hypothesis-edges', 'xray:llm:corpus-links',
+    'xray:lens:config', 'xray:llm:forensic-corpus', 'xray:llm:entity-audit',
+    'xray:llm:hypothesis-edges', 'xray:llm:corpus-links',   // corpus-map / corpus-reduce / entity-page became xray:llm:job:* (#374)
     'xray:llm:corpus-config', 'xray:transcribe:config', 'xray:transcribe:ping', 'xray:transcribe:start',
     'xray:transcribe:status', 'xray:transcribe:direct:start', 'xray:transcribe:direct:status',
     'xray:transcribe:direct:deepgram', 'xray:transcribe:claims', 'xray:youtube:fetchTranscript',
     'xray:youtube:captureTranscriptViaHook', 'xray:substack:fetchPost', 'xray:substack:fetchComments',
     'xray:scholar:fetch', 'xray:scholar:crossref', 'xray:media:lookup', 'xray:screenshot:capture',
-    'xray:archive:reconstruct', 'xray:relay:query', 'xray:relay:publish', 'xray:notify'
+    'xray:archive:reconstruct', 'xray:relay:query', 'xray:relay:publish', 'xray:notify',
+    'xray:llm:job:start', 'xray:llm:job:status', 'xray:llm:job:find', 'xray:llm:job:ack',   // #374 LLM jobs
 ];
 const HANDLERS_CONTENT = ['xray:capture', 'xray:capture:transcribe', 'xray:getPubkey', 'xray:sign'];
 const FORWARD_PREFIX = 'xray:forward:';   // background/index.js:479 wildcard; ROAD_TO_1_0 K4 open, single sender options/index.js:1863
@@ -320,7 +321,8 @@ const NON_MESSAGE_LITERALS = [
     'xray:open-capture', 'xray:transcribe-capture', 'xray:open-entities', 'xray:open-portal',   // MENU_IDS background/index.js:76-83
     'xray:open-network', 'xray:open-pdf', 'xray:open-settings', 'xray:capture-tips', 'xray:separator-1', // :168
     'xray:platform-account:v1',          // KDF domain — shared/identity/platform-account.js:52
-    'xray:toggle'                        // COMMAND ID — manifest.json; compared at background/index.js:1405
+    'xray:toggle',                       // COMMAND ID — manifest.json; compared at background/index.js:1405
+    'xray:llm-job'                       // local prefix — shared/llm-jobs.js:51 (#374 LLM job records)
 ];
 const HANDLERS = new Set([...HANDLERS_BACKGROUND, ...HANDLERS_CONTENT]);
 const LITERAL_RX = /xray:[A-Za-z0-9:_.-]+/g;

@@ -26,7 +26,8 @@ import { NostrClient } from '../shared/nostr-client.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
-import { runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, runHypothesisEdgePass, runClaimLinksPass, getCorpusConfig, runExtractPass, runEntityAuditPass, runForensicCorpusPass, runEntityPagePass, runVisionPass, getVisionConfig } from '../shared/llm-client.js';
+import { runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runHypothesisEdgePass, runClaimLinksPass, getCorpusConfig, runExtractPass, runEntityAuditPass, runForensicCorpusPass, runVisionPass, getVisionConfig } from '../shared/llm-client.js';
+import { respondLlmJob } from './llm-jobs.js';
 import { putSessionArticle } from '../shared/session-articles.js';
 import { getSourceDocument } from '../shared/archive-cache.js';
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prompts.js';
@@ -817,38 +818,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // async sendResponse
     }
 
-    // Portal → worker: case-corpus synthesis (Phase 20.4). One MAP call
-    // per member article (the portal orchestrates them with bounded
-    // concurrency, the audit-module topology), then one REDUCE. Gated
-    // by `caseSynthesis` + `llmAssist` + key inside the passes; returns
-    // RAW tool output (the portal validates, grounds, and gates every
-    // mutation behind human Accept). Nothing is saved or published here.
-    if (message.type === 'xray:llm:corpus-map') {
-        runCorpusMapPass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Corpus map call failed' })
-        );
-        return true; // async sendResponse
-    }
-    if (message.type === 'xray:llm:corpus-reduce') {
-        runCorpusReducePass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Corpus reduce call failed' })
-        );
-        return true; // async sendResponse
-    }
-    // Portal → worker: the entity-page reduce (EP.2). One reduce-shaped
-    // call over the entity digest + member extracts; same triple gate
-    // inside the pass; returns RAW tool output (the portal validates,
-    // subset-filters key claims, grounds citations, and nothing
-    // persists without the human's Save).
-    if (message.type === 'xray:llm:entity-page') {
-        runEntityPagePass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Entity page call failed' })
-        );
-        return true; // async sendResponse
-    }
+    // Page → worker: the LONG LLM passes (corpus map / corpus reduce /
+    // entity page) run as JOBS — never a held-open message (JOURNAL
+    // 2026-09-05). The runner, its pass table, and the rationale live
+    // in ./llm-jobs.js; each op answers asynchronously (return true)
+    // but never across a model call.
+    if (message.type === 'xray:llm:job:start') return respondLlmJob('start', message, sendResponse);
+    if (message.type === 'xray:llm:job:status') return respondLlmJob('status', message, sendResponse);
+    if (message.type === 'xray:llm:job:find') return respondLlmJob('find', message, sendResponse);
+    if (message.type === 'xray:llm:job:ack') return respondLlmJob('ack', message, sendResponse);
     // Portal → worker: hypothesis-edge suggestion (Phase 26 H.4). One
     // reduce-shaped call; same triple gate inside the pass; returns RAW
     // tool output (the portal validates, grounds, runs the both-sides

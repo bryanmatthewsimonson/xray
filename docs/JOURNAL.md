@@ -37,12 +37,14 @@ the entry's heading anchor in its monthly file.
 ## 2026-09
 
 - **2026-09-24** — [PDF links never worked: pdf.js 6 has no `convertToViewportRectangle`, and the anchor text read the line above](journal/2026-09.md#2026-09-24--pdf-links-never-worked-pdfjs-6-has-no-converttoviewportrectangle-and-the-anchor-text-read-the-line-above) · bug, external, wire-format, pattern
+- **2026-09-24** — [The backup fixture's legacy entity could not sign; now it is the real shape](journal/2026-09.md#2026-09-24--the-backup-fixtures-legacy-entity-could-not-sign-now-it-is-the-real-shape) · bug, pattern
 - **2026-09-21** — [The split's verifier found the mover deleting text; now it refuses](journal/2026-09.md#2026-09-21--the-splits-verifier-found-the-mover-deleting-text-now-it-refuses) · bug, design, pattern
 - **2026-09-21** — [MA.6 stays advisory: the 2026-09-21 flip criterion, recorded](journal/2026-09.md#2026-09-21--ma6-stays-advisory-the-2026-09-21-flip-criterion-recorded) · design
 - **2026-09-21** — [The JOURNAL splits into monthly files](journal/2026-09.md#2026-09-21--the-journal-splits-into-monthly-files) · design, pattern
 - **2026-09-15** — [R0 triage: every §9 disposition re-verified on the net, the hygiene script, and the one correction (#376)](journal/2026-09.md#2026-09-15--r0-triage-every-9-disposition-re-verified-on-the-net-the-hygiene-script-and-the-one-correction-376) · design, pattern
 - **2026-09-14** — [R0's net: the structure guard and three golden-fixture corpora, each verified by controls that had to go red](journal/2026-09.md#2026-09-14--r0s-net-the-structure-guard-and-three-golden-fixture-corpora-each-verified-by-controls-that-had-to-go-red) · design, pattern
 - **2026-09-07** — [The browser smoke joins CI: `npm run smoke`, a pages check, the MA.6 walk un-rotted — and the review that found the first cut green-while-wrong](journal/2026-09.md#2026-09-07--the-browser-smoke-joins-ci-npm-run-smoke-a-pages-check-the-ma6-walk-un-rotted--and-the-review-that-found-the-first-cut-green-while-wrong) · design, pattern, bug
+- **2026-09-05** — [Corpus reduce lost a ~$5 Fable run: the long LLM passes become JOBS](journal/2026-09.md#2026-09-05--corpus-reduce-lost-a-5-fable-run-the-long-llm-passes-become-jobs) · bug, design, external
 - **2026-09-05** — [`(x || []).filter` is not an array guard: the known-unknowns block's stored-string crash](journal/2026-09.md#2026-09-05--x--filter-is-not-an-array-guard-the-known-unknowns-blocks-stored-string-crash) · bug, pattern
 - **2026-09-05** — [the designer reviews the governance corpus (and the first attempt had it backwards)](journal/2026-09.md#2026-09-05--the-designer-reviews-the-governance-corpus-and-the-first-attempt-had-it-backwards) · design, process
 
@@ -75,6 +77,7 @@ the entry's heading anchor in its monthly file.
 - **2026-08-12** — [UA.3: the retirements — autoPreAnalyze, the standalone suggest pass, one vocabulary](journal/2026-08.md#2026-08-12--ua3-the-retirements--autopreanalyze-the-standalone-suggest-pass-one-vocabulary) · design
 - **2026-08-12** — [UA.2: one call (corpus-v9) — entities join the extract, the vocabulary retires, the ladder ships](journal/2026-08.md#2026-08-12--ua2-one-call-corpus-v9--entities-join-the-extract-the-vocabulary-retires-the-ladder-ships) · design
 - **2026-08-12** — [UA.1: one reading per article (corpus-v8), and is_key loses its article-pass writer](journal/2026-08.md#2026-08-12--ua1-one-reading-per-article-corpus-v8-and-is_key-loses-its-article-pass-writer) · design
+- **2026-08-11** — [Option C ratified: the local primary is the entity root](journal/2026-08.md#2026-08-11--option-c-ratified-the-local-primary-is-the-entity-root) · design
 - **2026-08-11** — [The capture prepay was really a per-open spend; it now rides the Suggest click](journal/2026-08.md#2026-08-11--the-capture-prepay-was-really-a-per-open-spend-it-now-rides-the-suggest-click) · bug, design
 - **2026-08-11** — [NIP-07 silently voids the Phase-24 recoverability promise](journal/2026-08.md#2026-08-11--nip-07-silently-voids-the-phase-24-recoverability-promise) · bug, design
 - **2026-08-11** — [I broke NIP-07 in the field, and the walk that proved T2 safe](journal/2026-08.md#2026-08-11--i-broke-nip-07-in-the-field-and-the-walk-that-proved-t2-safe) · bug, pattern
