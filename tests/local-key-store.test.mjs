@@ -964,7 +964,7 @@ test('keystore writes (and the exported lock) refuse to run outside an extension
     assert.ok(requested.length >= 4 && requested.every((n) => n === 'xray.local_keys'), 'through the one lock name');
 });
 
-test('guard: the content bundle never includes the keystore module (THREAT_MODEL G10, closed)', async () => {
+test('guard: the content bundle never includes the keystore module (THREAT_MODEL G10, narrowed)', async () => {
     const esbuild = await import('esbuild');
     const { configs } = await import('../esbuild.config.mjs');
     const content = configs.find((c) => /content\.bundle\.js$/.test(c.outfile));
