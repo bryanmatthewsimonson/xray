@@ -131,12 +131,12 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   under a separate `local_primary_identity` key**, deliberately *outside*
   the per-entity key registry (`local_keys`), so exporting entity keys
   never leaks the user's nsec. **Keystore write contract (JOURNAL
-  2026-09-24):** every `local_keys` write goes through
-  `local-key-manager.js` — a locked read-modify-write of fresh storage
-  that aborts on a failed read; `save()` is gone and `upsertKeys` is the
-  only path that overwrites an occupied name, while the wholesale
-  writers (backup restore, workspace reset/removal) take the same lock
-  via `withKeyStoreLock`. That lock is the Web Lock `xray.local_keys`, a
+  2026-09-24):** every incremental `local_keys` write goes
+  through `local-key-manager.js` — a locked read-modify-write of fresh
+  storage that aborts on a failed read; `save()` is gone and `upsertKeys` is the
+  only path that overwrites an occupied name, the three wholesale
+  writers (backup restore, workspace reset/removal) replace or clear
+  `local_keys` directly but take the same lock via `withKeyStoreLock`. That lock is the Web Lock `xray.local_keys`, a
   cross-page primitive deliberately outside the `xray:*` bus; it refuses
   to run outside an extension origin, and content scripts hold no
   keystore.

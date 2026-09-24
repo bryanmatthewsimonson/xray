@@ -135,8 +135,10 @@ dependency of `release.yml`, and this workflow never gains a secret.**
   under any `location` other than a `chrome-extension:` /
   `moz-extension:` one (a context with no `location` at all, as in the
   Node tests, passes), because a Web Lock belongs to the requesting
-  document's origin. Guard-tested
-  (`tests/local-key-store.test.mjs`).
+  document's origin. Guard-tested in `tests/local-key-store.test.mjs`
+  for every incremental writer and for the restore and reset races.
+  Not guarded: the `Workspaces.remove` lock has no race test, and no
+  static check stops a future wholesale writer from skipping the lock.
 - **No observation of the operator.** No telemetry, no analytics, no
   usage measurement — refused, not deferred. The tool must not watch
   its user's investigations.
@@ -241,7 +243,10 @@ accepted with its consequence stated.
   refuses outside an extension origin in any case. Outside this gap:
   the content script still reads `local_primary_identity` when signing
   is Local (its signing-state probe and `Signer`'s Local path); that is
-  the primary identity, not the entity keystore.
+  the primary identity, not the entity keystore. What remains open:
+  closing G10 removed the keys from each tab's in-memory copy, not the
+  content script's `chrome.storage.local` access, so a compromised
+  renderer can still read `local_keys` through the storage API.
 
 ## 6. Changes recorded here
 
