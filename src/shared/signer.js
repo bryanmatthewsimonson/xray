@@ -92,7 +92,14 @@ export const Signer = {
     }
     if (method === 'nip07') {
       if (!_nip07Client) {
-        throw new Error('NIP-07 client not available in this context');
+        // Only the content script ever configures a nip07Client, so
+        // every extension page (portal, network, options) lands here
+        // under NIP-07. Say what works instead of "not available"
+        // (Option C, NIP07_IDENTITY_KICKOFF ratified 2026-08-11).
+        throw new Error(
+          'NIP-07 signing works only from a captured web page (the signer '
+          + 'extension lives in the tab). Publish this from the reader after a '
+          + 'capture, or switch Settings → Signing to Local.');
       }
       return await _nip07Client.getPublicKey();
     }
@@ -130,7 +137,10 @@ export const Signer = {
       if (_signRequestForwarder) {
         return await _signRequestForwarder({ type: 'xray:sign', event });
       }
-      throw new Error('NIP-07 not available in this context');
+      throw new Error(
+        'NIP-07 signing works only from a captured web page (the signer '
+        + 'extension lives in the tab). Publish this from the reader after a '
+        + 'capture, or switch Settings → Signing to Local.');
     }
 
     if (method === 'nsecbunker') {
