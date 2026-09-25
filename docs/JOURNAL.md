@@ -36,11 +36,11 @@ the entry's heading anchor in its monthly file.
 
 ## 2026-09
 
+- **2026-09-25** — [STATUS.md: what counts as a check date, and as casework](journal/2026-09.md#2026-09-25--statusmd-what-counts-as-a-check-date-and-as-casework) · design
 - **2026-09-25** — [Instagram's Reels viewer (`/reels/<code>/`) fell through to the generic extractor, and a stale head still named the author](journal/2026-09.md#2026-09-25--instagrams-reels-viewer-reelscode-fell-through-to-the-generic-extractor-and-a-stale-head-still-named-the-author) · bug, capture, wire
 - **2026-09-25** — [The MA.6 walk's two preconditions: condition waits and `data-xr` anchors](journal/2026-09.md#2026-09-25--the-ma6-walks-two-preconditions-condition-waits-and-data-xr-anchors) · design, pattern
 - **2026-09-25** — [R0's static net: an ESLint ratchet, a closed-world zip, CI lockstep, and a budget sized from a month of growth](journal/2026-09.md#2026-09-25--r0s-static-net-an-eslint-ratchet-a-closed-world-zip-ci-lockstep-and-a-budget-sized-from-a-month-of-growth) · design, pattern
 - **2026-09-25** — [The governance skill, folded: its review standards stay, its copy of the corpus goes](journal/2026-09.md#2026-09-25--the-governance-skill-folded-its-review-standards-stay-its-copy-of-the-corpus-goes) · design
-- **2026-09-25** — [STATUS.md: what counts as a check date, and as casework](journal/2026-09.md#2026-09-25--statusmd-what-counts-as-a-check-date-and-as-casework) · design
 - **2026-09-24** — [PDF links never worked: pdf.js 6 has no `convertToViewportRectangle`, and the anchor text read the line above](journal/2026-09.md#2026-09-24--pdf-links-never-worked-pdfjs-6-has-no-converttoviewportrectangle-and-the-anchor-text-read-the-line-above) · bug, external, wire-format, pattern
 - **2026-09-24** — [One tab's key write erased another tab's keys: `local_keys` writes now merge into fresh storage](journal/2026-09.md#2026-09-24--one-tabs-key-write-erased-another-tabs-keys-local_keys-writes-now-merge-into-fresh-storage) · bug, security
 - **2026-09-24** — [The backup fixture's legacy entity could not sign; now it is the real shape](journal/2026-09.md#2026-09-24--the-backup-fixtures-legacy-entity-could-not-sign-now-it-is-the-real-shape) · bug, pattern

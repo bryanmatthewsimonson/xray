@@ -598,7 +598,10 @@ looking where the bugs are.
       in the order given, delete the 65 merged branches, park #370,
       rebase #374 and #324; land `scripts/branch-hygiene.mjs` and the
       weekly `hygiene.yml`; turn on auto-delete-on-merge and Dependabot
-      auto-merge for devDependencies. (S.)
+      auto-merge for devDependencies. (S.) *Status 2026-09-25 (§9.1's
+      update of that date): every runbook step is done except step 1,
+      the repo settings — auto-delete-on-merge is evidently still off,
+      since the day's merged heads are still on `origin`.*
 - [x] **Split the JOURNAL now, not in R6.** *Landed 2026-09-21 as PR
       #382 (`toolchain/journal-split`): `docs/journal/YYYY-MM.md` × 5,
       oldest-first, new entries appended at the bottom; `merge=union`
@@ -635,11 +638,15 @@ looking where the bugs are.
       each is switched on, its check date (none is ratified — two set
       by kickoffs, 2026-11-30 proposed by R2) and its last casework
       evidence; the parked shelf (K3, #370); the open-PR cap read from
-      GitHub (four open, the cap reached); a pointer in CLAUDE.md. The
-      same slice added the 2026-09-25 update to §9.1 and three agent
-      rows to the walk ledger. Verified by `npm run build`, `npm test`
-      and `npm run lint` green, and by re-reading every cited
-      commit, PR and JOURNAL date.*
+      GitHub (four open when first written; after #393, #368, #395,
+      #396 and #397 merged and #365 closed the same day, one — #394);
+      R0's own checklist state; a pointer in CLAUDE.md. The same slice
+      added the 2026-09-25 update to §9.1 and three agent rows to the
+      walk ledger. Verified by the full CI-equivalent set green after
+      merging `main` at `4d2b1aa` (`lint:js`, build, `npm test`,
+      `check:version`, `web-ext lint`, `web-ext build` +
+      `check:package`, `check:budget`, `npm run smoke`), and by
+      re-reading every cited commit, PR and JOURNAL date.*
 - [ ] **Fix the front-door lies now** (README version and counts,
       CHANGELOG reconstruction from merged PR titles, esbuild header,
       api-interceptor header, CLAUDE.md's four wrong claims). (S; B9.)
@@ -662,6 +669,10 @@ looking where the bugs are.
       doc), FOUNDING_TRANSCRIPT, TRUTH_INFRASTRUCTURE. (M; nothing
       deleted.)
 - [ ] #364 merge; #366 merge as the answered record; #365 fold. (S.)
+      *Status 2026-09-25: #364 (`07b91c5`) and #366 (`f56b3b6`, as the
+      unanswered agenda, §9) merged 2026-09-15; #365 was folded into
+      #397 (`4d2b1aa`) and closed. Left: #366's answers, after the
+      session.*
 
 ### R2 — Scope the 1.0 and park the shelf (weeks 2–3)
 
@@ -1334,16 +1345,22 @@ the record of that day.*
 | #391 | `0e7237f` | PDF link annotations, found during the #387 walk; the maintainer's soak walk passed (ledger 2026-09-24) |
 | #392 | `a65d4ef` (2026-09-25) | `local_keys` writes become locked merges into fresh storage; the agent's multi-tab browser checks are on the ledger (2026-09-24) |
 | #390 | `88b1c5b` (2026-09-25) | #374's walk-note follow-up (it also recorded the 20.m/20.n ledger row); merged, not open |
+| #393 | `57a3398` (2026-09-25) | the hygiene workflow's `keep` input. The step-6 `--apply` had already used it, dispatched from this PR's branch |
+| #368 | `6ef815a` (2026-09-25) | step 2's last merge: the Instagram post URL is constructed, never read from `og:url`. Its row: the maintainer's first walk was PARTIAL — a reel reached in the Reels viewer (`/reels/<code>/`) fell through to the generic extractor (JOURNAL 2026-09-25) — fixed on the branch and re-walked PASS the same day (ledger) |
+| #395 | `16073bc` (2026-09-25) | R0's MA.6 preconditions: no fixed sleeps left in the walk, every control it drives found by a `SMOKE_ANCHORS` anchor. `ma6` stays advisory; the flip is the maintainer's, due 2026-10-05 |
+| #396 | `1c4fa87` (2026-09-25) | R0's static net: the ESLint ratchet, version lockstep in CI, the packaged-contents assertion and the bundle budget (R0 box ticked) |
+| #397 | `4d2b1aa` (2026-09-25) | step 7, the fold of #365: a 120-line `.claude/skills/governance/SKILL.md`. #365 was closed unmerged the same day, its branch `claude/loving-gauss-k8gsta` kept so the 453-line text stays recoverable |
 
 Also merged in the window: #380 (`2ed917c`), #381 (`e4c5307`, CI on
 Node 22), #382 (`f7dcfd7`, the JOURNAL split), #385 (`85e0b9b`), and
 the maintainer's #383/#384 (example case briefs).
 
-**Runbook status.** Steps 2–4 and 8 are done, except #368 in step 2
-(#376 was replaced by #387). Step 5 is done, not last: #377 merged just
+**Runbook status.** Steps 2–8 are done; only step 1 is open. In step
+2, #376 was replaced by #387, and #368 merged last, after its stray
+file was removed on the maintainer's go and its Instagram row passed
+on the re-walk. Step 5 is done, not last: #377 merged just
 after #379 on 2026-09-21, three days before #374 and #324 (see the #379
-row). #368's stray file was removed on 2026-09-25 on the maintainer's
-go; it now waits on its Instagram row. **Step 6 is done:** it ran on
+row). Step 7 is done as #397. **Step 6 is done:** it ran on
 2026-09-25 (Actions run 36171004273, dispatched by the maintainer from
 #393's branch with `keep` = `feat/margin-s1`) and deleted 68 branches —
 66 merged ones (the 65 listed above plus
@@ -1353,10 +1370,13 @@ go; it now waits on its Instagram row. **Step 6 is done:** it ran on
 (70): 2 tag, 68 delete, 0 issue", then "APPLY — 70 ok").
 `feat/margin-s1` was kept. `git ls-remote origin` on 2026-09-25 shows
 both archive tags and `feat/margin-s1`, and none of the deleted
-branches. Still open: step 1 (the repo settings — not checkable
-read-only from here), step 7 (fold #365), and #368 in step 2. Open
-non-Dependabot PRs: #365, #368, #393 and #394, four against the cap of
-four (`docs/STATUS.md`).
+branches. **Step 1 is still open.** The settings themselves cannot be
+read from here, but two signs show from outside: `main` still took
+merge commits on 2026-09-21 (#383, #384), and the heads of #368, #393,
+#395, #396 and #397 are still on `origin` after their 2026-09-25
+merges, so "Automatically delete head branches" is evidently off. Open non-Dependabot PRs
+after #397 merged: one, #394 (draft), against the cap of four
+(`docs/STATUS.md`).
 
 
 ---
