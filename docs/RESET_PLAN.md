@@ -605,7 +605,7 @@ looking where the bugs are.
       each is switched on, its check date (none is ratified — two set
       by kickoffs, 2026-11-30 proposed by R2) and its last casework
       evidence; the parked shelf (K3, #370); the open-PR cap read from
-      GitHub (three open, one slot free); a pointer in CLAUDE.md. The
+      GitHub (four open, the cap reached); a pointer in CLAUDE.md. The
       same slice added the 2026-09-25 update to §9.1 and three agent
       rows to the walk ledger. Verified by `npm run build`, `npm test`
       and `npm run lint` green, and by re-reading every cited
@@ -1309,15 +1309,19 @@ Also merged in the window: #380 (`2ed917c`), #381 (`e4c5307`, CI on
 Node 22), #382 (`f7dcfd7`, the JOURNAL split), #385 (`85e0b9b`), and
 the maintainer's #383/#384 (example case briefs).
 
-**Runbook status.** Steps 2–5 and 8 are done, except #368 in step 2
-(#376 was replaced by #387). #368's stray file was removed on
-2026-09-25 on the maintainer's go; it now waits on its Instagram row.
-Still open: step 1 (the repo settings — not checkable read-only from
-here), step 6 (the hygiene `--apply` — draft #393 adds the `keep`
-input that spares the parked `feat/margin-s1`; its dry run now counts
-68 merged-branch deletes and two archive tags), and step 7 (fold
-#365). Open non-Dependabot PRs: #365, #368 and #393, three against the
-cap of four (`docs/STATUS.md`).
+**Runbook status.** Steps 2–4 and 8 are done, except #368 in step 2
+(#376 was replaced by #387). Step 5 is done, not last: #377 merged just
+after #379 on 2026-09-21, three days before #374 and #324 (see the #379
+row). #368's stray file was removed on 2026-09-25 on the maintainer's
+go; it now waits on its Instagram row. Step 6 ran on 2026-09-25
+(Actions run 36171004273, dispatched by the maintainer from #393's
+branch with `keep` = `feat/margin-s1`): 66 merged branches deleted; two
+stale branches tagged `archive/feature-phase-9b-metadata-ui-20260529`
+and `archive/claude-kind-hypatia-fu8nqm-20260905`, then deleted (68
+deletes in all, "APPLY — 70 ok"); `feat/margin-s1` kept. Still open:
+step 1 (the repo settings — not checkable read-only from here), step 7
+(fold #365), and #368 in step 2. Open non-Dependabot PRs: #365, #368,
+#393 and #394, four against the cap of four (`docs/STATUS.md`).
 
 
 ---
