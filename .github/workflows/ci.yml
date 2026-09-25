@@ -50,6 +50,16 @@ jobs:
           done < <(find src -name '*.js' -type f)
           exit "$fail"
 
+      - name: ESLint ratchet (no-undef, no-unused-vars)
+        # `node --check` is syntax-only: a reference to a deleted
+        # identifier (audit E17) passes it and throws at run time.
+        # eslint.config.mjs enables exactly two rules; today's
+        # violations are pinned per file in scripts/eslint-baseline.json,
+        # SHRINK-ONLY — a new violation is red, and so is a fixed one
+        # whose baseline entry was not lowered. The bare-console ratchet
+        # lives in tests/structure-guards.test.mjs (Rule 6), not here.
+        run: npm run lint:js
+
       - name: Build bundles (esbuild)
         run: npm run build
 
@@ -82,12 +92,33 @@ jobs:
         working-directory: companion/transcriber
         run: python3 -m unittest discover -s tests -p 'test_shared_fixtures.py' -v
 
+      - name: Version lockstep (package.json == manifest.json)
+        # Until 2026-09-25 only release.yml checked this — after the
+        # undeletable `v*` tag was pushed. Now a PR that bumps one file
+        # and not the other is red here; release.yml keeps its
+        # tag-vs-files check as the belt.
+        run: npm run check:version
+
       - name: web-ext lint
         # Default: warnings non-fatal, errors fail the job.
         run: npx --no-install web-ext lint --source-dir . --self-hosted
 
       - name: web-ext build
         run: npx --no-install web-ext build --source-dir . --artifacts-dir web-ext-artifacts --overwrite-dest
+
+      - name: Packaged-contents assertion
+        # The zip is a closed world: every file is required (derived from
+        # manifest.json, the esbuild configs, the HTML shells, runtime
+        # getURL paths, and pdf.js's cmaps/standard_fonts/wasm/iccs
+        # mirrored file-for-file), allowed, or a KNOWN leak (today's
+        # debt, ROAD_TO_1_0 B7 — shrink-only). Anything else is red.
+        run: npm run check:package
+
+      - name: Bundle-size budget
+        # Per-bundle and total byte ceilings in scripts/bundle-budget.json
+        # (+5% / +3% over 2026-09-25). A ceiling may be raised, in the PR
+        # that needs it, with the reason in the PR body.
+        run: npm run check:budget
 
       - name: Upload packaged extension
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

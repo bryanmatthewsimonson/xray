@@ -30,6 +30,7 @@ beat for it to fully load, then trigger X-Ray (toolbar icon or Ctrl/Cmd+Shift+X)
    - `instagram.com/p/<shortcode>/` — image or carousel post
    - `instagram.com/reel/<shortcode>/` — reel
    - `instagram.com/tv/<shortcode>/` — IGTV (legacy)
+   - `instagram.com/reels/<shortcode>/` — reel, in the Reels viewer (captured as `instagram.com/reel/<shortcode>/`)
    - `instagram.com/<username>/p/<shortcode>/` — user-prefixed post
    - `instagram.com/<username>/reel/<shortcode>/` — user-prefixed reel
 
