@@ -7,7 +7,6 @@
 import { CONFIG, applyConfigOverrides } from '../shared/config.js';
 import { Utils } from '../shared/utils.js';
 import { Storage } from '../shared/storage.js';
-import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
 import { Signer } from '../shared/signer.js';
 import { NIP07Client } from './nip07-client.js';
@@ -75,8 +74,8 @@ async function init() {
         ]);
     }
 
-    // Initialize local key manager.
-    await LocalKeyManager.init();
+    // No keystore here (THREAT_MODEL G10, closed 2026-09-24): this
+    // script runs on every web page and never signs with entity keys.
 
     // Wire the Signer façade to this context's NIP-07 client. Local and
     // NSecBunker work without injection.

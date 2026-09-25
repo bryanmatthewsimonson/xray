@@ -67,7 +67,7 @@ installed. Both already hold the assets.
 | B3 | page MAIN world → content script | `xr:apihook:event` GraphQL captures | shape-checked in `shared/api-hook-buffer.js` — **see gap G1** |
 | B4 | extension page ↔ service worker | `xray:*` runtime messages | typed dispatch, one handler per type — **see gap G2** |
 | B5 | relay → extension | signed events | id-hash + BIP-340 verified at one choke point before storage or render |
-| B6 | imported file → storage | backup / case bundle / entity sync | shape validation; `local_keys` **never** accrues on merge (`MERGE_EXCLUDED_KEYS`); import verifies rather than trusts |
+| B6 | imported file → storage | backup / case bundle / entity sync | shape validation; `local_keys` **never** accrues on merge (`MERGE_EXCLUDED_KEYS`); import verifies rather than trusts. Keys enter the keystore only through writes that hold the `xray.local_keys` lock: a bundle key through `importKey` (refuses an occupied name holding different material); a pulled sync key through `upsertKeys` (replaces its own name only; pubkey/npub/nsec derived from the private key, never taken from the payload), and only under `entity:<the pulled record's own id>` — a stored record whose `keyName` names any other slot (the reserved `xray:user`, another entity's) is refused, logged and counted malformed, as is a key that is not 64 hex or that secp256k1 rejects (0, or ≥ the curve order); a replace-all backup restore rewrites `local_keys` wholesale under the same lock (`withKeyStoreLock`). The pull installs keys BEFORE it writes entity rows (a failed key write writes no rows), and the rows merge into a fresh registry read |
 | B7 | captured content → LLM prompt | article text (the one article pass; the UA.1 supplied-claim-index loop existed only for the UA.1–UA.2 bridge and retired with the standalone pass) | attacker-authored by definition; grounding rules treat model quotes as search keys, never evidence; **no model output is ever auto-applied**. Extract entity mentions are machine-grounded, per-atom `about` refs resolve only against the extract's own ref set, and every artifact still passes the human Accept |
 | B8 | LLM → extension state | proposals, briefs | every suggestion is human-accepted; nothing durable without an explicit Accept. Since 2026-09-05 the RAW result of a corpus-map / corpus-reduce / entity-page call also rests briefly in `chrome.storage.local` as an LLM job record (`xray:llm-job:*`, `shared/llm-jobs.js`) between the worker finishing and the page persisting — the page still validates, grounds, and human-gates it exactly as before; the record never holds the request or key material, is excluded from every backup path, and is deleted by the page's ack (TTL-swept otherwise) |
 | B9 | extension → cloud provider (**via the companion**) | prompts, audio, API keys | user-initiated only; keys memory-only in the companion child process, never written to its disk or logs. **This row covers the COMPANION-MEDIATED path only** — its central control (keys held in a child process) does not exist when there is no companion; see B13. The audio may now come from any URL the companion admitted (Transcribe Anywhere), not only a YouTube video — the admission gate is B10's, not this row's |
@@ -118,6 +118,27 @@ dependency of `release.yml`, and this workflow never gains a secret.**
   are generated at test time.
 - **Loopback pinning.** The companion client only ever talks to
   `127.0.0.1`/`localhost`.
+- **No keystore write erases what it did not touch.** Every
+  `LocalKeyManager` write is a read-modify-write of FRESH storage under
+  the `xray.local_keys` Web Lock that applies only its own names, and a
+  read that FAILS aborts it (`Storage.getStrict`) instead of reading as
+  empty; a write never dumps a page's in-memory copy. Replacing the key
+  under an occupied name is only through `upsertKeys` (the entity-sync
+  pull and the side panel's `xray:user` reinstall). The three writers
+  that replace or clear `local_keys` wholesale — the replace-all backup
+  restore (`applyBackup`), the workspace reset (`resetWorkspace`) and
+  the workspace removal (`Workspaces.remove`) — take the same lock
+  (`withKeyStoreLock`), so a write in flight on another page cannot land
+  after them and undo them. No `src/` path writes `local_keys` outside
+  the lock (`Storage.removeWorkspaceData` takes none itself; its one
+  caller, `Workspaces.remove`, does). Every locked path refuses to run
+  under any `location` other than a `chrome-extension:` /
+  `moz-extension:` one (a context with no `location` at all, as in the
+  Node tests, passes), because a Web Lock belongs to the requesting
+  document's origin. Guard-tested in `tests/local-key-store.test.mjs`
+  for every incremental writer and for the restore and reset races.
+  Not guarded: the `Workspaces.remove` lock has no race test, and no
+  static check stops a future wholesale writer from skipping the lock.
 - **No observation of the operator.** No telemetry, no analytics, no
   usage measurement — refused, not deferred. The tool must not watch
   its user's investigations.
@@ -206,6 +227,26 @@ accepted with its consequence stated.
   own sub-line rather than only here. *Smaller than G8: the fetch is the
   provider's, from the provider's network, so there is no path to the
   operator's LAN; a service worker cannot pin DNS in any case.*
+- **G10 — NARROWED 2026-09-24: every tab's content script held the entity
+  keystore.** `src/content/index.js` ran `LocalKeyManager.init()` on
+  `<all_urls>`, loading every `local_keys` private key into the isolated
+  world of each tab, although nothing in the content bundle read that
+  Map (verified against the bundle's esbuild metafile) and the content
+  script never wrote keys. Page script cannot reach an isolated world,
+  so the exposure was a compromised renderer sharing the page's process.
+  The module carried a second exposure there: a Web Lock is scoped to
+  the requesting document's origin, which in a content script is the
+  web page's, so a hostile page could hold `xray.local_keys`. Narrowed by
+  dropping the init and its import — the content bundle no longer
+  contains `local-key-manager.js` (a metafile guard in
+  `tests/local-key-store.test.mjs`) — and every locked keystore path
+  refuses outside an extension origin in any case. Outside this gap:
+  the content script still reads `local_primary_identity` when signing
+  is Local (its signing-state probe and `Signer`'s Local path); that is
+  the primary identity, not the entity keystore. What remains open:
+  this removed the keys from each tab's in-memory copy, not the
+  content script's `chrome.storage.local` access, so a compromised
+  renderer can still read `local_keys` through the storage API.
 
 ## 6. Changes recorded here
 
@@ -222,3 +263,4 @@ accepted with its consequence stated.
 | 2026-08-16 | DC.2 + DC.3. **DC.2**: no boundary change — UI text, gating and one pure function's inputs; the companion-free configuration stops rendering as an error, and companion setup advice is now gated on the ROUTE rather than on an error substring (it was one careless string away from firing on the companion-free path). **DC.3**: B13 widened to a second provider, `api.deepgram.com`, in its own sibling module with its own pinned origin and credential key, behind the SAME flag — a second flag would let a user believe the capability was off while another vendor still had it. The shared piece is exactly one thing: the URL admission gate. New property worth recording rather than a new gap: Deepgram's pre-recorded call is SYNCHRONOUS and they do not store transcripts, so a service-worker teardown mid-request loses that request unrecoverably — bounded (measured 12.9s for a 48-minute episode) and mitigated by a pre-flight record that reports a possible charge and NEVER auto-retries. `host_permissions` gained `https://api.deepgram.com/*`, documentary as before (`<all_urls>` already grants it). No wire-format change. |
 | 2026-09-07 | Browser smoke in CI (RESET_PLAN R0, PR #377): new development/CI surface recorded above §4 — no product boundary changes (the one `src/` change is a `data-xr` anchor from a shared table plus a ready stamp each extension page sets as the last act of its init; no `xray:*` message, no manifest change, no new fetch target). Attacker class **Shoulder / screenshot** widened to the job's public artifacts. Controls named: browser-level egress kill, relay pin verified by read-back, per-run identity in a deleted profile, fictional seeds, artifact key scan, read-only token, no secrets, never a `release.yml` dependency. Two adversarial review rounds on the slice found, in turn, that the egress claim was an argument from the empty profile rather than a control, that the throwaway profile was never deleted, and then that the deletion covered only the clean exit and the egress kill had no observer; all four fixed before merge. |
 | 2026-09-05 | LLM jobs (JOURNAL 2026-09-05). **B4**: three message types REMOVED — `xray:llm:corpus-map`, `xray:llm:corpus-reduce`, `xray:llm:entity-page`, each a single held-open message that MV3 killed at ~5 minutes with the paid result — and four ADDED, `xray:llm:job:{start,status,find,ack}`, validated at `shared/llm-jobs.js` on receipt: `pass` against a frozen three-name allowlist (fail-closed; a pass present in the worker but not allowlisted is refused before lookup), `request` must be a plain object, `scopeKey` / `jobId` clamped to `[A-Za-z0-9:._-]` with length caps, `waitMs` clamped to 15s so no single request can approach the MV3 kill. Same senders as before (extension pages only; no `externally_connectable`), same gates inside the passes (flags + key), same page-side firewall. **B8** row extended: the raw result rests in `chrome.storage.local` under the job id until the page acks — no request, no key material, backup-excluded as a prefix class (`isExcludedStorageKey`), TTL-swept, and **workspace-scoped at the receiver** (`jobStorageKey(id, workspace)` — the workspace comes from the active-workspace pointer, never from the message; a result started in one workspace is never found, reused, or served in another, even for a case bundle imported into both with identical ids — the review's one finding, closed in the same PR). New worker property, not a gap: while a job runs the worker heartbeats its own record (an extension API call resets the idle timer), bounded by the pass's own AbortController timeout — a job can never keep the worker alive past the model call it was started for. No new network destination; no wire-format change. Guards: `tests/llm-jobs.test.mjs` (validation, restart pickup, never-reuse of lost/failed, the held-open-shape source pin) and `tests/backup-hygiene.test.mjs` (records never export/restore/merge). |
+| 2026-09-24 | Keystore write path (JOURNAL 2026-09-24). No new boundary, message or destination; asset 1's handling changed. Every `local_keys` write is now a read-modify-write of fresh storage under the Web Lock `xray.local_keys`, re-checking the workspace pointer before it writes and aborting when its read fails; the whole-Map `save()` is removed, because it let one page erase another page's keys and copy one workspace's keys into another. The replace-all backup restore, the workspace reset and the workspace removal take the same lock (`withKeyStoreLock`), and every locked path refuses to run outside an extension origin. The entity-sync pull (B6) installs keys through `upsertKeys` BEFORE it writes entity rows, only under `entity:<its own id>`, and counts a key secp256k1 rejects as malformed; `upsertKeys` replaces its own names only and derives pubkey/npub/nsec from the private key instead of trusting the payload. Every extension page that runs `init()` re-reads `local_keys` on each storage change. The content script's unused `init()` is removed, so no web page's tab loads the keystore: gap **G10**, recorded and narrowed the same day (the content script's storage-API access to `local_keys` remains). New standing invariant: no keystore write erases what it did not touch. `local_keys` shape unchanged; no wire-format change. Guard: `tests/local-key-store.test.mjs`. |

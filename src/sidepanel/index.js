@@ -1610,19 +1610,13 @@ async function generateIdentity() {
 }
 
 async function saveIdentity(privHex) {
-    const pubkey = Crypto.getPublicKey(privHex);
-    // Bypass LocalKeyManager.createKey (which throws on duplicate) —
-    // reinstalling the identity should be allowed.
-    LocalKeyManager.keys.set(USER_KEY_NAME, {
-        name:       USER_KEY_NAME,
-        privateKey: privHex,
-        pubkey,
-        npub:       Crypto.hexToNpub(pubkey),
-        nsec:       Crypto.hexToNsec(privHex),
-        metadata:   { role: 'user-primary', source: 'sync-setup' },
-        created:    Math.floor(Date.now() / 1000)
-    });
-    await LocalKeyManager.save();
+    // Reinstalling the identity is allowed, so this is the keystore's
+    // explicit overwrite path (createKey/importKey refuse an occupied
+    // name). It replaces only this name — every entity key stays.
+    await LocalKeyManager.upsertKeys([{
+        name: USER_KEY_NAME, privateKey: privHex,
+        metadata: { role: 'user-primary', source: 'sync-setup' }
+    }]);
     renderSyncBody();
 }
 

@@ -342,8 +342,13 @@ export const EntityModel = {
             updated: now
         };
 
-        all[id] = record;
-        await Storage.set('entities', all);
+        // Re-read before writing: the key install above waits on the
+        // cross-page keystore lock, and writing the snapshot read at the
+        // top would erase any entity another page created meanwhile
+        // (JOURNAL 2026-09-24).
+        const fresh = await Storage.get('entities', {});
+        fresh[id] = record;
+        await Storage.set('entities', fresh);
         Utils.log('Created entity:', id, name, type);
         return await EntityModel.get(id);
     },
@@ -374,10 +379,14 @@ export const EntityModel = {
             throw new Error('restoreDerivedKeys: no primary identity to derive from');
         }
         const primaryPubkey = primary.pubkey || Crypto.getPublicKey(primary.privateKey);
+        // "Present" is judged against STORAGE, not this page's Map: an
+        // empty or stale Map made this re-derive keys that existed —
+        // re-keying legacy random-keyed entities (JOURNAL 2026-09-24).
+        await LocalKeyManager.refresh();
         const all = await Storage.get('entities', {});
         const restored = [];
         const skipped = [];
-        let stamped = false;
+        const toStamp = [];
         for (const record of Object.values(all)) {
             // Foreign/reference entities carry no key of ours.
             if (!record || !record.keyName) continue;
@@ -388,16 +397,34 @@ export const EntityModel = {
             }
             const verified = record.derived_from === primaryPubkey;
             const child = await Crypto.deriveChildKey(primary.privateKey, ENTITY_KEY_DOMAIN, record.id);
-            const installed = await LocalKeyManager.installDerivedKey(record.keyName, child, {
-                entityId: record.id, entityName: record.name, entityType: record.type, restored: true
-            });
-            if (!record.derived_from) {
-                record.derived_from = primaryPubkey;
-                stamped = true;
+            // One locked write per key — never hold the (non-reentrant)
+            // keystore lock across this loop. A key another page
+            // installed since the refresh is present: leave it.
+            let installed;
+            try {
+                installed = await LocalKeyManager.installDerivedKey(record.keyName, child, {
+                    entityId: record.id, entityName: record.name, entityType: record.type, restored: true
+                });
+            } catch (err) {
+                if (/Key conflict/.test(String(err && err.message))) continue;
+                throw err;
             }
+            if (!record.derived_from) toStamp.push(record.id);
             restored.push({ id: record.id, name: record.name, keyName: record.keyName, pubkey: installed.pubkey, verified });
         }
-        if (stamped) await Storage.set('entities', all);
+        if (toStamp.length > 0) {
+            // Stamp onto a FRESH read — the snapshot above predates the
+            // derivations, and other pages may have written since.
+            const fresh = await Storage.get('entities', {});
+            let dirty = false;
+            for (const id of toStamp) {
+                if (fresh[id] && !fresh[id].derived_from) {
+                    fresh[id].derived_from = primaryPubkey;
+                    dirty = true;
+                }
+            }
+            if (dirty) await Storage.set('entities', fresh);
+        }
         Utils.log('restoreDerivedKeys:', restored.length, 'restored,', skipped.length, 'skipped (different primary)');
         return { restored, skipped };
     },
