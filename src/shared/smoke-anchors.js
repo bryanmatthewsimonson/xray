@@ -18,7 +18,20 @@
 // RESET_PLAN R0; the maintainer has not ruled on it.
 
 export const SMOKE_ANCHORS = Object.freeze({
-    extractionBlock: 'extraction-block'
+    // The portal library (src/portal/index.js): the Cases type tab and a
+    // case row's dashboard button — the MA.6 walk's route in.
+    casesTab: 'library-cases-tab',
+    caseDashboard: 'case-dashboard-open',
+    // The case dashboard's extraction-review block
+    // (src/portal/extraction-block.js) and the controls the walk drives.
+    extractionBlock: 'extraction-block',
+    extractionMember: 'extraction-member',
+    extractionCovered: 'extraction-covered',
+    extractionAccept: 'extraction-accept',
+    extractionDismiss: 'extraction-dismiss',
+    extractionPublish: 'extraction-publish',
+    extractionPublishStatus: 'extraction-publish-status',
+    extractionPublishAll: 'extraction-publish-all'
 });
 
 /** dataset key of the ready stamp (the attribute is `data-xr-ready`). */
