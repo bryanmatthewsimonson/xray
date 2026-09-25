@@ -355,14 +355,17 @@ without the other is the design's named long-term risk.
   (`// Standards: <id> — docs/DISCIPLINES.md §n.`) —
   `tests/disciplines.test.mjs` fails any "You are" prompt file without
   one.
-- **`.claude/skills/`** — twelve skills. Eight are the
+- **`.claude/skills/`** — thirteen skills. Eight are the
   **dev-process** disciplines (distinct from DISCIPLINES.md, which
-  governs the disciplines the *product* draws on); three more are
+  governs the disciplines the *product* draws on); four more are
   dev-process skills without a `## Standards` section, so the
   generated page below leaves them out — `ux-designer` (surface
-  reviews), `seam-and-invariant-check` (a pre-commit checklist) and
-  `hand-to-maintainer` (handing manual checks over as runnable steps);
-  the twelfth, `xray-capture`, is an operational skill that drives the
+  reviews), `seam-and-invariant-check` (a pre-commit checklist),
+  `hand-to-maintainer` (handing manual checks over as runnable steps)
+  and `governance` (a review aid for diffs that touch or invoke the
+  governance corpus — its standards sit under `## Review standards`;
+  it reads the sources, keeps no copy, and never rules); the
+  thirteenth, `xray-capture`, is an operational skill that drives the
   loaded extension through the claude-in-chrome connector to capture
   URLs. The disciplines — `product-manager`, `architect`,
   `continuous-improvement`, `automator`, `ecosystem-pm`,
@@ -374,7 +377,8 @@ without the other is the design's named long-term risk.
   routing, the shared release-preflight ordering, and the seam map
   (who owns a contested call — e.g. `ecosystem-pm` declares the
   canonical `Wire format:` PR callout). Read the governing skill before
-  a wire change, a schema change, a new surface, or a release tag.
+  a wire change, a schema change, a normative-doc edit, a new surface,
+  or a release tag.
   `docs/discipline-standards.html` renders all eight on one page
   (GENERATED — `npm run docs:disciplines`, drift-guarded by
   `tests/discipline-docs.test.mjs`).

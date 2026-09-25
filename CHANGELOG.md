@@ -13,13 +13,15 @@ them), **Security**, and **Docs & process**.
 ## [Unreleased]
 
 Everything merged to `main` since v0.8.0, reconstructed on 2026-09-25
-from the merged pull requests (`git log --first-parent v0.8.0..main`)
-and the engineering journal (`docs/journal/`). Features marked
-default-off stay inert until their flag is turned on.
+from the merged pull requests (`git log --first-parent v0.8.0..main`,
+through #397) and the engineering journal (`docs/journal/`). Features
+marked default-off stay inert until their flag is turned on.
 
 ### Wire format
 
-All additive: no event X-Ray published before changes meaning.
+No event X-Ray published before changes meaning. Everything below is
+additive except the Instagram capture fix, which changes tag values on
+new captures.
 
 - **New kind 30070, ExtractionAnalysis** — one addressable event per
   author per article (`d` = `xray-extraction:<article hash>`) that
@@ -55,6 +57,19 @@ All additive: no event X-Ray published before changes meaning.
 - **Kinds 30050–30053 and 9803 are RESERVED, never emitted.** Scaffolded
   in Phase 9a and never published; their builders are removed, clients
   need no read path, and the numbers will not be reused (#317).
+- **Instagram captures on kind 30023: tag values change, no new kind
+  or tag name.** `r` and `d` are now the address X-Ray constructs from
+  the post's shortcode (`https://www.instagram.com/{p|reel|tv}/<code>/`),
+  never the page's `og:url`; a Reels-viewer capture (`/reels/<code>/`)
+  is filed under `…/reel/<code>/` and now carries the Instagram path's
+  tags (`shortcode`, `post_kind`, `platform`, `content_format`, …)
+  instead of the generic extractor's. When the page head names a
+  different page, nothing from it is published: `image`, `summary` and
+  the engagement counts are absent, and `author`, `author_handle` and
+  `platform_account` come only from the shortcode-matched GraphQL/SSR
+  item or the address. Already-published events are not superseded; a
+  re-capture publishes under the constructed address as a new `d`
+  (#368; the full tag-by-tag list is JOURNAL 2026-09-25).
 
 ### Added
 
@@ -161,6 +176,14 @@ All additive: no event X-Ray published before changes meaning.
   passes now run as background jobs that survive a reload and report
   a worker restart plainly (#374, #390).
 - **PDF links were never captured** (#391).
+- **Instagram filed one account's post under another account's
+  address.** After in-app navigation the page head can still describe
+  the previous page, and its `og:url` chose the capture's URL. The URL
+  is now built from the post's shortcode, the Reels viewer
+  (`/reels/<code>/`) is captured as an Instagram reel instead of a
+  generic page, a head rendered for another page is ignored, and a
+  reel scrolled to in the viewer gets its own author rather than
+  whichever reel came first in Instagram's batch (#368).
 - **Session records leaked until storage was full**, failing every new
   capture; stale ones are now evicted, and a reader tab whose record
   was evicted can still publish (#359, #369).
@@ -237,8 +260,11 @@ All additive: no event X-Ray published before changes meaning.
   governance corpus and a reconciliation questionnaire (#364, #366).
 - **Dev-process skills** in `.claude/skills/` — eight review
   disciplines with a generated standards page (#306, #307), plus
-  hand-to-maintainer (#337), seam-and-invariant-check (#340) and
-  ux-designer with the soak rule and agent smoke walks (#342).
+  hand-to-maintainer (#337), seam-and-invariant-check (#340),
+  ux-designer with the soak rule and agent smoke walks (#342), and
+  governance, a review aid for the governance corpus that reads the
+  sources and never rules, folded from a 453-line draft to 120 lines
+  (#397).
 - **Plans and designs** — the 1.0 readiness punch list, its kill-list
   status and the NIP-07 identity write-up (#314, #319, #322); the
   fresh-eyes audit and reset plan (#377); the event-store design for
@@ -256,7 +282,15 @@ All additive: no event X-Ray published before changes meaning.
   releases run on Node 22, and the engines floor is `>=22` (#381); a
   release now fails instead of publishing an empty body when its
   CHANGELOG section is missing, and `npm run clean` works on Windows
-  (#318); test fixes and additions (#271, #333, #352, #389).
+  (#318); CI now also gates an ESLint ratchet (`no-undef`,
+  `no-unused-vars`, against a shrink-only baseline), the
+  package.json/manifest.json version lockstep on every PR, the
+  packaged zip's contents, and a bundle-size budget (#396); the MA.6
+  smoke walk waits on conditions instead of sleeps and finds its
+  controls by `data-xr` anchors, the two preconditions for making it
+  required (#395); a hygiene run can keep named branches, so a parked
+  branch survives (#393); test fixes and additions (#271, #333, #352,
+  #389).
 - **Dependency bumps** (Dependabot): esbuild, playwright, web-ext,
   fast-uri, js-yaml, adm-zip and GitHub Actions; nltk and lightning in
   the companion (#304, #305, #371, #372, #375, #378, #380, #385, #386,
