@@ -29,8 +29,8 @@ The nineteen blockers of [`ROAD_TO_1_0.md`](ROAD_TO_1_0.md)
 | B4 | Credentials echoed and exported; no key-free export | closed | #315 + #321 (`4c6016f`, merged 2026-08-11; JOURNAL 2026-08-10): presence-only key fields, credentials excluded from backups, the "Shareable copy" export | — |
 | B5 | `rules/csp-strip.json` strips page security (CSP) on every site | open | rule 1 still has no domain condition | R7 security item (§10) |
 | B6 | NIP-07 signed replies were not verified | closed | #316 (`41b8fff`, 2026-08-09); real-signer walk PASS, ledger 2026-08-11 | — |
-| B7 | No store listing or other installable channel; the zip is unpruned | open | no store listing or signed build. `webExt.ignoreFiles` adds only the smoke output, Chrome's `_metadata/` and `eslint.config.mjs` to the companion (#396, `1c4fa87`); nothing on B7's prune list is dropped. CI now asserts the zip's contents (`npm run check:package`, #396): today's leaks — `tests/`, `docs/`, `tools/`, `scripts/`, the source maps, the `src/` tree and more — are pinned shrink-only in `KNOWN_LEAKS` (`scripts/check-package.mjs`), so a new leak is red, but none is removed yet | R4 "First run"; decision §11-6 |
-| B8 | No runnable release gate; no verification record | partly done | walk ledger since #320 (`a3a8e02`, 2026-08-10); browser smoke in CI since #379 (`d139ba5`, 2026-09-21); version lockstep, the packaged-contents assertion and a bundle budget in `ci.yml` since #396 (`1c4fa87`, 2026-09-25). The MA.6 walk's preconditions for going required are met (#395, `16073bc`), but it still runs `--advisory=ma6` — the flip is the maintainer's, due 2026-10-05. Still open: SMOKE_TEST not split into a short gate (no `docs/GATE.md`); CI runs one companion test file (the normalizer parity), not its key-hygiene tests | R0 (the MA.6 flip), R6 (`GATE.md`), R7 |
+| B7 | No store listing or other installable channel; the zip is unpruned | open | no store listing or signed build. Besides the companion, `webExt.ignoreFiles` now excludes only the smoke output, Chrome's `_metadata/` and `eslint.config.mjs` (#396, `1c4fa87`); nothing on B7's prune list is dropped. CI now asserts the zip's contents (`npm run check:package`, #396): today's leaks — `tests/`, `docs/`, `tools/`, `scripts/`, the source maps, the `src/` tree and more — are pinned shrink-only in `KNOWN_LEAKS` (`scripts/check-package.mjs`), so a new leak is red, but none is removed yet | R4 "First run"; decision §11-6 |
+| B8 | No runnable release gate; no verification record | partly done | walk ledger since #320 (`a3a8e02`, 2026-08-10); browser smoke in CI since #379 (`d139ba5`, 2026-09-21); version lockstep, the packaged-contents assertion and a bundle budget in `ci.yml` since #396 (`1c4fa87`, 2026-09-25). The MA.6 walk's preconditions for going required are met (#395, `16073bc`), but it still runs `--advisory=ma6` — the flip is the maintainer's, due 2026-10-05. Still open: SMOKE_TEST not split into a short gate (no `docs/GATE.md`); CI runs one companion test file (the normalizer parity), not its key-hygiene tests (`test_server_keys.py`) | R0 (the MA.6 flip), R6 (`GATE.md`), R7 (the gate on the shipped zip); the companion's key-hygiene tests: unowned |
 | B9 | The front door misstates what shipped | partly done | `release.yml` now refuses an empty CHANGELOG section (#318, JOURNAL 2026-08-09). Still wrong on `main`: README "v0.7.0" and "2100 tests", CHANGELOG `[Unreleased]` "Nothing yet", Settings "(Phase 25)". The fix is pushed as the branch `toolchain/front-door` (three commits); no PR is open for it | R0 "Fix the front-door lies" |
 | B10 | Three features reachable only through DevTools | open | still no Settings control for `reviewCoordination`, `storeFirstPublish`, `extractionAnalysisPublishing` | R2 "Flags" |
 | B11 | Flag registry noise; the guide's flag table is wrong | partly done | eight dead flags retired (#317, `bd0396d`). The guide no longer lists them but omits four live flags (`aiVision`, `directCloudTranscription`, `storeFirstPublish`, `extractionAnalysisPublishing`); no flag ledger, no guard | R2 "Flags"; R6 |
@@ -41,7 +41,7 @@ The nineteen blockers of [`ROAD_TO_1_0.md`](ROAD_TO_1_0.md)
 | B16 | The wire record does not match what the code emits | partly done | 30050–30053 and 9803 reclassified reserved (#317, K1). Still open: no NIP_DRAFT section for 30041 or 30078, no CONSTITUTION Art. 10 rows for kinds 1 and 5, the `x` tag's second meaning unwritten | R2 "Make the kind schedule true"; R3 lane A |
 | B17 | The follows feed drops unreadable events silently; kind 0 / 10002 overwrite blindly | open | `parseFeedEvent` still returns a bare `null` | **no named track** — §10 (WIRE-10) covers only the 10002 half |
 | B18 | No threat model | closed | `docs/THREAT_MODEL.md` added in #316 (`41b8fff`); updated since, most recently by #374 and #392 | — |
-| B19 | The moral lens sent users to the browser console | closed | its surfaces parked (K3, #318 `e3985c2`, 2026-08-09) | — |
+| B19 | The moral lens sent users to the browser console | closed | its surfaces parked (K3, #318 `e3985c2`, committed 2026-08-09, merged 2026-08-10) | — |
 
 **Added 2026-08-11, outside the nineteen:** NIP-07 silently voided
 entity-key recoverability. **Closed** by Option C, #324 (`4924ea5`,
@@ -108,7 +108,7 @@ coming back.
 
 | Parked | Since | Recorded in | Comes back when |
 |---|---|---|---|
-| The moral lens's surfaces (the Settings checkbox and the console-pointing empty state; modules, tests, flag and kind 30066 kept) | 2026-08-09 (#318, `e3985c2`) | ROAD_TO_1_0 K3; JOURNAL 2026-08-09; a comment at the removal site in `options.html` | "once lenses have been tested on real casework" (the maintainer) |
+| The moral lens's surfaces (the Settings checkbox and the console-pointing empty state; modules, tests, flag and kind 30066 kept) | committed 2026-08-09, merged 2026-08-10 (#318, `e3985c2`) | ROAD_TO_1_0 K3; JOURNAL 2026-08-09; a comment at the removal site in `options.html` | "once lenses have been tested on real casework" (the maintainer) |
 | Margin S1, PR #370 (closed; branch `feat/margin-s1` kept) | 2026-09-15 | RESET_PLAN §9 (#370 row) and §9.1 ("Executed 2026-09-15", item b) | re-cut as S1 + S2 in R4 (decision §11-3). The branch survived the 2026-09-25 hygiene `--apply` (Actions run 36171004273) because that run was dispatched from #393's branch with its `keep` input set to `feat/margin-s1`; #393 has since merged (`57a3398`), so the input is on `main`. It is per dispatch: a later `--apply` spares the branch only if `keep` names it again; otherwise the stale rule tags it `archive/…` and deletes it |
 
 **Proposed, not parked** (waits on decision §11-2): R2's one
@@ -163,6 +163,9 @@ fixed branch passed (SMOKE_TEST ledger, 2026-09-25); #365, closed
 unmerged and folded into #397 (`4d2b1aa`, the 120-line governance
 skill), its branch kept so the 453-line text stays recoverable. Two R0
 slices merged minutes later: #395 (`16073bc`) and #396 (`1c4fa87`).
+The cap was exceeded twice that day, briefly: five were open from
+19:58Z to 20:03Z (#395 opened before #393 merged) and from 20:27:56Z
+to 20:28:06Z (#397 opened ten seconds before #365 closed).
 
 **Waiting to open** (pushed branches, no PR yet): this page's own
 branch `toolchain/status-doc`, `toolchain/pr-body-checks` (the PR

@@ -503,7 +503,8 @@ looking where the bugs are.
       #396; JOURNAL entry of that date): four `ci.yml` build-job
       steps in the §8 order. `npm run lint:js` runs `eslint.config.mjs`
       (only `no-undef` and `no-unused-vars`, globals per context)
-      against a SHRINK-ONLY per-file baseline, 21 + 55 hits today; a
+      against a SHRINK-ONLY per-file baseline, 21 + 55 hits when built
+      and 21 + 54 once #368 merged (#396's second commit lowered it); a
       breach and an unlowered stale entry are both red, and none of the
       21 `no-undef` hits is a real bug. The console ratchet is not
       duplicated, because structure-guards Rule 6 already is that
@@ -638,8 +639,9 @@ looking where the bugs are.
       each is switched on, its check date (none is ratified — two set
       by kickoffs, 2026-11-30 proposed by R2) and its last casework
       evidence; the parked shelf (K3, #370); the open-PR cap read from
-      GitHub (four open when first written; after #393, #368, #395,
-      #396 and #397 merged and #365 closed the same day, one — #394);
+      GitHub (three open when first written, four once #394 opened
+      that afternoon; after #393, #368, #395, #396 and #397 merged and
+      #365 closed the same day, one — #394);
       R0's own checklist state; a pointer in CLAUDE.md. The same slice
       added the 2026-09-25 update to §9.1 and three agent rows to the
       walk ledger. Verified by the full CI-equivalent set green after
