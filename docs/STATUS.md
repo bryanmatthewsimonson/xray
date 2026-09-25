@@ -45,10 +45,14 @@ The nineteen blockers of [`ROAD_TO_1_0.md`](ROAD_TO_1_0.md)
 
 **Added 2026-08-11, outside the nineteen:** NIP-07 silently voided
 entity-key recoverability. **Closed** by Option C, #324 (`4924ea5`,
-2026-09-24); the named refusal was walked by an agent on 2026-09-24
-(ledger). Not on the record: the kickoff §6 walk's other doors (side
-panel, claim modal, New case) and one entity-tagged publish under a
-real NIP-07 signer.
+2026-09-24). [`NIP07_IDENTITY_KICKOFF.md`](NIP07_IDENTITY_KICKOFF.md)
+§6 owes "the live walk — entity creation under Local and under NIP-07
+(expect the refusal without a local primary, derived creation with
+one), and one entity-tagged publish under NIP-07". An agent walked the
+creation half on 2026-09-24 at one door, the entity tagger (ledger).
+Not on the record: "one entity-tagged publish under NIP-07", and the
+other creation doors §6 names — "the claim modal's picker", "the
+sidepanel import", `createCase`, and "the LLM review's accept-all".
 
 ## 2. Default-off flags
 
@@ -58,9 +62,11 @@ flags; the 19 below default off (`trustGraphFilter` defaults on).
 reachable only by editing the `xray:flags` storage key.
 
 **No flag has a ratified check date.** RESET_PLAN §7 R2 and §11-2
-propose one date, 2026-11-30, for every judgment family and the parked
-shelf — written "2026-11-30 proposed" below, awaiting the maintainer.
-Two kickoffs set their own dates. Casework evidence means the
+propose one date, 2026-11-30, for every judgment family, the parked
+shelf and (R2) the 30068 / 30069 / 30070 publish paths — written
+"2026-11-30 proposed" below, awaiting the maintainer. Where a flag
+gates only part of a parked item, its row says which part. Two
+kickoffs set their own dates. Casework evidence means the
 maintainer used the feature on real work (soak walks on a real case
 count); agent walks and acceptance walks are listed as walks. For a
 flag that gates *publishing*, only the publish path counts; local use
@@ -75,13 +81,13 @@ of the same feature is noted separately.
 | `llmAssist` | the reader's Suggest (the one article pass), plus the audit, entity-audit, forensic, PDF-reconstruction and corpus passes that share its gate; needs the API key. AI vision and the moral lens have their own flags; transcript claim drafts run on LM Studio | Settings | none set — the UA kickoff §5 check is an event ("by the second case corpus worked after UA.2"), not a date | JOURNAL 2026-09-05: the maintainer's 2026-08-30 report of an 87-member corpus reduce, which needs this flag. Also: the four example briefs of 2026-09-21 (#383/#384; see `caseSynthesis`) — a commit, not a ledger row. Suggest itself: ledger 2026-08-25 (PR #358 — 72, 60 and 86 proposals on a long transcript) |
 | `platformAccountPublishing` | publishing platform-account links (32126) | Settings | none set | none on record |
 | `moralLens` | the reader's lens reading (parked) | DevTools (control removed by K3) | none set — revival condition "once lenses have been tested on real casework" (K3); 2026-11-30 proposed | none on record |
-| `entityCorpusPublishing` | publishing entity profiles (kind 0), mention notes (kind 1) and entity pages (30023) | Settings | none set | none on record |
-| `caseSynthesis` | Analyze corpus (the case brief), entity pages, link and hypothesis suggestions; needs `llmAssist` | Settings | none set | JOURNAL 2026-09-05 (the 2026-08-30 report above — the run the job model was built for). Also: four example briefs from real cases committed by the maintainer 2026-09-21 (#383/#384, `EXAMPLE-case-briefs/`) — a commit, not a ledger row |
+| `entityCorpusPublishing` | publishing entity profiles (kind 0), mention notes (kind 1), entity pages (30023) and the OwnedKeys manifest (30069) | Settings | none set for the flag; 2026-11-30 proposed for the 30069 publish path (R2) | none on record |
+| `caseSynthesis` | Analyze corpus (the case brief), entity pages, link and hypothesis suggestions; publishing a stored brief (30023 + 30068). All of it needs `llmAssist` | Settings | none set for the flag; 2026-11-30 proposed for the 30068 publish path and the hypothesis-map suggestions it gates (R2) | JOURNAL 2026-09-05 (the 2026-08-30 report above — the run the job model was built for). Also: four example briefs from real cases committed by the maintainer 2026-09-21 (#383/#384, `EXAMPLE-case-briefs/`) — a commit, not a ledger row |
 | `aiVision` | "Describe images" (captions and text-in-image) | Settings | 2026-11-30 proposed | none on record (JOURNAL 2026-07-29 is the ship entry) |
 | `captureAutomation` | the `#xray:capture` marker a driving agent navigates to | Settings | none set | agent walk AW-1…AW-7, ledger 2026-08-23 (public pages, not a case); casework: none on record |
 | `networkPage` | the Network page (Feed / Queue / Follows) | Settings | 2026-11-30 proposed; R7 decides it on the two-person walk | none on record |
-| `reviewCoordination` | "Request review" (the `xray/review` label) and re-broadcasting who you follow | DevTools | none set | none on record |
-| `followListPublishing` | publishing who you follow (kind 3) | Settings | none set | none on record |
+| `reviewCoordination` | "Request review" (the `xray/review` label, in the portal inspector) and re-broadcasting the cached events of people you follow (a Network page button) | DevTools | none set — R2 "Flags" gives it a Settings control or hard-codes it to its default (B10); its re-broadcast button is on the Network page, which R2 parks (2026-11-30 proposed) | none on record |
+| `followListPublishing` | publishing who you follow (kind 3) | Settings | none set (the Network page is parked by R2, 2026-11-30 proposed) — its one publish button is on that page | none on record |
 | `localTranscription` | Transcribe through the local companion service | Settings | 2026-09-15 (TRANSCRIBE_ANYWHERE_KICKOFF §5) — **passed, no outcome recorded** | ledger and JOURNAL 2026-08-23: a members-only Substack post transcribed through the companion (Deepgram) |
 | `directCloudTranscription` | Transcribe with nothing installed (AssemblyAI / Deepgram fetch the media URL) | Settings | 2026-10-01, or the release tag after DC.1 if sooner (DIRECT_CLOUD_TRANSCRIBE_KICKOFF §5) | walks only: ledger 2026-08-15/16 (real episodes, including a Deepgram direct run in the DC.3 walk). Casework — §5's "one transcript feeds a claim or entity page" — was deferred by the maintainer to real corpus-building and is not yet on record |
 | `transcriptClaimDrafts` | LM Studio claim drafts over a finished transcript (local, free) | Settings | none set | JOURNAL 2026-08-01 (item 7: the maintainer's same-day correction after a reopened capture hid the drafts button); nothing later |
@@ -117,12 +123,20 @@ stay visible with the same date.
 (ROAD_TO_1_0 kill table): done K1 (builders; the empty stores stay),
 K2, K6, K7, K10, K11 · parked K3 · half done K5, K8, K15 · blocked
 K4, K9, K13, K14 · not started K12. R2 executes K4, K8, K9, K14, K15;
-K12 and K13 ride R6. Two old branches were archived, not parked: the
-2026-09-25 hygiene `--apply` (Actions run 36171004273) tagged
+K12 and K13 ride R6.
+
+**The branch hygiene run is done** (RESET_PLAN §9.1, runbook step 6).
+On 2026-09-25 the maintainer dispatched `branch hygiene` with
+`apply=true` from #393's branch, with `keep` = `feat/margin-s1`
+(Actions run 36171004273; its log reads "Actions (70): 2 tag, 68
+delete, 0 issue", then "APPLY — 70 ok"). It deleted 68 branches: 66
+merged ones, and two old branches it first archived, not parked —
 `feature/phase-9b-metadata-ui` as
 `archive/feature-phase-9b-metadata-ui-20260529` (RESET_PLAN §9) and
 `claude/kind-hypatia-fu8nqm` (#373's squash-merged branch) as
-`archive/claude-kind-hypatia-fu8nqm-20260905`, then deleted both.
+`archive/claude-kind-hypatia-fu8nqm-20260905`. `feat/margin-s1` was
+kept. `git ls-remote origin` on 2026-09-25 shows both archive tags and
+`feat/margin-s1`, and none of the deleted branches.
 
 ## 4. The open-PR cap
 

@@ -1216,7 +1216,7 @@ wrong, but the reason it must hold is now mechanical.
 | #364 | mark ready, merge (docs only) | `docs/GOVERNANCE_UX_REVIEW.md` +307 and a JOURNAL entry; draft | green / 3034 pass / green / n/a | **unchanged** |
 | #365 | fold (a 453-line skill mirroring the corpus) | 453 lines exact; also edits `architect/SKILL.md`, the skills README, `CLAUDE.md`, and the GENERATED `discipline-standards.html` (the drift guard stayed green on the net) | green / 3034 pass / green / n/a | **unchanged** |
 | #374 | mark ready, rebase and merge after #369; fold into R3 lane B | draft; +1,580; `shared/llm-jobs.js` 534 exact; vs #369 the `background/index.js` hunks do not overlap (`merge-tree` of the two heads conflicts only in the JOURNAL); vs #377 it conflicts in JOURNAL + THREAT_MODEL, both docs, both union-resolvable; also touches `feature-flags.js` and `backup.js` (the `store` lane) | green / 2 red = ceiling (background 1906 > 1875) + registry (four new `xray:llm:job:*` messages and the `xray:llm-job:` storage prefix are unregistered) / smoke green | **unchanged**, plus: when rebased onto the net, register the five literals in `tests/structure-guards.test.mjs` (handlers + non-message prefix) — the registry did exactly its job here; the money row stands |
-| #324 | rebase and merge after the browser smoke; confirm legacy random-keyed entities still load and sign once fixtures exist | +390/−57, 31 files, behind 172; conflict is the JOURNAL only (union-resolves cleanly); sidepanel 2245 → 2253 | green / 1 red = ceiling (sidepanel 2253 > 2245) / smoke green — and the backup golden fixture, whose `local_keys` are legacy-shaped (no `derived_from`), restores and merges under #324 unchanged: the LOAD half of the fixture check passes | **unchanged**; the SIGN half of the legacy-entity check stays the one human row (create an entity under Local and under NIP-07 with no local primary; expect the named refusal) *2026-09-25:* this cell ran two checks together — the legacy-entity SIGN check and the Option C REFUSAL row. Both were run by an agent on 2026-09-24 and #324 merged as `4924ea5`; see the update below |
+| #324 | rebase and merge after the browser smoke; confirm legacy random-keyed entities still load and sign once fixtures exist | +390/−57, 31 files, behind 172; conflict is the JOURNAL only (union-resolves cleanly); sidepanel 2245 → 2253 | green / 1 red = ceiling (sidepanel 2253 > 2245) / smoke green — and the backup golden fixture, whose `local_keys` are legacy-shaped (no `derived_from`), restores and merges under #324 unchanged: the LOAD half of the fixture check passes | **unchanged**; the SIGN half of the legacy-entity check stays the one human row (create an entity under Local and under NIP-07 with no local primary; expect the named refusal). *2026-09-25:* this cell ran two checks together — the legacy-entity SIGN check and the Option C REFUSAL row. Both were run by an agent on 2026-09-24 and #324 merged as `4924ea5`; see the update below |
 | #370 | park; or merge with a four-row walk | 22 commits, +1,872, 15 files; `reader/index.js` +474 of wiring although `annotated-view.js` exists | green / 2 red = ceiling (reader 8741 > 8297) + console ratchet (reader 110 bare calls > 103) / smoke green | **unchanged (park)**; if merged instead, the price is now stated by the guard: the +444 in `index.js` moves into `annotated-view.js` and the seven bare `console.*` calls route through `Utils.log` |
 | #377 | this plan, corrected before merge | carries the R0 net (four slices landed) | — | **merge last**: rebase after the small PRs, union the JOURNAL, regenerate the lock (after #376), re-pin the ceilings and registry at the post-merge state, re-run everything |
 
@@ -1297,9 +1297,9 @@ the record of that day.*
 | #379 | `d139ba5` (2026-09-21) | the R0 net (`toolchain/r0-net`, runbook step 8). It merged BEFORE #374 and #324, so neither was grandfathered: #374 moved its runner into `src/background/llm-jobs.js` and registered its five literals, #324 moved three helpers into `src/sidepanel/format.js`, and no ceiling was raised |
 | #377 | `c848983` | this plan (runbook step 5) |
 | #388 | `a731f1f` | Dependabot: `lightning` in the companion's `uv.lock` |
-| #387 | `891814d` (2026-09-24) | the runtime `pdfjs-dist` 6.2.108 → 6.3.289 bump, recut by the split Dependabot groups. It replaces #376, closed unmerged 2026-09-22 (its dev half landed as #386, `6ea8a13`). The PDF row was run by an agent, PR build against `main` — SMOKE_TEST ledger 2026-09-24 |
+| #387 | `891814d` (2026-09-24) | the runtime `pdfjs-dist` 6.2.108 → 6.3.289 bump, recut by the split Dependabot groups. It replaces #376, closed unmerged 2026-09-21 (its dev half landed as #386, `6ea8a13`). The PDF row was run by an agent, PR build against `main` — SMOKE_TEST ledger 2026-09-24 |
 | #389 | `ebb56dd` | the backup fixture's legacy entity given its real shape; `I14` pins that a legacy random-keyed entity loads and signs |
-| #324 | `4924ea5` (2026-09-24) | Option C. The row above ran two checks together; both ran on 2026-09-24, by an agent: the REFUSAL headless on the reader tagger's door, and the legacy-entity SIGN check in node over the real modules (ledger row). Not on the record: the other doors of the kickoff §6 walk and an entity-tagged publish under a real NIP-07 signer |
+| #324 | `4924ea5` (2026-09-24) | Option C. The row above ran two checks together; both ran on 2026-09-24, by an agent: the REFUSAL headless on the reader tagger's door, and the legacy-entity SIGN check in node over the real modules (ledger row). That is the creation half of the walk NIP07_IDENTITY_KICKOFF §6 owes, at one door. Not on the record: §6's "one entity-tagged publish under NIP-07", and the other creation doors §6 names — "the claim modal's picker", "the sidepanel import", `createCase`, and "the LLM review's accept-all" |
 | #374 | `90338bf` (2026-09-24) | the long LLM passes as jobs. Rows 20.m/20.n walked by an agent against a stubbed model the same day (ledger). The money row stands: a real paid reduce with no debugger attached is still unobserved |
 | #391 | `0e7237f` | PDF link annotations, found during the #387 walk; the maintainer's soak walk passed (ledger 2026-09-24) |
 | #392 | `a65d4ef` (2026-09-25) | `local_keys` writes become locked merges into fresh storage; the agent's multi-tab browser checks are on the ledger (2026-09-24) |
@@ -1313,15 +1313,20 @@ the maintainer's #383/#384 (example case briefs).
 (#376 was replaced by #387). Step 5 is done, not last: #377 merged just
 after #379 on 2026-09-21, three days before #374 and #324 (see the #379
 row). #368's stray file was removed on 2026-09-25 on the maintainer's
-go; it now waits on its Instagram row. Step 6 ran on 2026-09-25
-(Actions run 36171004273, dispatched by the maintainer from #393's
-branch with `keep` = `feat/margin-s1`): 66 merged branches deleted; two
-stale branches tagged `archive/feature-phase-9b-metadata-ui-20260529`
-and `archive/claude-kind-hypatia-fu8nqm-20260905`, then deleted (68
-deletes in all, "APPLY — 70 ok"); `feat/margin-s1` kept. Still open:
-step 1 (the repo settings — not checkable read-only from here), step 7
-(fold #365), and #368 in step 2. Open non-Dependabot PRs: #365, #368,
-#393 and #394, four against the cap of four (`docs/STATUS.md`).
+go; it now waits on its Instagram row. **Step 6 is done:** it ran on
+2026-09-25 (Actions run 36171004273, dispatched by the maintainer from
+#393's branch with `keep` = `feat/margin-s1`) and deleted 68 branches —
+66 merged ones (the 65 listed above plus
+`bryanmatthewsimonson-patch-1-1`) and two stale ones, tagged first as
+`archive/feature-phase-9b-metadata-ui-20260529` and
+`archive/claude-kind-hypatia-fu8nqm-20260905` (the log reads "Actions
+(70): 2 tag, 68 delete, 0 issue", then "APPLY — 70 ok").
+`feat/margin-s1` was kept. `git ls-remote origin` on 2026-09-25 shows
+both archive tags and `feat/margin-s1`, and none of the deleted
+branches. Still open: step 1 (the repo settings — not checkable
+read-only from here), step 7 (fold #365), and #368 in step 2. Open
+non-Dependabot PRs: #365, #368, #393 and #394, four against the cap of
+four (`docs/STATUS.md`).
 
 
 ---
