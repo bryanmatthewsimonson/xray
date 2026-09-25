@@ -60,6 +60,7 @@ export function isInstagramPostPage() {
  *   /p/<shortcode>/                  — image / carousel post
  *   /reel/<shortcode>/                — reel
  *   /tv/<shortcode>/                  — IGTV (legacy, mostly redirects)
+ *   /reels/<shortcode>/               — reel, in the Reels viewer (2026-09-25)
  *   /<username>/p/<shortcode>/        — user-prefixed post
  *   /<username>/reel/<shortcode>/     — user-prefixed reel
  *
@@ -75,6 +76,7 @@ export function shortcodeFromUrl(url = window.location.href) {
             /^\/p\/([A-Za-z0-9_-]+)/,
             /^\/reel\/([A-Za-z0-9_-]+)/,
             /^\/tv\/([A-Za-z0-9_-]+)/,
+            /^\/reels\/([A-Za-z0-9_-]+)\/?$/,   // end-anchored: not /reels/audio/<id>/
             /^\/[^/]+\/p\/([A-Za-z0-9_-]+)/,
             /^\/[^/]+\/reel\/([A-Za-z0-9_-]+)/
         ];
@@ -90,9 +92,9 @@ function shortcodeFromLocation() {
     return shortcodeFromUrl(window.location.href);
 }
 
-function postKindFromLocation() {
-    const path = window.location.pathname;
-    if (/\/reel\//.test(path)) return 'reel';
+/** Pure — the post kind a path names; /reels/<code>/ is a reel. */
+export function postKindFromPath(path = window.location.pathname) {
+    if (/\/reels?\//.test(path)) return 'reel';
     if (/\/tv\//.test(path))   return 'igtv';
     return 'post';
 }
@@ -236,12 +238,16 @@ function scrapeVerifiedFlag(doc = document) {
  * raw user object embedded on the post item — the caller can hand
  * it to normalizeUserShape() when the author couldn't be resolved
  * from og-meta or the URL.
+ *
+ * With `shortcode`, only the item naming that shortcode answers: a
+ * Reels-viewer clips feed batches several reels, ours need not be
+ * first, and another reel's item is never a fallback (2026-09-25).
  */
-export function extractMediaFromGraphQL(parsed) {
+export function extractMediaFromGraphQL(parsed, shortcode = null) {
     if (!parsed || typeof parsed !== 'object') return null;
 
     // Try the known nesting paths in order of recency.
-    const item = findPostItem(parsed);
+    const item = findPostItem(parsed, shortcode);
     if (!item) return null;
 
     const media = [];
@@ -274,49 +280,62 @@ export function extractMediaFromGraphQL(parsed) {
  *     SSR `data-sjs` blocks where the payload is wrapped in
  *     `__bbox.complete.result.data...` and similar nesting.
  */
-function findPostItem(parsed) {
+function findPostItem(parsed, want) {
     const data = parsed.data || parsed;
     if (data && typeof data === 'object') {
         // Current GraphQL shape (web_info wrapper).
         const wi = data.xdt_api__v1__media__shortcode__web_info;
-        if (wi && Array.isArray(wi.items) && wi.items[0]) return wi.items[0];
+        if (wi && Array.isArray(wi.items) && answersFor(wi.items[0], want)) return wi.items[0];
 
         // Legacy GraphQL shape — `shortcode_media` is the post node.
-        if (data.shortcode_media && typeof data.shortcode_media === 'object') {
+        if (answersFor(data.shortcode_media, want)) {
             return normalizeLegacyShape(data.shortcode_media);
         }
     }
     // REST /api/v1/media/ shape: top-level `items` array.
-    if (Array.isArray(parsed.items) && parsed.items[0]) return parsed.items[0];
+    if (Array.isArray(parsed.items) && answersFor(parsed.items[0], want)) return parsed.items[0];
 
-    // Recursive fallback for anything else.
-    return findItemRecursively(parsed, 0);
+    // Recursive walk for anything else, and for a batch whose first
+    // item is another post.
+    return findItemRecursively(parsed, 0, want);
+}
+
+/**
+ * May this item answer for shortcode `want`? Always when nothing is
+ * wanted; otherwise unless it names ANOTHER shortcode (a code-less
+ * item was accepted before batches were searched, and still is).
+ */
+function answersFor(item, want) {
+    if (!item || typeof item !== 'object') return false;
+    const code = item.code || item.shortcode || null;
+    return !want || !code || code === want;
 }
 
 /**
  * Walk an arbitrary object tree looking for the first node that
  * looks like a post item — has `code` + at least one media-bearing
- * field. Bounded recursion depth + visited-set protect against
- * cycles or pathological nesting.
+ * field — and, with `want`, names that shortcode. Another post's item
+ * is passed over, subtree and all (what it holds is that post's).
+ * Bounded recursion depth protects against pathological nesting.
  */
-function findItemRecursively(obj, depth) {
+function findItemRecursively(obj, depth, want) {
     if (!obj || typeof obj !== 'object' || depth > 12) return null;
     // Quick check: this object IS a post item.
-    if (looksLikePostItem(obj)) return obj;
+    if (looksLikePostItem(obj)) return answersFor(obj, want) ? obj : null;
     // Quick check: legacy `shortcode_media` is at this level.
-    if (obj.shortcode_media && typeof obj.shortcode_media === 'object') {
+    if (answersFor(obj.shortcode_media, want)) {
         return normalizeLegacyShape(obj.shortcode_media);
     }
     // Walk all enumerable values.
     if (Array.isArray(obj)) {
         for (const v of obj) {
-            const found = findItemRecursively(v, depth + 1);
+            const found = findItemRecursively(v, depth + 1, want);
             if (found) return found;
         }
         return null;
     }
     for (const k of Object.keys(obj)) {
-        const found = findItemRecursively(obj[k], depth + 1);
+        const found = findItemRecursively(obj[k], depth + 1, want);
         if (found) return found;
     }
     return null;
@@ -419,7 +438,7 @@ function extractFromSsrScripts(currentShortcode) {
         let parsed;
         try { parsed = JSON.parse(body); }
         catch (_) { continue; }
-        const out = extractMediaFromGraphQL(parsed);
+        const out = extractMediaFromGraphQL(parsed, currentShortcode);
         if (!out) continue;
         if (currentShortcode && out.shortcode &&
             out.shortcode !== currentShortcode) continue;
@@ -549,7 +568,7 @@ function extractFromBuffer(currentShortcode) {
     for (let i = events.length - 1; i >= 0; i--) {
         const ev = events[i];
         const parsed = tryParseJson(ev.body);
-        const out = extractMediaFromGraphQL(parsed);
+        const out = extractMediaFromGraphQL(parsed, currentShortcode);
         if (!out) {
             // Log a short prefix of the body so we can recognize
             // unfamiliar response shapes when debugging real-world
@@ -793,8 +812,13 @@ export async function synthesizeArticle() {
     if (!isInstagramPostPage()) return null;
 
     const shortcode = shortcodeFromLocation();
-    const postKind  = postKindFromLocation();   // 'post' | 'reel' | 'igtv'
-    const meta      = extractMetaFields();
+    const postKind  = postKindFromPath();       // 'post' | 'reel' | 'igtv'
+    // A head whose og:url names another page was rendered for THAT page
+    // and never updated across an in-app navigation: every og field
+    // (author, caption, image, video, counts) describes it, not this
+    // capture. Withhold the whole head — absent beats wrong.
+    const head      = extractMetaFields();
+    const meta      = headMatchesLocation(head.url, shortcode) ? head : { engagement: {} };
     const desc      = parseOgDescription(meta.description);
 
     // Pull media + author off any buffered GraphQL/REST response or
@@ -840,7 +864,7 @@ export async function synthesizeArticle() {
     const handle  = (profile && profile.username) || desc_handle;
     const verified = (profile && profile.verified) || verified_dom;
 
-    const canonicalUrl = meta.url || canonicalUrlFor(postKind, shortcode, handle);
+    const canonicalUrl = canonicalPostUrl({ metaUrl: meta.url, postKind, shortcode });
     const titleLine = composeTitle(author, handle, caption, postKind);
 
     // Content media — Instagram CDN images visible inside the post
@@ -880,6 +904,7 @@ export async function synthesizeArticle() {
     // could seed the handle fallback chain.
     console.log('[X-Ray Instagram] capture diagnostic:', {
         shortcode,
+        staleHead: meta !== head,     // og:url named another page — head withheld
         evidenceTarget: evidenceTarget ? evidenceTarget.tagName : null,
         scrapedImageCount: scrapedImages.length,
         graphqlMatched: !!fromApi,
@@ -983,8 +1008,12 @@ export async function synthesizeArticle() {
                 category:      (profile && profile.category) || null,
                 profileUrl:    handle ? `https://www.instagram.com/${handle}/` : null,
                 // Provenance — was this enriched from a buffered
-                // profile response, or only from og-meta?
-                source:        profile ? 'graphql-profile' : 'og-meta'
+                // profile response, or only from og-meta? A withheld
+                // head is not og-meta: then the handle, if any, is the
+                // address's ('url', as facebook.js labels it).
+                source:        profile ? 'graphql-profile'
+                             : meta === head ? 'og-meta'
+                             : handle ? 'url' : 'none'
             },
             mediaUrl:  meta.video || meta.image || null,
             mediaType: meta.video ? 'video' : 'image',
@@ -1042,9 +1071,63 @@ function extractHandleFromMeta(meta) {
     return null;
 }
 
-function canonicalUrlFor(postKind, shortcode, handle) {
+function canonicalUrlFor(postKind, shortcode) {
     const path = postKind === 'reel' ? 'reel' : (postKind === 'igtv' ? 'tv' : 'p');
     return `https://www.instagram.com/${path}/${shortcode}/`;
+}
+
+/**
+ * The address this capture IS — field-found 2026-08-28.
+ *
+ * A reel by @thecougchron captured while the head's `og:url` named
+ * `https://www.instagram.com/latterdailysaints/reels/` was filed under
+ * that OTHER account's listing page: the reader showed one account's
+ * content at another account's address, and publishing it would have
+ * written that pairing into the `d` and `r` tags of a signed, public,
+ * machine-queryable kind-30023 (event-builder.js:178,181).
+ *
+ * The cause was precedence: `meta.url || canonicalUrlFor(...)` trusted
+ * a page-controlled meta tag over the URL X-Ray derives itself. og:url
+ * is not validated for host, scheme, or agreement with the shortcode
+ * the handler just resolved from `window.location` — so a stale head on
+ * an SPA navigation (the field case) or a hostile page (the general
+ * case) chooses the identity of the published event.
+ *
+ * Construct FIRST, which is the order the sibling Facebook handler has
+ * always used (facebook.js:970). The constructed value is derived from
+ * the path the user actually navigated to and is self-consistent by
+ * derivation, so it cannot disagree with the content. og:url survives
+ * ONLY as a fallback for the shortcode-less case — unreachable from
+ * synthesizeArticle, which early-returns unless isInstagramPostPage()
+ * found one — and even then only if it is a real instagram.com https
+ * URL, never a foreign host.
+ *
+ * Pure — exported so the precedence is unit-pinned rather than walked.
+ *
+ * @param {{metaUrl: string, postKind: string, shortcode: ?string}} args
+ * @returns {?string}
+ */
+export function canonicalPostUrl({ metaUrl, postKind, shortcode }) {
+    if (shortcode) return canonicalUrlFor(postKind, shortcode);
+    if (!metaUrl) return null;
+    try {
+        const u = new URL(metaUrl);
+        if (u.protocol !== 'https:') return null;
+        if (u.hostname !== 'instagram.com' && u.hostname !== 'www.instagram.com') return null;
+        return metaUrl;
+    } catch (_) {
+        return null;
+    }
+}
+
+/**
+ * Does the page head speak for the post at window.location? True when
+ * there is no og:url to contradict it, or when og:url names the same
+ * shortcode; false for a profile grid, another post, or a foreign host.
+ * Pure — exported so the stale-head rule is unit-pinned (2026-09-25).
+ */
+export function headMatchesLocation(metaUrl, shortcode) {
+    return !metaUrl || shortcodeFromUrl(metaUrl) === shortcode;
 }
 
 function composeTitle(author, handle, caption, postKind) {

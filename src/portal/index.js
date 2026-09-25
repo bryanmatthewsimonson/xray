@@ -12,7 +12,7 @@
 // multiplying and makes escaping a non-issue).
 
 import { Storage } from '../shared/storage.js';
-import { markReady } from '../shared/smoke-anchors.js';
+import { markReady, SMOKE_ANCHORS } from '../shared/smoke-anchors.js';
 import { Utils } from '../shared/utils.js';
 import { dedupeReplaceable } from '../shared/nostr-events.js';
 import { resolveIdentities, addManualIdentity, removeManualIdentity } from './identity.js';
@@ -192,10 +192,10 @@ function renderTabs() {
     const counts = typeCounts(counted);
 
     const tabButton = (def) => {
-        const count = counts[def.key] || 0;
         const btn = el('button', 'xr-tab', `${def.label} `);
         btn.type = 'button';
-        btn.appendChild(el('span', 'xr-tab__count', String(count)));
+        if (def.key === 'case') btn.dataset.xr = SMOKE_ANCHORS.casesTab;
+        btn.appendChild(el('span', 'xr-tab__count', String(counts[def.key] || 0)));
         btn.classList.toggle('xr-tab--active', state.filters.type === def.key);
         btn.addEventListener('click', () => {
             state.filters.type = def.key;
@@ -401,9 +401,9 @@ function buildRow(item) {
         }
     }
     if ((item.typeKey === 'entity' || item.typeKey === 'case') && item.event.pubkey) {
-        const btn = el('button', 'xr-badge xr-badge--action',
-            item.typeKey === 'case' ? '☰ Dashboard' : '✳ Spokes');
+        const btn = el('button', 'xr-badge xr-badge--action', item.typeKey === 'case' ? '☰ Dashboard' : '✳ Spokes');
         btn.type = 'button';
+        if (item.typeKey === 'case') btn.dataset.xr = SMOKE_ANCHORS.caseDashboard;
         btn.title = item.typeKey === 'case'
             ? 'Open this case\'s published-items dashboard'
             : 'Open this entity\'s spokes graph';
