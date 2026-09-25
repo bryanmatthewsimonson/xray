@@ -181,7 +181,8 @@ async function finish() {
     process.exit(findings.length ? 1 : 0);
 }
 
-await page.goto(PORTAL, { waitUntil: 'domcontentloaded' });
+await waitFor('first goto', `the portal page ${PORTAL} never loaded`,
+    () => page.goto(PORTAL, { waitUntil: 'domcontentloaded', timeout: BOUND.ready }));
 await portalReady('the first load');
 await harness();
 
@@ -314,7 +315,8 @@ const N = seed.hashes.length;   // one extraction record, one member section, on
 
 // -------------------------------------------------------------- render
 note('\n[2] rendering the case dashboard');
-await page.goto(PORTAL, { waitUntil: 'domcontentloaded' });
+await waitFor('reload goto', `the portal page ${PORTAL} never reloaded`,
+    () => page.goto(PORTAL, { waitUntil: 'domcontentloaded', timeout: BOUND.ready }));
 // The ready stamp follows the portal's first boot, which awaits the
 // reconciliation read AFTER launching the library's background
 // enrichments — each of which re-renders the current view when it lands.
@@ -461,9 +463,13 @@ if (!(await acceptBtn.count())) {
     fail(`no Accept button ${SEL.accept} in the open queue`);
     await finish();
 }
-const prefill = await page.locator('input.xr-extr__text').first().inputValue().catch(() => null);
+// Diagnostic only: the claim-text box is the Accept button's sibling in its row.
+const prefill = await acceptBtn.evaluate((b) => {
+    const box = b.parentElement && b.parentElement.querySelector('input[type="text"]');
+    return box ? box.value : null;
+}, null, { timeout: BOUND.ui });
 note('  claim-text box prefilled with: ' + JSON.stringify(String(prefill).slice(0, 70)));
-const acceptHandle = await acceptBtn.elementHandle();
+const acceptHandle = await acceptBtn.elementHandle({ timeout: BOUND.ui });
 await click('accept click', `the first Accept button ${SEL.accept}`, acceptHandle);
 await waitFor('claim minted', `Accept never minted a claim through ClaimModel (expected ${beforeClaims} → ${beforeClaims + 1})`,
     () => untilStored(async () => { const n = await claimCount(); return { ok: n === beforeClaims + 1, value: n }; }, BOUND.store));
@@ -560,7 +566,9 @@ else {
     // button until the attempt ends, so "enabled again with a status that
     // changed" is the outcome landing — whichever outcome it is.
     const status = page.locator(SEL.publishStatus).first();
-    const before = (await status.textContent() || '').trim();
+    await waitFor('publish status', `the per-article publish row has no status line ${SEL.publishStatus}`,
+        () => status.waitFor({ state: 'attached', timeout: BOUND.ui }));
+    const before = (await status.textContent({ timeout: BOUND.ui }) || '').trim();
     await click('publish click', `the per-article publish button ${SEL.publish}`, pub);
     await waitFor('publish outcome', `the per-article publish never reported an outcome on its status line ${SEL.publishStatus}`,
         () => page.waitForFunction(({ publish, publishStatus, prev }) => {
@@ -568,7 +576,7 @@ else {
             const s = document.querySelector(publishStatus);
             return !!b && !!s && !b.disabled && s.textContent.trim() !== prev;
         }, { publish: SEL.publish, publishStatus: SEL.publishStatus, prev: before }, { timeout: BOUND.publish }));
-    const text = (await status.textContent() || '').trim();
+    const text = (await status.textContent({ timeout: BOUND.ui }) || '').trim();
     note('  status text: ' + JSON.stringify(text));
     if (/No local identity/i.test(text)) {
         fail('the publish path stopped at the identity check — the transport was never exercised');

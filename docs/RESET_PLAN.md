@@ -495,8 +495,8 @@ looking where the bugs are.
       Every control it drives is found by a `SMOKE_ANCHORS` anchor
       (nine new ones), with copy only asserted. Verified by 10/10 green
       full `npm run smoke` runs (`ma6` 2.9–4.1 s, down from about 15 s),
-      8/8 more after rebasing onto #390, and 3/3 under CPU contention,
-      plus five negative controls and a
+      8/8 more after rebasing onto #390, 3/3 under CPU contention and
+      8/8 after the review fix, plus six negative controls and a
       slow-Accept positive control. The box stays open: the flip is
       the maintainer's, on 2026-10-05.*
 - [ ] **ESLint minimal** (`no-undef`, `no-unused-vars`, a `console`
