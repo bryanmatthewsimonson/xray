@@ -171,7 +171,7 @@ test('headMatchesLocation: the head speaks for this capture only when its og:url
 // SEAM — synthesizeArticle itself, under a stubbed location + head. The
 // helpers above can be right while the handler ignores them; these drive
 // the function the content script actually calls.
-function at(url, metaTags) {
+function at(url, metaTags, ssrScripts = []) {
     const u = new URL(url);
     globalThis.window.location = { href: u.href, hostname: u.hostname, pathname: u.pathname };
     globalThis.document = {
@@ -180,11 +180,13 @@ function at(url, metaTags) {
             if (!m || !(m[2] in metaTags)) return null;
             return { getAttribute: () => metaTags[m[2]] };
         },
-        querySelectorAll: () => []
+        querySelectorAll: (sel) => sel === 'script[type="application/json"]'
+            ? ssrScripts.map((textContent) => ({ textContent }))
+            : []
     };
 }
-async function capture(url, metaTags) {
-    at(url, metaTags);
+async function capture(url, metaTags, ssrScripts) {
+    at(url, metaTags, ssrScripts);
     const log = console.log, warn = console.warn;
     console.log = console.warn = () => {};
     try { return await ig.synthesizeArticle(); }
@@ -266,4 +268,133 @@ test('SEAM: with NO og:url the head is used exactly as before', async () => {
     assert.equal(a.instagram.author.nickname, 'Jeff Dye');
     assert.equal(a.instagram.author.handle, 'jeffdye');
     assert.equal(a.featuredImage, JEFF_REEL_HEAD['og:image']);
+});
+
+// ------------------------------------------------------------------
+// The batch — found by the verifiers of the Reels-viewer fix, 2026-09-25.
+//
+// Scrolling the Reels viewer, Instagram answers with a clips-FEED
+// response carrying SEVERAL reels. The GraphQL/SSR walk returned only the
+// FIRST post-like item, and the buffer/SSR scan then skipped the whole
+// response because that item's code was another reel's. With the stale
+// head withheld, the author went blank for every reel not first in its
+// batch: the maintainer's path. The walk now looks for the location's
+// shortcode among EVERY item, and never answers with another reel's.
+// ------------------------------------------------------------------
+
+const TARGET = 'DcwbjmXy0B5';
+const reelItem = (code, username, fullName) => ({
+    code,
+    video_versions: [{ url: `https://scontent.cdninstagram.com/v/${code}.mp4`, width: 720, height: 1280 }],
+    image_versions2: { candidates: [{ url: `https://scontent.cdninstagram.com/v/${code}.jpg`, width: 720, height: 1280 }] },
+    user: { pk: `pk-${username}`, username, full_name: fullName }
+});
+const ALICE = reelItem('FirstReel01', 'alicereels', 'Alice Reels');
+const BOB   = reelItem('SecondReel2', 'bobclips', 'Bob Clips');
+const JEFF  = reelItem(TARGET, 'jeffdye', 'Jeff Dye');
+// Instagram's Reels-viewer feed shape (edges[].node.media).
+const clipsFeed = (...items) => ({ data: { xdt_api__v1__clips__home__connection_v2: {
+    edges: items.map((media) => ({ node: { media } }))
+} } });
+
+test('BATCH: the item naming the location shortcode is found wherever it sits — second, third, in every known shape', () => {
+    const shapes = {
+        'clips feed':       (...its) => clipsFeed(...its),
+        'web_info items':   (...its) => ({ data: { xdt_api__v1__media__shortcode__web_info: { items: its } } }),
+        'REST items':       (...its) => ({ items: its }),
+        'SSR envelope':     (...its) => ({ require: [['ScheduledServerJS', 'handle', null, [{ __bbox: { result: clipsFeed(...its) } }]]] })
+    };
+    for (const [name, wrap] of Object.entries(shapes)) {
+        for (const batch of [[ALICE, JEFF], [ALICE, BOB, JEFF]]) {
+            const out = ig.extractMediaFromGraphQL(wrap(...batch), TARGET);
+            assert.ok(out, `${name}, target at #${batch.length}: no item found`);
+            assert.equal(out.shortcode, TARGET, `${name}, target at #${batch.length}`);
+            assert.equal(out.user.username, 'jeffdye', `${name}: the user must be the target reel's`);
+            assert.equal(out.media[0].url, `https://scontent.cdninstagram.com/v/${TARGET}.mp4`);
+        }
+    }
+});
+
+test('BATCH: a batch WITHOUT the target answers nothing — never another reel as a fallback', () => {
+    for (const parsed of [
+        clipsFeed(ALICE, BOB),
+        { data: { xdt_api__v1__media__shortcode__web_info: { items: [ALICE, BOB] } } },
+        { items: [ALICE, BOB] },
+        { data: { shortcode_media: { shortcode: 'OtherLegacy', display_resources: [{ src: 'https://cdn/x.jpg', config_width: 1, config_height: 1 }] } } }
+    ]) {
+        assert.equal(ig.extractMediaFromGraphQL(parsed, TARGET), null, JSON.stringify(parsed).slice(0, 80));
+    }
+    // With no shortcode to match, the first item still answers (unchanged).
+    assert.equal(ig.extractMediaFromGraphQL(clipsFeed(ALICE, JEFF)).shortcode, 'FirstReel01');
+});
+
+// SEAM — the buffered response reaches synthesizeArticle the way the
+// content script receives it: the MAIN-world interceptor's postMessage.
+const buffer = await import('../src/shared/api-hook-buffer.js');
+let deliver = null;
+globalThis.window.addEventListener = (type, fn) => { if (type === 'message') deliver = fn; };
+globalThis.window.removeEventListener = () => { deliver = null; };
+function buffered(...responses) {
+    buffer._resetForTests();
+    buffer.installBufferListener();
+    const log = console.log;
+    console.log = () => {};
+    try {
+        for (const body of responses) {
+            deliver({ source: globalThis.window, data: { type: 'xr:apihook:event', url: 'https://www.instagram.com/graphql/query', body: JSON.stringify(body) } });
+        }
+    } finally { console.log = log; }
+}
+
+test('SEAM BATCH: Reels viewer, stale grid head, clips feed with the target SECOND or THIRD → the target reel’s author', async () => {
+    for (const batch of [[ALICE, JEFF], [ALICE, BOB, JEFF]]) {
+        buffered(clipsFeed(...batch));
+        try {
+            const a = await capture(REELS_VIEWER, STALE_GRID_HEAD);
+            assert.equal(a.url, 'https://www.instagram.com/reel/DcwbjmXy0B5/');
+            assert.equal(a.byline, 'Jeff Dye (@jeffdye)', `target at #${batch.length}`);
+            assert.equal(a.instagram.author.handle, 'jeffdye');
+            assert.equal(a.instagram.extractedFrom, 'graphql');
+            assert.deepEqual(a.instagram.images, [`https://scontent.cdninstagram.com/v/${TARGET}.mp4`]);
+            assertNothingFrom(a, ['alicereels', 'Alice Reels', 'bobclips', 'Bob Clips', 'FirstReel01', 'latterdailysaints'],
+                `batch of ${batch.length}`);
+        } finally { buffer._resetForTests(); }
+    }
+});
+
+test('SEAM BATCH: a clips feed WITHOUT the target never lends another reel’s user', async () => {
+    buffered(clipsFeed(ALICE, BOB));
+    try {
+        const a = await capture(REELS_VIEWER, STALE_GRID_HEAD);
+        assert.equal(a.instagram.author.handle, null, 'an absent author is honest; another reel’s is the bug');
+        assert.equal(a.byline, '');
+        assert.equal(a.instagram.extractedFrom, 'none');
+        assertNothingFrom(a, ['alicereels', 'Alice Reels', 'bobclips', 'Bob Clips', 'FirstReel01', 'SecondReel2'], 'batch without target');
+    } finally { buffer._resetForTests(); }
+});
+
+test('SEAM BATCH: an SSR script whose batch carries the target second is matched too', async () => {
+    const a = await capture(REELS_VIEWER, STALE_GRID_HEAD, [JSON.stringify(clipsFeed(ALICE, JEFF))]);
+    assert.equal(a.byline, 'Jeff Dye (@jeffdye)');
+    assert.equal(a.instagram.extractedFrom, 'ssr-script');
+});
+
+// The author chip (reader: "author: <source>") must not claim a source
+// that contributed nothing. A withheld head is not 'og-meta'.
+test('CHIP: author.source names where the author actually came from', async () => {
+    const withheld = await capture(REELS_VIEWER, STALE_GRID_HEAD);
+    assert.equal(withheld.instagram.author.source, 'none', 'head withheld, nothing else — not og-meta');
+
+    const fromPath = await capture('https://www.instagram.com/jeffdye/reel/DcwbjmXy0B5/', STALE_GRID_HEAD);
+    assert.equal(fromPath.instagram.author.handle, 'jeffdye');
+    assert.equal(fromPath.instagram.author.source, 'url', 'head withheld, handle from the address — the label facebook.js already uses');
+
+    const fresh = await capture(REELS_VIEWER, JEFF_REEL_HEAD);
+    assert.equal(fresh.instagram.author.source, 'og-meta', 'a head that names this reel is still og-meta');
+
+    buffered(clipsFeed(ALICE, JEFF));
+    try {
+        const fromBatch = await capture(REELS_VIEWER, STALE_GRID_HEAD);
+        assert.equal(fromBatch.instagram.author.source, 'graphql-profile', 'the matched item’s user keeps the existing label');
+    } finally { buffer._resetForTests(); }
 });

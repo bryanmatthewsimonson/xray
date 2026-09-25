@@ -238,12 +238,16 @@ function scrapeVerifiedFlag(doc = document) {
  * raw user object embedded on the post item — the caller can hand
  * it to normalizeUserShape() when the author couldn't be resolved
  * from og-meta or the URL.
+ *
+ * With `shortcode`, only the item naming that shortcode answers: a
+ * Reels-viewer clips feed batches several reels, ours need not be
+ * first, and another reel's item is never a fallback (2026-09-25).
  */
-export function extractMediaFromGraphQL(parsed) {
+export function extractMediaFromGraphQL(parsed, shortcode = null) {
     if (!parsed || typeof parsed !== 'object') return null;
 
     // Try the known nesting paths in order of recency.
-    const item = findPostItem(parsed);
+    const item = findPostItem(parsed, shortcode);
     if (!item) return null;
 
     const media = [];
@@ -276,49 +280,62 @@ export function extractMediaFromGraphQL(parsed) {
  *     SSR `data-sjs` blocks where the payload is wrapped in
  *     `__bbox.complete.result.data...` and similar nesting.
  */
-function findPostItem(parsed) {
+function findPostItem(parsed, want) {
     const data = parsed.data || parsed;
     if (data && typeof data === 'object') {
         // Current GraphQL shape (web_info wrapper).
         const wi = data.xdt_api__v1__media__shortcode__web_info;
-        if (wi && Array.isArray(wi.items) && wi.items[0]) return wi.items[0];
+        if (wi && Array.isArray(wi.items) && answersFor(wi.items[0], want)) return wi.items[0];
 
         // Legacy GraphQL shape — `shortcode_media` is the post node.
-        if (data.shortcode_media && typeof data.shortcode_media === 'object') {
+        if (answersFor(data.shortcode_media, want)) {
             return normalizeLegacyShape(data.shortcode_media);
         }
     }
     // REST /api/v1/media/ shape: top-level `items` array.
-    if (Array.isArray(parsed.items) && parsed.items[0]) return parsed.items[0];
+    if (Array.isArray(parsed.items) && answersFor(parsed.items[0], want)) return parsed.items[0];
 
-    // Recursive fallback for anything else.
-    return findItemRecursively(parsed, 0);
+    // Recursive walk for anything else, and for a batch whose first
+    // item is another post.
+    return findItemRecursively(parsed, 0, want);
+}
+
+/**
+ * May this item answer for shortcode `want`? Always when nothing is
+ * wanted; otherwise unless it names ANOTHER shortcode (a code-less
+ * item was accepted before batches were searched, and still is).
+ */
+function answersFor(item, want) {
+    if (!item || typeof item !== 'object') return false;
+    const code = item.code || item.shortcode || null;
+    return !want || !code || code === want;
 }
 
 /**
  * Walk an arbitrary object tree looking for the first node that
  * looks like a post item — has `code` + at least one media-bearing
- * field. Bounded recursion depth + visited-set protect against
- * cycles or pathological nesting.
+ * field — and, with `want`, names that shortcode. Another post's item
+ * is passed over, subtree and all (what it holds is that post's).
+ * Bounded recursion depth protects against pathological nesting.
  */
-function findItemRecursively(obj, depth) {
+function findItemRecursively(obj, depth, want) {
     if (!obj || typeof obj !== 'object' || depth > 12) return null;
     // Quick check: this object IS a post item.
-    if (looksLikePostItem(obj)) return obj;
+    if (looksLikePostItem(obj)) return answersFor(obj, want) ? obj : null;
     // Quick check: legacy `shortcode_media` is at this level.
-    if (obj.shortcode_media && typeof obj.shortcode_media === 'object') {
+    if (answersFor(obj.shortcode_media, want)) {
         return normalizeLegacyShape(obj.shortcode_media);
     }
     // Walk all enumerable values.
     if (Array.isArray(obj)) {
         for (const v of obj) {
-            const found = findItemRecursively(v, depth + 1);
+            const found = findItemRecursively(v, depth + 1, want);
             if (found) return found;
         }
         return null;
     }
     for (const k of Object.keys(obj)) {
-        const found = findItemRecursively(obj[k], depth + 1);
+        const found = findItemRecursively(obj[k], depth + 1, want);
         if (found) return found;
     }
     return null;
@@ -421,7 +438,7 @@ function extractFromSsrScripts(currentShortcode) {
         let parsed;
         try { parsed = JSON.parse(body); }
         catch (_) { continue; }
-        const out = extractMediaFromGraphQL(parsed);
+        const out = extractMediaFromGraphQL(parsed, currentShortcode);
         if (!out) continue;
         if (currentShortcode && out.shortcode &&
             out.shortcode !== currentShortcode) continue;
@@ -551,7 +568,7 @@ function extractFromBuffer(currentShortcode) {
     for (let i = events.length - 1; i >= 0; i--) {
         const ev = events[i];
         const parsed = tryParseJson(ev.body);
-        const out = extractMediaFromGraphQL(parsed);
+        const out = extractMediaFromGraphQL(parsed, currentShortcode);
         if (!out) {
             // Log a short prefix of the body so we can recognize
             // unfamiliar response shapes when debugging real-world
@@ -991,8 +1008,12 @@ export async function synthesizeArticle() {
                 category:      (profile && profile.category) || null,
                 profileUrl:    handle ? `https://www.instagram.com/${handle}/` : null,
                 // Provenance — was this enriched from a buffered
-                // profile response, or only from og-meta?
-                source:        profile ? 'graphql-profile' : 'og-meta'
+                // profile response, or only from og-meta? A withheld
+                // head is not og-meta: then the handle, if any, is the
+                // address's ('url', as facebook.js labels it).
+                source:        profile ? 'graphql-profile'
+                             : meta === head ? 'og-meta'
+                             : handle ? 'url' : 'none'
             },
             mediaUrl:  meta.video || meta.image || null,
             mediaType: meta.video ? 'video' : 'image',
