@@ -257,6 +257,7 @@ async function buildPublisher(withRecords, block) {
         const btn = el('button', 'xr-portal__btn xr-portal__btn--ghost',
             `Publish all ${publishable.length} analyses…`);
         btn.type = 'button';
+        btn.dataset.xr = SMOKE_ANCHORS.extractionPublishAll;
         btn.title = 'Publish the extraction analysis of every article below to your relays (kind 30070)';
         const status = el('span', 'xr-synth__status');
         btn.addEventListener('click', async () => {
@@ -304,6 +305,7 @@ function provChip(a) {
 
 function memberSection({ member, rec }, { caseId, noteAccepted, publisher = null }) {
     const sec = el('details', 'xr-synth__sec');
+    sec.dataset.xr = SMOKE_ANCHORS.extractionMember;
     const parts = partitionAssertions(rec);
     const label = () => {
         const p = partitionAssertions(rec);
@@ -430,6 +432,7 @@ function paintMember(body, { member, rec, caseId, noteAccepted, publisher = null
 
         const acceptBtn = el('button', 'xr-portal__btn', 'Accept as claim');
         acceptBtn.type = 'button';
+        acceptBtn.dataset.xr = SMOKE_ANCHORS.extractionAccept;
         acceptBtn.addEventListener('click', async () => {
             acceptBtn.disabled = true;
             try {
@@ -445,6 +448,7 @@ function paintMember(body, { member, rec, caseId, noteAccepted, publisher = null
         if (!undismiss) {
             const dismissBtn = el('button', 'xr-portal__btn xr-portal__btn--ghost', 'Dismiss');
             dismissBtn.type = 'button';
+            dismissBtn.dataset.xr = SMOKE_ANCHORS.extractionDismiss;
             dismissBtn.addEventListener('click', async () => {
                 try {
                     await persistTriage(a.key, 'dismissed');
@@ -521,6 +525,7 @@ function paintMember(body, { member, rec, caseId, noteAccepted, publisher = null
         // was not. LINK resolves a covered atom to the claim that covers
         // it — triage 'accepted' with that claim's id, no new claim.
         const cov = el('details', 'xr-synth__sec');
+        cov.dataset.xr = SMOKE_ANCHORS.extractionCovered;
         cov.appendChild(el('summary', null,
             `Already covered by existing claims (${openCovered.length})`));
         cov.appendChild(el('p', 'xr-case__explainer',
@@ -638,8 +643,10 @@ function paintMember(body, { member, rec, caseId, noteAccepted, publisher = null
         const btn = el('button', 'xr-portal__btn xr-portal__btn--ghost',
             rec.published_at ? 'Republish analysis…' : 'Publish analysis…');
         btn.type = 'button';
+        btn.dataset.xr = SMOKE_ANCHORS.extractionPublish;
         btn.title = 'Publish this article’s extraction analysis to your relays (kind 30070, replaceable)';
         const status = el('span', 'xr-synth__status');
+        status.dataset.xr = SMOKE_ANCHORS.extractionPublishStatus;
         if (rec.published_at) {
             status.textContent = `published ${new Date(rec.published_at * 1000).toISOString().slice(0, 10)}`;
         }

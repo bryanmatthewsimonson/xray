@@ -22,6 +22,12 @@ npm test               # node --test tests/*.test.mjs  (~3000 tests, must be gre
 npm run smoke          # browser smoke: loads the built extension in headless Chromium
                        #   (needs `npx playwright install chromium` once); CI runs it too
 npm run lint           # web-ext lint --self-hosted (what CI gates on)
+npm run lint:js        # ESLint (no-undef, no-unused-vars) vs the SHRINK-ONLY
+                       #   scripts/eslint-baseline.json; `-- --update` only lowers it
+npm run check:version  # package.json and manifest.json versions agree
+npm run check:package  # the web-ext zip holds every required file, no new leak
+                       #   (after `npx web-ext build --overwrite-dest`)
+npm run check:budget   # dist bundles under scripts/bundle-budget.json (after build)
 npm run version:set X  # bump package.json + manifest.json in lockstep
 npm run clean          # rm -rf dist
 ```
@@ -544,7 +550,9 @@ without the other is the design's named long-term risk.
 ## CI
 
 `.github/workflows/ci.yml` on push/PR to `main`: `node --check` every
-`src/**/*.js`, `npm run build`, `npm test` (if any tests exist), `web-ext
-lint --self-hosted`, `web-ext build`. A `v*` tag triggers `release.yml`
+`src/**/*.js`, `npm run lint:js`, `npm run build`, `npm test`, the
+normalizer parity, `npm run check:version`, `web-ext lint
+--self-hosted`, `web-ext build` + `npm run check:package`, `npm run
+check:budget`; the browser smoke is its own job. A `v*` tag triggers `release.yml`
 (builds, packages, creates a GitHub Release with the `.zip`). Get all of
 build + test + lint green locally before pushing.
