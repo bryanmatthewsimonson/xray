@@ -488,7 +488,17 @@ looking where the bugs are.
       silently; a smoke failure on a Dependabot `chore(deps-dev)` PR is
       a browser-roll finding (the playwright pin carries the Chromium
       revision), not a flake; the automator kill rule (two false
-      alarms, no true positive) governs after that.
+      alarms, no true positive) governs after that. *Preconditions met
+      2026-09-25 on `toolchain/ma6-preconditions` (PR pending; JOURNAL
+      entry of that date): zero fixed sleeps remain in the walk. Every
+      wait is a bounded condition that names what never happened.
+      Every control it drives is found by a `SMOKE_ANCHORS` anchor
+      (nine new ones), with copy only asserted. Verified by 10/10 green
+      full `npm run smoke` runs (`ma6` 2.9–4.1 s, down from about 15 s),
+      8/8 more after rebasing onto #390, and 3/3 under CPU contention,
+      plus five negative controls and a
+      slow-Accept positive control. The box stays open: the flip is
+      the maintainer's, on 2026-10-05.*
 - [ ] **ESLint minimal** (`no-undef`, `no-unused-vars`, a `console`
       ratchet starting at 205) + version lockstep moved into `ci.yml` +
       a packaged-contents assertion + a bundle-size budget. (S each;
