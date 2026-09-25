@@ -72,23 +72,29 @@ export function workspaceDbName(base, wsId) {
  * dependency-light IDB cache modules can use it and their Node tests
  * (no chrome stub) fall back to 'default' = the bare DB names they
  * have always used. storage.js keeps its own CACHED copy for hot
- * key-mapping; DB opens are rare enough to read fresh.
+ * key-mapping; DB opens are rare enough to read fresh. A failed read
+ * is 'default' unless `strict` (a caller about to WRITE), which rejects
+ * (JOURNAL 2026-09-25).
  */
-export async function activeWorkspaceId() {
+export async function activeWorkspaceId({ strict = false } = {}) {
     try {
         const area = (typeof browser !== 'undefined' && browser.storage)
             ? browser.storage.local
             : (typeof chrome !== 'undefined' && chrome.storage ? chrome.storage.local : null);
         if (!area) return 'default';
-        const raw = await new Promise((resolve) => {
-            try { area.get(['active_workspace'], (res) => resolve(res ? res.active_workspace : undefined)); }
-            catch (_) { resolve(undefined); }
-        });
+        const raw = await new Promise((resolve, reject) => area.get(['active_workspace'], (res) => {
+            const err = ((globalThis.chrome || globalThis.browser || {}).runtime || {}).lastError;
+            if (err || !res) reject(new Error('reading the workspace pointer failed: ' + ((err && err.message) || 'no result')));
+            else resolve(res.active_workspace);
+        }));
         if (typeof raw === 'string') {
             try { return String(JSON.parse(raw) || 'default'); } catch (_) { return raw || 'default'; }
         }
         return 'default';
-    } catch (_) { return 'default'; }
+    } catch (err) {
+        if (strict) throw err;
+        return 'default';
+    }
 }
 
 /** `workspaceDbName(base)` under the ACTIVE workspace. */

@@ -29,12 +29,11 @@ export const Storage = (() => {
   // switches.
   const ACTIVE_WS_KEY = 'active_workspace';
   const CONTENT_KEYS = new Set(WORKSPACE_CONTENT_KEYS);
-  let activeWs;   // undefined = not yet read this lifetime
+  let activeWs;   // undefined = not yet read successfully this lifetime
+  // ABSENT is 'default'; UNREADABLE rejects and caches nothing — it used
+  // to cache 'default' and route the page's writes there (JOURNAL 2026-09-25).
   const readActiveWs = async () => {
-    const raw = await new Promise((resolve) => {
-      try { area.get([ACTIVE_WS_KEY], (res) => resolve(res ? res[ACTIVE_WS_KEY] : undefined)); }
-      catch (_) { resolve(undefined); }
-    });
+    const raw = await rawGetStrict(ACTIVE_WS_KEY).catch((e) => { throw new Error('reading the workspace pointer failed: ' + e.message); });
     let id = 'default';
     if (typeof raw === 'string') {
       try { id = JSON.parse(raw) || 'default'; } catch (_) { id = raw || 'default'; }
@@ -43,14 +42,18 @@ export const Storage = (() => {
     return activeWs;
   };
   const ensureWs = async () => (activeWs === undefined ? readActiveWs() : activeWs);
+  // Plain READS keep the old fallback, uncached; writes + strict reads use ensureWs.
+  const ensureWsForRead = () => ensureWs().catch(() => 'default');
   try {
     area.onChanged.addListener((changes) => {
       if (ACTIVE_WS_KEY in changes) activeWs = undefined;   // lazy re-read
     });
   } catch (_) { /* older shims — per-lifetime lazy read still applies */ }
-  const mapKey = async (key) => {
-    const ws = await ensureWs();
-    return (ws !== 'default' && CONTENT_KEYS.has(key)) ? `ws:${ws}:${key}` : key;
+  // Global keys never depend on the pointer.
+  const mapKey = async (key, { forRead = false } = {}) => {
+    if (!CONTENT_KEYS.has(key)) return key;
+    const ws = await (forRead ? ensureWsForRead() : ensureWs());
+    return ws !== 'default' ? `ws:${ws}:${key}` : key;
   };
 
   // The callback API reports a failure ONLY through runtime.lastError,
@@ -118,7 +121,7 @@ export const Storage = (() => {
   const Store = {
     get: async (key, defaultValue = null) => {
       try {
-        return decode(await rawGet(await mapKey(key)), defaultValue);
+        return decode(await rawGet(await mapKey(key, { forRead: true })), defaultValue);
       } catch (e) {
         Utils.error('Storage get error:', e);
         return defaultValue;
@@ -137,7 +140,7 @@ export const Storage = (() => {
     // keys come back bare. Global keys always show.
     keys: async () => {
       try {
-        const ws = await ensureWs();
+        const ws = await ensureWsForRead();
         const all = await rawKeys();
         const prefix = `ws:${ws}:`;
         const out = [];
@@ -153,8 +156,9 @@ export const Storage = (() => {
     },
 
     // ---- workspace plumbing (Phase 28.1) ---------------------------
-    /** The active workspace id ('default' when none was ever set). */
-    activeWorkspaceId: async () => ensureWs(),
+    /** The active workspace id ('default' when none was ever set). A failed
+     *  read is 'default', uncached — or rejects when `strict` (before a write). */
+    activeWorkspaceId: async ({ strict = false } = {}) => (strict ? ensureWs() : ensureWsForRead()),
     /** Point the namespace at another workspace. Callers own the
      *  lifecycle rules (registry, identity binding, page reloads) —
      *  this only moves the pointer, atomically, outside the namespace. */
@@ -165,7 +169,7 @@ export const Storage = (() => {
       return clean;
     },
     /** The on-disk IndexedDB name for `base` under the ACTIVE workspace. */
-    workspaceDbName: async (base) => workspaceDbName(base, await ensureWs()),
+    workspaceDbName: async (base) => workspaceDbName(base, await ensureWsForRead()),
     /** Destroy workspace `id`'s namespaced keys + databases. Refuses
      *  'default' (its content keys ARE the bare install data) and the
      *  active workspace (switch away first). Lifecycle rules — typed

@@ -31,7 +31,7 @@
 import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
 import { Utils } from './utils.js';
-import { LocalKeyManager } from './local-key-manager.js';
+import { LocalKeyManager, withStoreLock, lockedReadModifyWrite } from './local-key-manager.js';
 import { isValidSuggestedBy } from './assessment-taxonomy.js';
 // Authored-field validation (Phase 19 §4) reads the field registry;
 // entity-field-schemas.js is dependency-free, so no cycle.
@@ -214,6 +214,26 @@ function synthesizeForeignKeypair(record) {
     return { pubkey: record.foreign_pubkey, privateKey: null, npub, nsec: null };
 }
 
+// ONE REGISTRY, MANY PAGES (JOURNAL 2026-09-25): every write is a
+// read-modify-write of a FRESH strict read under the Web Lock
+// `xray.entities` (a failed read used to become `{}` and the write erased
+// every other record); reads that PLAN a write are strict too, display
+// reads stay plain. Async work runs BEFORE the lock. Wholesale writers
+// elsewhere take it via withEntityStoreLock, never calling a writer here.
+const LOCK_NAME = 'xray.entities';   // not `xray:…` (the message bus; structure-guard rule 4)
+const ORIGIN_WHAT = 'EntityModel: the entity registry';
+export const withEntityStoreLock = (fn) => withStoreLock(LOCK_NAME, fn, ORIGIN_WHAT);
+const mutateRegistry = (apply) => lockedReadModifyWrite({ lock: LOCK_NAME, key: 'entities', label: 'EntityModel', what: ORIGIN_WHAT, apply });
+
+async function readRegistryStrict() {
+    let all;
+    try { all = await Storage.getStrict('entities', {}); } catch (err) {
+        throw new Error(`EntityModel: reading entities failed — nothing written (${(err && err.message) || err})`);
+    }
+    if (!all || typeof all !== 'object' || Array.isArray(all)) throw new Error('EntityModel: stored entities is not an object — nothing written');
+    return all;
+}
+
 export const EntityModel = {
     /**
      * Return the merged entity record for `id`, or null if not found.
@@ -257,6 +277,10 @@ export const EntityModel = {
         return out;
     },
 
+    /** The stored records, no keypair merge, read STRICTLY — for a
+     *  caller that plans a write from them (the entity-sync pull). */
+    readRecordsStrict: () => readRegistryStrict(),
+
     /**
      * Create a new entity. Generates a secp256k1 keypair and a hash-based
      * id. Returns the full merged record (same shape as `get`). Throws
@@ -271,7 +295,7 @@ export const EntityModel = {
         assertValidType(type);
 
         const id = await generateEntityId(type, name);
-        const all = await Storage.get('entities', {});
+        const all = await readRegistryStrict();
         if (all[id]) {
             const existing = all[id];
             // If somebody is creating the *same* entity twice, that's
@@ -342,13 +366,17 @@ export const EntityModel = {
             updated: now
         };
 
-        // Re-read before writing: the key install above waits on the
-        // cross-page keystore lock, and writing the snapshot read at the
-        // top would erase any entity another page created meanwhile
-        // (JOURNAL 2026-09-24).
-        const fresh = await Storage.get('entities', {});
-        fresh[id] = record;
-        await Storage.set('entities', fresh);
+        // Into a FRESH read under the registry lock: the key install
+        // above waited on the keystore's lock, and other pages may have
+        // written since (JOURNAL 2026-09-24/25). The same entity created
+        // meanwhile by another page is kept as it is.
+        await mutateRegistry((fresh) => {
+            const other = fresh[id];
+            if (other && other.type === type && normalizeName(other.name) === normalizeName(name)) return { write: false };
+            if (other) throw new Error(`Id collision: entity_${id.slice(7, 15)}… already exists with different type/name`);
+            fresh[id] = record;
+            return { write: true };
+        });
         Utils.log('Created entity:', id, name, type);
         return await EntityModel.get(id);
     },
@@ -383,7 +411,7 @@ export const EntityModel = {
         // empty or stale Map made this re-derive keys that existed —
         // re-keying legacy random-keyed entities (JOURNAL 2026-09-24).
         await LocalKeyManager.refresh();
-        const all = await Storage.get('entities', {});
+        const all = await readRegistryStrict();   // unreadable is an error, never "nothing to restore"
         const restored = [];
         const skipped = [];
         const toStamp = [];
@@ -413,17 +441,20 @@ export const EntityModel = {
             restored.push({ id: record.id, name: record.name, keyName: record.keyName, pubkey: installed.pubkey, verified });
         }
         if (toStamp.length > 0) {
-            // Stamp onto a FRESH read — the snapshot above predates the
-            // derivations, and other pages may have written since.
-            const fresh = await Storage.get('entities', {});
+            // Stamp onto a FRESH read under the lock — the snapshot above
+            // predates the derivations, and other pages may have written
+            // since. The keys are restored either way: a failed stamp is
+            // reported, not thrown (the records stay unstamped, as before).
+            await mutateRegistry((fresh) => {
             let dirty = false;
             for (const id of toStamp) {
                 if (fresh[id] && !fresh[id].derived_from) {
-                    fresh[id].derived_from = primaryPubkey;
+                    fresh[id] = { ...fresh[id], derived_from: primaryPubkey };
                     dirty = true;
                 }
             }
-            if (dirty) await Storage.set('entities', fresh);
+            return { write: dirty };
+            }).catch((err) => Utils.error('restoreDerivedKeys: keys restored, but recording their origin failed:', err));
         }
         Utils.log('restoreDerivedKeys:', restored.length, 'restored,', skipped.length, 'skipped (different primary)');
         return { restored, skipped };
@@ -450,7 +481,7 @@ export const EntityModel = {
         // to the reserved `xray:user` primary-identity slot.
         const derivedKeyName = `entity:${row.id}`;
 
-        const all = await Storage.get('entities', {});
+        await mutateRegistry((all) => {
         const existing = all[row.id];
         // Foreign keyless rows (KS.3): a row carrying a foreign_pubkey
         // imports keyless — unless a local key is already installed
@@ -492,7 +523,8 @@ export const EntityModel = {
                 updated:      now
             };
         }
-        await Storage.set('entities', all);
+        return { write: true };
+        });
         return await EntityModel.get(row.id);
     },
 
@@ -554,12 +586,14 @@ export const EntityModel = {
             throw new Error('importForeign: pubkey must be 64 hex chars');
         }
         const pk = pubkey.toLowerCase();
+        const hash = await Crypto.sha256('foreign:' + pk);
+        const id = `entity_${hash.slice(0, 16)}`;
 
-        const all = await Storage.get('entities', {});
+        const keyedId = await mutateRegistry((all) => {
         for (const record of Object.values(all)) {
             if (!record.keyName) continue;
             const key = LocalKeyManager.getKey(record.keyName);
-            if (key && key.pubkey === pk) return await EntityModel.get(record.id);
+            if (key && key.pubkey === pk) return { write: false, result: record.id };
         }
 
         if (canonicalId) {
@@ -568,8 +602,6 @@ export const EntityModel = {
             if (canonical.type !== type) throw new Error(`canonical_id points to a ${canonical.type} entity; this entity is a ${type}`);
         }
 
-        const hash = await Crypto.sha256('foreign:' + pk);
-        const id = `entity_${hash.slice(0, 16)}`;
         const existing = all[id];
         const now = Math.floor(Date.now() / 1000);
         all[id] = {
@@ -588,7 +620,9 @@ export const EntityModel = {
             created:      (existing && existing.created) || now,
             updated:      now
         };
-        await Storage.set('entities', all);
+        return { write: true, result: null };
+        });
+        if (keyedId) return await EntityModel.get(keyedId);
         Utils.log('Adopted foreign entity:', id, cleanName, type, pk.slice(0, 8) + '…');
         return await EntityModel.get(id);
     },
@@ -599,7 +633,7 @@ export const EntityModel = {
      * is the stable identifier for relay-published kind-0 events.
      */
     update: async (id, updates) => {
-        const all = await Storage.get('entities', {});
+        await mutateRegistry((all) => {
         const record = all[id];
         if (!record) throw new Error(`Entity not found: ${id}`);
 
@@ -631,7 +665,8 @@ export const EntityModel = {
         patched.updated = Math.floor(Date.now() / 1000);
 
         all[id] = patched;
-        await Storage.set('entities', all);
+        return { write: true };
+        });
         return await EntityModel.get(id);
     },
 
@@ -641,22 +676,24 @@ export const EntityModel = {
      * orphan-deleted — cascading deletes on a knowledge graph are rude.
      */
     delete: async (id) => {
-        const all = await Storage.get('entities', {});
+        let unlinkedAliases = 0;
+        const record = await mutateRegistry((all) => {
         const record = all[id];
-        if (!record) return false;
+        if (!record) return { write: false, result: null };
 
         // Unlink aliases that pointed here.
-        let unlinkedAliases = 0;
+        unlinkedAliases = 0;
         for (const [otherId, other] of Object.entries(all)) {
             if (other.canonical_id === id) {
-                other.canonical_id = null;
-                other.updated = Math.floor(Date.now() / 1000);
+                all[otherId] = { ...other, canonical_id: null, updated: Math.floor(Date.now() / 1000) };
                 unlinkedAliases++;
             }
         }
 
         delete all[id];
-        await Storage.set('entities', all);
+        return { write: true, result: record };
+        });
+        if (!record) return false;
 
         // Delete the keypair too — the entity no longer signs for
         // anything. The relay-published kind-0 stays, of course.
@@ -728,7 +765,7 @@ export const EntityModel = {
     linkAlias: async (aliasId, canonicalId) => {
         if (aliasId === canonicalId) throw new Error('Cannot alias an entity to itself');
 
-        const all = await Storage.get('entities', {});
+        await mutateRegistry((all) => {
         const alias = all[aliasId];
         const canonical = all[canonicalId];
         if (!alias)     throw new Error(`Alias entity not found: ${aliasId}`);
@@ -754,10 +791,9 @@ export const EntityModel = {
             cursor = next;
         }
         // cursor is now the deepest canonical we can reach. Point alias at it.
-        alias.canonical_id = cursor.id;
-        alias.updated = Math.floor(Date.now() / 1000);
-        all[aliasId] = alias;
-        await Storage.set('entities', all);
+        all[aliasId] = { ...alias, canonical_id: cursor.id, updated: Math.floor(Date.now() / 1000) };
+        return { write: true };
+        });
         return await EntityModel.get(aliasId);
     },
 
@@ -780,14 +816,15 @@ export const EntityModel = {
      * want a publish to look like a mutation that triggers a re-publish.
      */
     markPublished: async (id, eventId) => {
-        const all = await Storage.get('entities', {});
-        const record = all[id];
-        if (!record) return null;
+        const found = await mutateRegistry((all) => {
+        const record = all[id] && { ...all[id] };
+        if (!record) return { write: false, result: false };
         record.publishedAt = Math.floor(Date.now() / 1000);
         if (eventId) record.publishedEventId = eventId;
         all[id] = record;
-        await Storage.set('entities', all);
-        return await EntityModel.get(id);
+        return { write: true, result: true };
+        });
+        return found ? await EntityModel.get(id) : null;
     },
 
     /**
@@ -800,16 +837,35 @@ export const EntityModel = {
      * publishedFactSheet* fields on stored records are inert.)
      */
     markProfilePublished: async (id, { profileEventId = null, profileHash = null } = {}) => {
-        const all = await Storage.get('entities', {});
-        const record = all[id];
-        if (!record) return null;
+        const found = await mutateRegistry((all) => {
+        const record = all[id] && { ...all[id] };
+        if (!record) return { write: false, result: false };
         record.profilePublishedAt = Math.floor(Date.now() / 1000);
         if (profileEventId)   record.publishedProfileEventId = profileEventId;
         if (profileHash)      record.publishedProfileHash = profileHash;
         all[id] = record;
-        await Storage.set('entities', all);
-        return await EntityModel.get(id);
-    }
+        return { write: true, result: true };
+        });
+        return found ? await EntityModel.get(id) : null;
+    },
+
+    /**
+     * The entity-sync pull's record write: a row replaces the stored
+     * record only when FRESHER by `updated`, judged against a fresh read
+     * under the lock — a record another page made at least as fresh
+     * meanwhile stays. Returns { added, updated, unchanged }.
+     */
+    mergePulledRows: (rows) => mutateRegistry((all) => {
+        const counts = { added: 0, updated: 0, unchanged: 0 };
+        for (const row of rows) {
+            const local = all[row.id];
+            if (local && (local.updated || 0) >= (row.updated || 0)) { counts.unchanged++; continue; }
+            all[row.id] = row;
+            if (local) counts.updated++;
+            else       counts.added++;
+        }
+        return { write: counts.added + counts.updated > 0, result: counts };
+    })
 };
 
 /**

@@ -1438,7 +1438,7 @@ async function handleImport(file) {
                 try {
                     await EntityModel.importRecord(row);
                     added++;
-                } catch (_) { /* malformed row → skip */ }
+                } catch (err) { if (/nothing written/.test((err && err.message) || '')) throw err; /* malformed row → skip */ }
             } else {
                 try {
                     await EntityModel.create({
@@ -1450,12 +1450,12 @@ async function handleImport(file) {
                     });
                     added++;
                 } catch (err) {
-                    // Option C: create refuses without a local primary.
-                    // Every remaining keyed row would fail identically —
+                    // Option C: create refuses without a local primary (and an
+                    // unreadable registry): every remaining keyed row would fail identically —
                     // swallowing it here ended in a SUCCESS toast over a
                     // zero-row import. Rethrow to the error toast; rows
                     // already imported stay (re-import is idempotent).
-                    if (/local primary identity/.test((err && err.message) || '')) throw err;
+                    if (/local primary identity|nothing written/.test((err && err.message) || '')) throw err;
                     /* id collision → skip */
                 }
             }

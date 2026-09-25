@@ -36,7 +36,6 @@
 // routes legacy events to nip04Decrypt with the raw ECDH shared
 // secret. Push remains NIP-44 only — userscript v4.x can read NIP-44.
 
-import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
 import { Utils } from './utils.js';
 import { EventBuilder } from './event-builder.js';
@@ -318,8 +317,11 @@ export async function pullEntities({ userPrivkey, relays, timeoutMs = 8000 }) {
     // key name each installs. That name is ALWAYS `entity:<the pulled
     // record's own id>`: a stored record whose keyName says anything
     // else (the reserved `xray:user` sync slot, another entity's slot)
-    // is refused — a pull never overwrites a key it does not own.
-    const planned = await Storage.get('entities', {});
+    // is refused — a pull never overwrites a key it does not own. The
+    // read is STRICT: taken for empty, a failed read made every pulled
+    // record a winner and let a STALER key replace a local one
+    // (JOURNAL 2026-09-25) — so a failure rejects before any write.
+    const planned = { ...(await EntityModel.readRecordsStrict()) };
     const winners = [];
     for (const record of records) {
         const local = planned[record.id];
@@ -371,26 +373,15 @@ export async function pullEntities({ userPrivkey, relays, timeoutMs = 8000 }) {
         return out;
     }
 
-    // Phase 4 — the records, merged into a FRESH registry read (the key
-    // write above waited on the lock) with no await between that read
-    // and its write. A record another page made at least as fresh
+    // Phase 4 — the records, merged into a FRESH registry read under the
+    // registry lock (EntityModel.mergePulledRows; a failed read rejects,
+    // nothing written). A record another page made at least as fresh
     // meanwhile stays; its key was already replaced above, which for a
     // derived key is the same key.
-    const localAll = await Storage.get('entities', {});
-    let changed = false;
-    for (const { record, row } of winners) {
-        const local = localAll[record.id];
-        if (local && (local.updated || 0) >= (record.updated || 0)) {
-            out.unchanged++;
-            continue;
-        }
-        localAll[record.id] = row;
-        changed = true;
-        if (local) out.updated++;
-        else       out.added++;
-    }
-    if (changed) await Storage.set('entities', localAll);
-
+    const merged = await EntityModel.mergePulledRows(winners.map(({ row }) => row));
+    out.added += merged.added;
+    out.updated += merged.updated;
+    out.unchanged += merged.unchanged;
     return out;
 }
 

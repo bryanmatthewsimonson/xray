@@ -139,7 +139,14 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   `local_keys` directly but take the same lock via `withKeyStoreLock`. That lock is the Web Lock `xray.local_keys`, a
   cross-page primitive deliberately outside the `xray:*` bus; it refuses
   to run outside an extension origin, and content scripts hold no
-  keystore.
+  keystore. **The entity registry (JOURNAL 2026-09-25)** follows the
+  same contract: every `entities` write goes through `entity-model.js`
+  under the lock `xray.entities`. The wholesale writers (backup
+  restore/merge, workspace reset/removal) take `withEntityStoreLock`,
+  nested inside the keystore lock and never the reverse. A failed
+  workspace-pointer read fails any write
+  (`activeWorkspaceId({ strict: true })`); plain reads still fall back
+  to the default view.
 - **`signer.js`** — unified signing façade over Local / NIP-07 /
   NSecBunker, dispatched on `preferences.signing_method`. NIP-07 only works
   where a `nip07Client` is injected (`Signer.configure({ nip07Client })`),

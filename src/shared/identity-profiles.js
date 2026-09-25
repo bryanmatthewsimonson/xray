@@ -26,6 +26,7 @@
 import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
 import { withKeyStoreLock } from './local-key-manager.js';
+import { withEntityStoreLock } from './entity-model.js';
 
 const PROFILES_KEY = 'identity_profiles';
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -206,13 +207,13 @@ export const IdentityProfiles = {
  * workspace content store plus preferences and saved identities.
  * Contains private keys (profiles/nsec) by design — it is the user's
  * own recovery file; the UI warns. `xray:llm:key` is deliberately
- * absent (its module forbids export).
+ * absent (its module forbids export). Strict reads: a reset follows it (JOURNAL 2026-09-25).
  */
 export async function workspaceBackup() {
     const snapshot = { format: 'xray-workspace-backup', exported_at: new Date().toISOString(), data: {} };
     const keys = [...WORKSPACE_CLEAR_KEYS, 'preferences', 'local_primary_identity', 'identity_profiles'];
     for (const key of keys) {
-        snapshot.data[key] = await Storage.get(key, null);
+        snapshot.data[key] = await Storage.getStrict(key, null);
     }
     return snapshot;
 }
@@ -225,17 +226,25 @@ export async function workspaceBackup() {
  * @returns {{cleared: string[], databases: string[]}}
  */
 export async function resetWorkspace({ idb } = {}) {
+    // The pointer first, strictly: a failed read cleared the DEFAULT workspace (JOURNAL 2026-09-25).
+    let ws;
+    try { ws = await Storage.activeWorkspaceId({ strict: true }); } catch (err) {
+        throw new Error(`resetWorkspace: reading the workspace pointer failed — nothing written (${(err && err.message) || err})`);
+    }
     const cleared = [];
     // The content keys include `local_keys`: clear them under the
     // keystore lock, so a key write in flight on another page cannot
     // land after the reset and put the old keys back (JOURNAL
-    // 2026-09-24). Nothing inside calls a keystore writer.
-    await withKeyStoreLock(async () => {
+    // 2026-09-24) — and `entities` under the registry lock (2026-09-25).
+    // Nothing inside calls a keystore or registry writer.
+    await withKeyStoreLock(() => withEntityStoreLock(async () => {
         for (const key of WORKSPACE_CLEAR_KEYS) {
-            await Storage.delete(key);
+            if (await Storage.delete(key) === false) {
+                throw new Error(`resetWorkspace: clearing ${key} failed after ${cleared.length} of ${WORKSPACE_CLEAR_KEYS.length} stores`);
+            }
             cleared.push(key);
         }
-    });
+    }));
     const databases = [];
     const factory = idb || (typeof indexedDB !== 'undefined' ? indexedDB : null);
     if (factory && typeof factory.deleteDatabase === 'function') {
@@ -245,7 +254,6 @@ export async function resetWorkspace({ idb } = {}) {
         // tab holding the DB open completes only when that tab closes —
         // best-effort here, and the options UI tells the user to close
         // other X-Ray tabs.
-        const ws = await Storage.activeWorkspaceId();
         for (const base of [...WORKSPACE_DATABASES, ...DERIVED_CACHE_DATABASES]) {
             const name = workspaceDbName(base, ws);
             try { factory.deleteDatabase(name); databases.push(name); } catch (_) { /* best-effort */ }
@@ -365,8 +373,9 @@ export const Workspaces = {
         if (!all[id]) throw new Error(`Workspace not found: ${id}`);
         // Its `ws:<id>:local_keys` goes too — under the keystore lock,
         // like the reset above, so a key write still in flight for that
-        // workspace lands before the delete, never after it.
-        const result = await withKeyStoreLock(() => Storage.removeWorkspaceData(id, { idb }));
+        // workspace lands before the delete, never after it. Same for
+        // `ws:<id>:entities` under the registry lock.
+        const result = await withKeyStoreLock(() => withEntityStoreLock(() => Storage.removeWorkspaceData(id, { idb })));
         delete all[id];
         await Storage.set(WORKSPACES_KEY, all);
         return result;

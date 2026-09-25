@@ -44,7 +44,10 @@
 //      requests a refresh, so a page's Map converges on storage after
 //      other pages' writes, raw restores, resets and workspace switches.
 // A page's Map is replaced in place (clear/set) — callers and tests
-// hold references to LocalKeyManager.keys.
+// hold references to LocalKeyManager.keys. Rules 1–3 are exported
+// (withStoreLock / lockedReadModifyWrite) for the entity registry, lock
+// `xray.entities` (JOURNAL 2026-09-25); the only nesting of the two locks
+// is keystore → registry, in the wholesale writers.
 
 import { Storage } from './storage.js';
 import { Utils } from './utils.js';
@@ -57,10 +60,6 @@ const STORE_KEY = 'local_keys';
 // storage key. It is shared by everything running in the REQUESTING
 // document's origin — which is why rule 3 above exists.
 const LOCK_NAME = 'xray.local_keys';
-// Fallback mutex slot for contexts without navigator.locks (Node's test
-// runner). On globalThis, not in module scope, so two module instances
-// in one realm — the tests' "two pages" — share it.
-const FALLBACK_MUTEX = Symbol.for('xray.local_keys.mutex');
 const EXTENSION_PROTOCOLS = new Set(['chrome-extension:', 'moz-extension:']);
 const HEX64 = /^[0-9a-f]{64}$/;
 
@@ -71,23 +70,28 @@ let watching = false;       // one change listener per module instance
 // Rule 3. No location at all (Node's test runner) passes; any location
 // that is not an extension page or worker is refused before a lock is
 // requested.
-function assertExtensionOrigin() {
+function assertExtensionOrigin(what) {
     const loc = globalThis.location;
     if (loc === undefined || loc === null) return;
     const protocol = String(loc.protocol || '');
     if (!EXTENSION_PROTOCOLS.has(protocol)) {
-        throw new Error(`LocalKeyManager: the keystore is written only from extension pages — refused under a ${protocol || 'non-extension'} origin`);
+        throw new Error(`${what} is written only from extension pages — refused under a ${protocol || 'non-extension'} origin`);
     }
 }
 
-async function withKeysLock(fn) {
-    assertExtensionOrigin();
+// Rules 2–3 for lock `name`. Fallback slot for contexts without
+// navigator.locks (Node's test runner): on globalThis, not in module
+// scope, so two module instances in one realm — the tests' "two pages"
+// — share it.
+export async function withStoreLock(name, fn, what = 'LocalKeyManager: the keystore') {
+    assertExtensionOrigin(what);
     const locks = (typeof navigator !== 'undefined' && navigator && navigator.locks
         && typeof navigator.locks.request === 'function') ? navigator.locks : null;
-    if (locks) return locks.request(LOCK_NAME, () => fn());
-    const tail = globalThis[FALLBACK_MUTEX] || Promise.resolve();
+    if (locks) return locks.request(name, () => fn());
+    const slot = Symbol.for(`${name}.mutex`);
+    const tail = globalThis[slot] || Promise.resolve();
     const run = tail.then(() => fn());
-    globalThis[FALLBACK_MUTEX] = run.then(() => undefined, () => undefined);
+    globalThis[slot] = run.then(() => undefined, () => undefined);
     return run;
 }
 
@@ -101,7 +105,7 @@ async function withKeysLock(fn) {
  * wait on itself forever).
  */
 export function withKeyStoreLock(fn) {
-    return withKeysLock(fn);
+    return withStoreLock(LOCK_NAME, fn);
 }
 
 const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -215,42 +219,47 @@ function watchStorage() {
 // this write produced, because an unlocked change (another page's
 // workspace switch, say) can land between the write and that install.
 // `apply` must be synchronous and must not call back into this module
-// (the lock is not re-entrant).
+// (the lock is not re-entrant). Generic over `key`/`lock`: `mutate` is
+// the keystore's use, EntityModel's registry writes the other.
 //
 // The read is STRICT: an unreadable store aborts the write instead of
-// being read as empty (rule 1).
+// being read as empty (rule 1) — and so does an unreadable pointer.
 //
 // Storage maps the key per call, so a workspace switch landing between
 // the read and the write would carry one workspace's keys into the
 // other. The pointer is re-checked right before the write (no event can
 // run between that check and the write's own mapping) and the whole
 // read-modify-write is redone if it moved.
-async function mutate(apply) {
-    const result = await withKeysLock(async () => {
+export function lockedReadModifyWrite({ lock, key, label, what, apply }) {
+    return withStoreLock(lock, async () => {
         for (let attempt = 1; ; attempt++) {
-            const ws = await Storage.activeWorkspaceId();
-            let raw;
+            let ws, raw;
             try {
-                raw = await Storage.getStrict(STORE_KEY, {});
+                ws = await Storage.activeWorkspaceId({ strict: true });
+                raw = await Storage.getStrict(key, {});
             } catch (err) {
-                throw new Error(`LocalKeyManager: reading local_keys failed — nothing written (${(err && err.message) || err})`);
+                throw new Error(`${label}: reading ${key} failed — nothing written (${(err && err.message) || err})`);
             }
             if (!isPlainObject(raw)) {
-                throw new Error('LocalKeyManager: stored local_keys is not an object — refusing to overwrite it');
+                throw new Error(`${label}: stored ${key} is not an object — refusing to overwrite it`);
             }
             const stored = { ...raw };
             const { write, result: out } = apply(stored);
-            if (await Storage.activeWorkspaceId() !== ws) {
+            if (await Storage.activeWorkspaceId({ strict: true }) !== ws) {
                 if (attempt < 3) continue;
-                throw new Error('LocalKeyManager: the workspace kept changing during a key write — nothing written');
+                throw new Error(`${label}: the workspace kept changing during a write — nothing written`);
             }
             if (write) {
-                const ok = await Storage.set(STORE_KEY, stored);
-                if (ok === false) throw new Error('LocalKeyManager: writing local_keys failed');
+                const ok = await Storage.set(key, stored);
+                if (ok === false) throw new Error(`${label}: writing ${key} failed`);
             }
             return out;
         }
-    });
+    }, what);
+}
+
+async function mutate(apply) {
+    const result = await lockedReadModifyWrite({ lock: LOCK_NAME, key: STORE_KEY, label: 'LocalKeyManager', apply });
     await refresh();
     return result;
 }

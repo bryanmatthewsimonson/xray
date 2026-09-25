@@ -49,6 +49,7 @@
 
 import { WORKSPACE_DATABASES } from './identity-profiles.js';
 import { withKeyStoreLock } from './local-key-manager.js';
+import { withEntityStoreLock } from './entity-model.js';
 import { WORKSPACE_CONTENT_KEYS, activeWorkspaceId, workspaceDbName } from './workspace-keys.js';
 import { LLM_KEY_STORAGE } from './llm-prompts.js';
 import { isLlmJobKey } from './llm-jobs.js';
@@ -319,8 +320,23 @@ function storageArea() {
     throw new Error('extension storage unavailable');
 }
 
+// A failed read REJECTS (JOURNAL 2026-09-25): read as `{}`, a merge wrote
+// the file's values over the local ones and an export came out empty.
 function areaGetAll(area) {
-    return new Promise((resolve) => area.get(null, (all) => resolve(all || {})));
+    return new Promise((resolve, reject) => area.get(null, (all) => {
+        const err = ((globalThis.chrome || globalThis.browser || {}).runtime || {}).lastError;
+        if (err || !all) reject(new Error('reading extension storage failed: ' + ((err && err.message) || 'no result')));
+        else resolve(all);
+    }));
+}
+
+// A restore / merge writes against a strictly-read workspace + storage.
+async function writeScope(area) {
+    try {
+        return { ws: await activeWorkspaceId({ strict: true }), current: await areaGetAll(area) };
+    } catch (err) {
+        throw new Error(`backup: ${(err && err.message) || err} — nothing written`);
+    }
 }
 
 function areaRemove(area, keys) {
@@ -339,7 +355,7 @@ function areaSet(area, obj) {
 // active-scoped the same way: openCovered routes through the module
 // openers, which resolve the workspace-suffixed on-disk names.
 async function collectStorage() {
-    const ws = await activeWorkspaceId();
+    const ws = await activeWorkspaceId({ strict: true });
     const prefix = `ws:${ws}:`;
     const all = await areaGetAll(storageArea());
     const out = {};
@@ -359,10 +375,9 @@ async function collectStorage() {
 }
 
 async function applyStorage(entries, warn = () => {}) {
-    const ws = await activeWorkspaceId();
-    const prefix = `ws:${ws}:`;
     const area = storageArea();
-    const current = await areaGetAll(area);
+    const { ws, current } = await writeScope(area);
+    const prefix = `ws:${ws}:`;
     const mapK = (k) => (ws !== 'default' && WORKSPACE_CONTENT.has(k)) ? prefix + k : k;
     // Scope guard (T1 review, 2026-08-10): a file that carries no
     // signing identity — the delete-workspace snapshot, or a key-free
@@ -591,8 +606,9 @@ export async function applyBackup(backup, { warn = () => {} } = {}) {
     // Under the keystore lock: this replaces `local_keys` wholesale, and
     // a key write in flight on another page (which read the store before
     // this) would otherwise land after it and put the old keys back
-    // (JOURNAL 2026-09-24). Nothing inside calls a keystore writer.
-    await withKeyStoreLock(() => applyStorage(backup.storage, warn));
+    // (JOURNAL 2026-09-24). Nothing inside calls a keystore writer. The
+    // same holds for `entities` and the registry lock (JOURNAL 2026-09-25).
+    await withKeyStoreLock(() => withEntityStoreLock(() => applyStorage(backup.storage, warn)));
     for (const [name, dump] of Object.entries(backup.databases || {})) {
         if (!WORKSPACE_DATABASES.includes(name)) {
             warn(`backup restore: database ${name} not covered — skipped`);
@@ -675,10 +691,9 @@ export function mergeStorageValue(localRaw, incomingRaw) {
 }
 
 async function mergeStorage(entries) {
-    const ws = await activeWorkspaceId();
-    const prefix = `ws:${ws}:`;
     const area = storageArea();
-    const current = await areaGetAll(area);
+    const { ws, current } = await writeScope(area);
+    const prefix = `ws:${ws}:`;
     const mapK = (k) => (ws !== 'default' && WORKSPACE_CONTENT.has(k)) ? prefix + k : k;
     const stats = { keysAdded: 0, keysMerged: 0, idsAdded: 0, keysUnchanged: 0, keysSkippedNonContent: 0 };
     const writes = {};
@@ -811,7 +826,8 @@ export async function mergeBackup(backup, { warn = () => {}, onProgress = () => 
     const problems = validateBackup(backup);
     if (problems.length) throw new Error(`invalid backup: ${problems.join('; ')}`);
     await assertBackupNotNewer(backup);
-    const storage = await mergeStorage(backup.storage);
+    // Under the registry lock, like the restore (it never merges `local_keys`).
+    const storage = await withEntityStoreLock(() => mergeStorage(backup.storage));
     const databases = {};
     // A merge has NO cross-stage rollback: storage commits before the
     // databases, and each store commits in its own transaction. So a
