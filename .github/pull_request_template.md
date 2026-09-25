@@ -3,7 +3,8 @@
   contract. .github/workflows/pr-body.yml checks them with
   scripts/pr-body-check.mjs, which strips every HTML comment first — so
   nothing in these comments counts. Keep each label exactly as written,
-  at the start of its own line. Dependabot PRs are not checked.
+  at the start of its own line, and write its answer after the colon or
+  in place of the comment under it. Dependabot PRs are not checked.
 -->
 
 ## What

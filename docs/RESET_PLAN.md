@@ -605,7 +605,7 @@ looking where the bugs are.
       (`edited` re-runs it without re-running CI), read-only, the body
       never interpolated, NOT a required check. Run against #390, #368
       and #365: all three fail, as expected of pre-contract bodies.
-      Verified by 22 tests in `tests/pr-body-check.test.mjs` and 28
+      Verified by 23 tests in `tests/pr-body-check.test.mjs` and 39
       negative controls that each turned it red.*
 - [ ] **`docs/STATUS.md`** (hand-maintained until R6 generates it): the
       1.0 blocker list; every default-off flag with its check date and

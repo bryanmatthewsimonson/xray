@@ -51,6 +51,15 @@ function fillTemplate(t, { layer = 'unit', docs = 'none', steps = ['Kept X as Y 
         .replace(/^Interpretive steps \(n\):$/m, `Interpretive steps (${steps.length}):\n${steps.map((s) => `- ${s}`).join('\n')}${extra ? `\n\n${extra}` : ''}`);
 }
 
+// The same, with each answer written in place of the comment under its
+// label — the layout the template invites.
+function fillUnder(t, { layer = 'unit', docs = 'none' } = {}) {
+    return t
+        .replace(/^(Verification layer:\n)<!--[\s\S]*?-->/m, `$1${layer}`)
+        .replace(/^(Docs:\n)<!--[\s\S]*?-->/m, `$1${docs}`)
+        .replace(/^Interpretive steps \(n\):\n<!--[\s\S]*?-->/m, 'Interpretive steps (1):\n- Kept X as Y — default: keep.');
+}
+
 // ---------------------------------------------------------------- sanity
 
 test('sanity: the module exports, the CLI answers --help, and the template carries the four §8 lines', () => {
@@ -97,6 +106,23 @@ test('template: filled in correctly it PASSES, including the wire, cross-lane an
     assert.deepEqual(rules(checkPr({ title: 'fix(reader): x', body: fixed, author: 'a', files: ['src/reader/index.css'], journalDates: JOURNAL })), []);
 });
 
+test('template: answers written UNDER the labels (in place of the comment, or below it) PASS; an off-menu one still fails', () => {
+    const chk = (body, files = ['scripts/x.mjs']) => rules(checkPr({ title: 'chore: x', body, author: 'a', files, journalDates: JOURNAL }));
+    assert.deepEqual(chk(fillUnder(TEMPLATE)), [], 'values on the line under the label');
+    assert.deepEqual(chk(fillUnder(TEMPLATE).replace(/^Docs:$/m, '**Docs:**').replace(/^Verification layer:$/m, '**Verification layer:**')), [], 'bold labels');
+    assert.deepEqual(chk(fillUnder(TEMPLATE, { layer: '- unit + guard', docs: '- docs/SMOKE_TEST.md\n- docs/NIP_DRAFT.md' })), [], 'as list items');
+    const below = fillTemplate(TEMPLATE).replace(/^Docs: none$/m, 'Docs:').replace(/^(Docs:\n<!--[\s\S]*?-->)/m, '$1\n\ndocs/SMOKE_TEST.md');
+    assert.deepEqual(chk(below), [], 'the comment kept, the answer under it');
+    const wire = fillUnder(TEMPLATE).replace(/^(Wire format:\n)<!--[\s\S]*?-->/m, '$1additive — old events still parse.');
+    assert.deepEqual(chk(wire, ['src/shared/event-builder.js']), []);
+    assert.deepEqual(chk(fillUnder(TEMPLATE, { layer: 'manual' })), ['verification-layer'], 'the value under the label is still checked');
+    assert.deepEqual(chk(fillUnder(TEMPLATE, { docs: '<files>' })), ['docs']);
+    // An empty label never borrows the next label, a heading, or a checkbox.
+    assert.deepEqual(findField(['Docs:', '', 'Interpretive steps (0):'], { re: 'Docs' }).value, '');
+    assert.deepEqual(findField(['Docs:', '## How I tested', 'none'], { re: 'Docs' }).value, '');
+    assert.deepEqual(findField(['no-test rationale:', '', '- [ ] Chrome'], { re: 'no-test rationale' }).value, '');
+});
+
 // ---------------------------------------------------------------- stripping
 
 test('stripping: HTML comments (even unterminated) and fenced code never satisfy a check; CRLF bodies parse', () => {
@@ -111,6 +137,13 @@ test('stripping: HTML comments (even unterminated) and fenced code never satisfy
     const shifted = '<!--\none\ntwo\n-->\n```\nx\n```\nVerification layer: nope';
     assert.equal(stripNonAsserted(shifted).split('\n').length, shifted.split('\n').length);
     assert.match(run({ body: shifted }).failures.find((f) => f.rule === 'verification-layer').message, /\(line 8\)/);
+    // A `<!--` inside inline code or a fence is text, as GitHub shows it;
+    // a fence inside a comment is comment; a one-line ``` x ``` is a span.
+    for (const pre of ['Mentions `<!--` here.', 'And ``a <!-- b`` too.', '```\n<!-- never closed\n```', '<!--\n```\n-->', '``` x ```']) {
+        assert.deepEqual(rules(run({ body: `${pre}\n${GOOD}` })), [], pre);
+    }
+    assert.equal(stripNonAsserted('a `<!--` b'), 'a `<!--` b');
+    assert.deepEqual(rules(run({ body: `an unmatched \` then <!-- a real comment\n${GOOD}` })).sort(), ['docs', 'interpretive-steps', 'verification-layer']);
     // A JOURNAL citation inside a comment is not a citation.
     const r = run({ files: ['CLAUDE.md'], body: `${GOOD}\n<!-- JOURNAL 2026-09-21 -->` });
     assert.deepEqual(rules(r), ['journal-presence']);
@@ -129,7 +162,8 @@ test('(a) verification-layer: every allowed value, combinations, none-because wi
 
 test('(a) verification-layer: missing, empty, a bare none, none-because with no reason, an unknown layer, the menu, or the wrong case all FAIL', () => {
     for (const line of ['', 'Verification layer:', 'Verification layer: none', 'Verification layer: none-because', 'Verification layer: none-because <…>',
-        'Verification layer: units', 'Verification layer: manual', 'Verification layer: unit | guard | machine-smoke', 'verification layer: unit']) {
+        'Verification layer: units', 'Verification layer: manual', 'Verification layer: unit | guard | machine-smoke', 'verification layer: unit',
+        'Verification layer: none-because TBD', 'Verification layer: none-because ?']) {
         assert.deepEqual(rules(run({ body: withLine('Verification layer', line) })), ['verification-layer'], JSON.stringify(line));
     }
 });
@@ -166,7 +200,7 @@ test('(c) docs: "none" or a file list passes; missing, empty, a placeholder, the
     for (const v of ['Docs: none', 'Docs: docs/SMOKE_TEST.md, docs/NIP_DRAFT.md', '- **Docs:** CONTRIBUTING.md']) {
         assert.deepEqual(rules(run({ body: withLine('Docs', v) })), [], v);
     }
-    for (const v of ['', 'Docs:', 'Docs: <files>', 'Docs: none | <files>', 'docs: tidy the README']) {
+    for (const v of ['', 'Docs:', 'Docs: <files>', 'Docs: none | <files>', 'docs: tidy the README', 'Docs: TBD', 'Docs: todo.']) {
         assert.deepEqual(rules(run({ body: withLine('Docs', v) })), ['docs'], JSON.stringify(v));
     }
 });
@@ -210,6 +244,8 @@ test('(e) cross-lane: src/ paths in two lanes need "Cross-lane: <reason>"; one l
     assert.match(r.failures[0].message, /reader/);
     assert.deepEqual(rules(run({ files: two, body: `${GOOD}\nCross-lane: the portal renders the reader's new field.` })), []);
     assert.deepEqual(rules(run({ files: two, body: `${GOOD}\nCross-lane: <reason>` })), ['cross-lane'], 'a placeholder is not a reason');
+    assert.deepEqual(rules(run({ files: two, body: `${GOOD}\nCross-lane: TBD` })), ['cross-lane'], 'nor is TBD');
+    assert.deepEqual(rules(run({ files: two, body: `${GOOD}\nCross-lane:\nthe portal renders the reader's new field.` })), [], 'the reason on the next line');
     assert.deepEqual(rules(run({ files: ['src/reader/index.js', 'src/reader/pdf-engine.js', 'src/shared/claim-model.js'] })), [], 'one lane');
     assert.deepEqual(rules(run({ files: ['src/reader/index.js', 'scripts/x.mjs', 'tests/x.test.mjs', 'docs/NIP_DRAFT.md'] })), [], 'only src/ counts');
     const u = run({ files: ['src/reader/index.js', 'src/shared/utils.js'] });
@@ -226,6 +262,9 @@ test('(f) fix-needs-test: a fix: / fix(scope): title needs a tests/ change or a 
         assert.deepEqual(rules(run({ title, files: ['src/reader/index.js'], body: `${GOOD}\nno-test rationale: a colour only a person can judge.` })), []);
         assert.deepEqual(rules(run({ title, files: ['src/reader/index.js'], body: `${GOOD}\n- No-test rationale: copy change.` })), []);
         assert.deepEqual(rules(run({ title, files: ['src/reader/index.js'], body: `${GOOD}\nno-test rationale:` })), ['fix-needs-test'], 'empty');
+        assert.deepEqual(rules(run({ title, files: ['src/reader/index.js'], body: `${GOOD}\nno-test rationale: tbd` })), ['fix-needs-test'], 'TBD');
+        assert.deepEqual(rules(run({ title, files: ['src/reader/index.js'], body: `${GOOD}\nno-test rationale:\n\n- [ ] Chrome` })), ['fix-needs-test'], 'a checkbox is not a rationale');
+        assert.deepEqual(rules(run({ title, files: ['src/reader/index.js'], body: `${GOOD}\nno-test rationale:\na colour only a person can judge.` })), [], 'the rationale on the next line');
     }
     for (const title of ['feat: x', 'chore(deps): x', 'docs: fix typo', 'prefix: x']) {
         assert.deepEqual(rules(run({ title, files: ['src/reader/index.js'] })), [], title);
@@ -257,6 +296,13 @@ test('(g) journal-presence: every process-file glob needs a docs/journal/ change
     assert.match(bad.failures[0].message, /2026-02-30: no entry on that date/);
     assert.deepEqual(rules(run({ files: ['CLAUDE.md'], body: `${GOOD}\nSee ${bogus}.`, journalDates: null })), [], 'no journal set given: any well-formed date');
     assert.deepEqual(rules(run({ files: [{ filename: 'CLAUDE.md' }, { filename: 'docs/journal/2026-08.md', status: 'removed' }] })), ['journal-presence'], 'deleting a month is not an entry');
+    assert.deepEqual(rules(run({ files: [{ filename: 'CLAUDE.md', additions: 1, deletions: 0 }, { filename: 'docs/journal/2026-09.md', status: 'modified', additions: 0, deletions: 4 }] })), ['journal-presence'], 'nor is trimming one');
+    // The CI path: git diff --numstat carries no status, only line counts.
+    const ns = (text) => rules(run({ files: parseFileList(text) }));
+    assert.deepEqual(ns('0\t500\tdocs/journal/2026-01.md\n3\t0\tCLAUDE.md'), ['journal-presence'], 'numstat: a month deleted');
+    assert.deepEqual(ns('0\t2\tdocs/journal/2026-09.md\n3\t0\tCLAUDE.md'), ['journal-presence'], 'numstat: lines only removed');
+    assert.deepEqual(ns('9\t0\tdocs/journal/2026-09.md\n3\t0\tCLAUDE.md'), [], 'numstat: an entry added');
+    assert.deepEqual(ns('1\t1\tdocs/journal/2026-09.md\n3\t0\tCLAUDE.md'), [], 'numstat: an entry changed');
     assert.deepEqual(citedJournalDates('docs/JOURNAL.md 2026-09-07; the JOURNAL entry of 2026-09-21; JOURNAL (2026-09-24)'), ['2026-09-07', '2026-09-21', '2026-09-24']);
 });
 
@@ -313,8 +359,22 @@ test('CLI: reads an event payload and a file list, exits 1 on failure and 0 on p
     assert.match(text, /^::error title=PR body verification-layer::/m);
     assert.match(text, /nope%250A::warning::pwned/, 'a %-sequence in PR text is escaped, so the runner cannot decode it into a new line');
     for (const l of text.split('\n')) assert.ok(!/^::(?:set-output|warning::pwned)/.test(l), 'body text never starts a workflow-command line');
+    // The runner reads the legacy `##[cmd]` form ANYWHERE in a line: no
+    // PR-controlled text (a value, a step count, a file path) carries one out.
+    writeFileSync(ev, JSON.stringify({ title: 'chore: x', body: 'Verification layer: ##[warning]a\nDocs: none\nInterpretive steps (##[error]b):', user: { login: 'a' } }));
+    writeFileSync(files, JSON.stringify([{ filename: 'src/##[add-mask]c.js', additions: 1, deletions: 0 }]));
+    const out3 = [];
+    assert.equal(main(['--event', ev, '--files', files], { env: { GITHUB_ACTIONS: 'true' }, stdout: (s) => out3.push(s), stderr: () => {} }), 1);
+    assert.match(out3.join(''), /##\\\[warning\]a/, 'quoted, but inert');
+    assert.ok(!/##\[/.test(out3.join('')), 'no legacy workflow command survives');
     const git = (args) => ({ status: 0, stdout: '4\t0\tsrc/reader/index.js\n', stderr: '', args });
     assert.equal(main(['--event', ev, '--base', 'HEAD^1', '--head', 'HEAD'], { env: {}, stdout: () => {}, stderr: () => {}, git }), 1);
+    // End to end on the CI path: a journal month only trimmed is no entry.
+    writeFileSync(ev, JSON.stringify({ title: 'chore: x', body: GOOD, user: { login: 'a' } }));
+    const trim = () => ({ status: 0, stdout: '0\t40\tdocs/journal/2026-08.md\n2\t0\tCLAUDE.md\n', stderr: '' });
+    const out4 = [];
+    assert.equal(main(['--event', ev, '--base', 'HEAD^1', '--head', 'HEAD'], { env: {}, stdout: (s) => out4.push(s), stderr: () => {}, git: trim }), 1);
+    assert.match(out4.join(''), /^FAIL journal-presence: /m);
     assert.equal(main([], { env: {}, stdout: () => {}, stderr: () => {} }), 2, 'nothing to check is a usage error');
     const dates = readJournalDates(join(ROOT, 'docs', 'journal'));
     assert.ok(dates.has('2026-09-21') && dates.size >= 50, `the real JOURNAL dates are read (${dates.size})`);
@@ -327,7 +387,11 @@ test('workflow: its own file, the right triggers, read-only, and the PR title/bo
     assert.match(wf, /types: \[opened, edited, synchronize, reopened, ready_for_review\]/);
     assert.match(wf, /^permissions:\n {2}contents: read$/m);
     assert.ok(!/pull_request_target/.test(wf.replace(/^\s*#.*$/gm, '')), 'never pull_request_target');
-    assert.ok(!/\$\{\{[^}]*(?:pull_request\.(?:body|title|head\.ref)|head_ref)[^}]*\}\}/.test(wf), 'no attacker-controlled text in an expression');
+    const code = wf.replace(/^\s*#.*$/gm, '');
+    const exprs = [...code.matchAll(/\$\{\{\s*([^}]*?)\s*\}\}/g)].map((m) => m[1]);
+    assert.deepEqual([...new Set(exprs)], ['github.event.pull_request.number'], 'the only expression is the PR number (the concurrency key): no PR text is ever interpolated');
+    assert.equal(code.match(/^\s*permissions:/gm).length, 1, 'one permissions block — no job-level override');
+    assert.ok(!/\bwrite\b|write-all|read-all/.test(code), 'no write scope anywhere');
     assert.match(wf, /node scripts\/pr-body-check\.mjs --base HEAD\^1 --head HEAD/);
     assert.match(wf, /fetch-depth: 2/);
     assert.ok(!/pr-body-check/.test(readFileSync(join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8')), 'not a ci.yml step');

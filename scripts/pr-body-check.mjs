@@ -19,8 +19,9 @@
 //   fix-needs-test      a `fix:`/`fix(…):` title needs a tests/ diff or a
 //                       `no-test rationale: <why>` line.
 //   journal-presence    a PR touching a process file (PROCESS_FILES) adds
-//                       or changes a docs/journal/YYYY-MM.md entry, or its
-//                       body cites an existing `JOURNAL YYYY-MM-DD`.
+//                       or changes a docs/journal/YYYY-MM.md entry (adds
+//                       lines there; a deletion-only diff is no entry), or
+//                       its body cites an existing `JOURNAL YYYY-MM-DD`.
 // WARNINGS, never failures: size-cap (> 400 changed src/ lines — §8 exempts
 // pure git mv / re-export PRs, which a line count cannot tell apart), a
 // malformed `Wire format:` value where none is required, and an
@@ -28,8 +29,10 @@
 //
 // HTML comments and fenced code blocks are stripped before parsing, so
 // the template's own guidance (and a quoted example) never satisfies a
-// check. Dependabot PRs are skipped. Labels are the contract's literals,
-// matched at line start through list markers, heading hashes and bold.
+// check (a `<!--` inside inline code or a fence is text, as GitHub shows
+// it). Dependabot PRs are skipped. Labels are the contract's literals,
+// matched at line start through list markers, heading hashes and bold;
+// the value goes after the colon or on the next non-blank line.
 //
 // Provenance: INTERPRETATION (2026-09-25) — an agent artifact under
 // RESET_PLAN R0; the maintainer has not ruled on it. Not a required
@@ -94,25 +97,60 @@ Exit codes: 0 no failures (warnings allowed) or a skipped Dependabot PR;
 
 // ---------------------------------------------------------------- parsing
 
+/** Index of the next backtick run of exactly n at or after `from` in line, or -1. */
+function closingRun(line, from, n) {
+    const re = /`+/g;
+    re.lastIndex = from;
+    for (let m = re.exec(line); m; m = re.exec(line)) if (m[0].length === n) return m.index;
+    return -1;
+}
+
 /**
  * CRLF → LF, then blank out HTML comments (an unterminated one runs to
- * the end, as GitHub renders it) and fenced code blocks. Line breaks are
- * kept, so a line number in a message is the body's own line number.
+ * the end, as GitHub renders it) and fenced code blocks, in one pass so
+ * each hides the other as GitHub does: a `<!--` inside a fence or an
+ * inline code span is literal text, and a fence inside a comment is
+ * comment. Line breaks are kept, so a line number in a message is the
+ * body's own line number.
  */
 export function stripNonAsserted(body) {
-    const text = String(body ?? '').replace(/\r\n?/g, '\n')
-        .replace(/<!--[\s\S]*?(?:-->|$)/g, (c) => c.replace(/[^\n]/g, ''));
     const out = [];
-    let fence = null;
-    for (const line of text.split('\n')) {
-        const m = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+    let fence = null;          // the open fence's marker run
+    let comment = false;       // inside an HTML comment
+    for (const line of String(body ?? '').replace(/\r\n?/g, '\n').split('\n')) {
         if (fence) {
-            if (m && m[1][0] === fence[0] && m[1].length >= fence.length && /^\s{0,3}[`~]+\s*$/.test(line)) fence = null;
+            const c = /^\s{0,3}(`{3,}|~{3,})\s*$/.exec(line);
+            if (c && c[1][0] === fence[0] && c[1].length >= fence.length) fence = null;
             out.push('');
             continue;
         }
-        if (m) fence = m[1];
-        out.push(fence ? '' : line);
+        const f = comment ? null : /^\s{0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+        if (f && !(f[1][0] === '`' && f[2].includes('`'))) {     // a backtick fence's info string has no backtick
+            fence = f[1];
+            out.push('');
+            continue;
+        }
+        let kept = '';
+        for (let i = 0; i < line.length;) {
+            if (comment) {
+                const end = line.indexOf('-->', i);
+                if (end < 0) break;
+                comment = false;
+                i = end + 3;
+            } else if (line[i] === '`') {                          // an inline code span, kept as written
+                const run = /^`+/.exec(line.slice(i))[0].length;
+                const close = closingRun(line, i + run, run);
+                const to = close < 0 ? i + run : close + run;
+                kept += line.slice(i, to);
+                i = to;
+            } else if (line.startsWith('<!--', i)) {
+                comment = true;
+                i += 4;
+            } else {
+                kept += line[i++];
+            }
+        }
+        out.push(kept);
     }
     return out.join('\n');
 }
@@ -134,6 +172,8 @@ const STEPS_RE = new RegExp(`${LEAD}Interpretive steps\\s*\\(([^)]*)\\)(?:\\*\\*
 const STEPS_LOOSE_RE = new RegExp(`${LEAD}Interpretive steps\\b`);
 const HEADING_RE = /^\s{0,3}#{1,6}\s/;
 const ITEM_RE = /^(\s*)(?:[-*+]|\d+[.)])\s+\S/;
+const MARKER_RE = /^\s*(?:[-*+]|\d+[.)])\s+/;
+const TASK_RE = /^\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\]/;
 const FIELD_RES = [...Object.values(LABELS).map(labelRe), STEPS_LOOSE_RE];
 const isFieldLine = (line) => FIELD_RES.some((re) => re.test(line));
 const indentOf = (line) => /^\s*/.exec(line)[0].length;
@@ -143,17 +183,23 @@ export function cleanValue(v) {
     return String(v ?? '').replace(/`/g, '').replace(/\*\*|__/g, '').trim();
 }
 
-/** First line carrying `label:` → { value, line } (1-based line), or null. A bare heading takes the next text line as its value. */
+/**
+ * First line carrying `label:` → { value, line } (1-based line), or null.
+ * A label with nothing after its colon takes the next non-blank line as
+ * its value (the template's layout: the answer replaces the comment
+ * under the label), list marker dropped — unless that line is a heading,
+ * another contract label or a task-list checkbox, which leave it empty.
+ */
 export function findField(lines, label) {
     const re = labelRe(label);
     for (let i = 0; i < lines.length; i++) {
         const m = re.exec(lines[i]);
         if (!m) continue;
         let value = cleanValue(m[2]);
-        if (!value && m[1]) {
+        if (!value) {
             for (let j = i + 1; j < lines.length; j++) {
                 if (!lines[j].trim()) continue;
-                if (!HEADING_RE.test(lines[j]) && !isFieldLine(lines[j])) value = cleanValue(lines[j]);
+                if (!HEADING_RE.test(lines[j]) && !isFieldLine(lines[j]) && !TASK_RE.test(lines[j])) value = cleanValue(lines[j].replace(MARKER_RE, ''));
                 break;
             }
         }
@@ -198,7 +244,7 @@ export function citedJournalDates(text) {
 }
 
 const MENU_RE = /\s\|\s/;
-const isPlaceholder = (s) => /^<[^>]*>$/.test(s) || /^(?:…|\.\.\.)$/.test(s);
+const isPlaceholder = (s) => /^<[^>]*>$/.test(s) || /^(?:…|\.\.\.|\?+|tbd|tbc|tba|todo|xxx)[.!:]?$/i.test(s);
 const quote = (s) => `"${String(s).replace(/[\u0000-\u001f\u007f`"]/g, ' ').slice(0, 80)}${String(s).length > 80 ? '…' : ''}"`;
 
 /** Leading run of allowed tokens joined by + , / & or "and" → { tokens, rest }. */
@@ -345,13 +391,15 @@ export function checkPr({ title = '', body = '', author = '', files = [], journa
     // (g) JOURNAL presence for process-file PRs.
     const processFiles = paths.filter(isProcessFile);
     if (processFiles.length) {
-        const journalDiff = changed.some((f) => isJournalFile(f.path) && f.status !== 'removed');
+        // An entry means added text: a removed month, or a diff that only
+        // deletes lines (numstat's added count 0), cites no friction.
+        const journalDiff = changed.some((f) => isJournalFile(f.path) && f.status !== 'removed' && f.additions !== 0);
         const cites = citedJournalDates(lines.join('\n'));
         const known = journalDates ? new Set(journalDates) : null;
         const good = cites.filter((d) => !known || known.has(d));
         if (!journalDiff && !good.length) {
             const bad = cites.filter((d) => known && !known.has(d));
-            fail('journal-presence', `process file(s) changed (${processFiles.slice(0, 4).join(', ')}${processFiles.length > 4 ? ', …' : ''}) with no docs/journal/YYYY-MM.md change and no cited JOURNAL entry${bad.length ? ` (cited ${bad.join(', ')}: no entry on that date)` : ''}`,
+            fail('journal-presence', `process file(s) changed (${processFiles.slice(0, 4).join(', ')}${processFiles.length > 4 ? ', …' : ''}) with no docs/journal/YYYY-MM.md lines added and no cited JOURNAL entry${bad.length ? ` (cited ${bad.join(', ')}: no entry on that date)` : ''}`,
                 'add an entry at the bottom of docs/journal/YYYY-MM.md naming the friction this relieves (then npm run docs:journal), or cite an existing one as "JOURNAL YYYY-MM-DD"');
         }
     }
@@ -367,13 +415,19 @@ export function checkPr({ title = '', body = '', author = '', files = [], journa
     return result;
 }
 
+// A report line may quote PR-controlled text (a value, a step count, a
+// file path). The runner reads a `::cmd` only at line start, but the
+// legacy `##[cmd]` form anywhere in a line, so each line is one line and
+// carries no `##[`.
+const inert = (s) => String(s).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/##\[/g, '##\\[');
+
 /** One line per failure (rule + fix), then warnings and notes. */
 export function formatReport(result) {
     if (result.skipped) return `pr-body-check: skipped — ${result.skipped}\n`;
     const out = [`pr-body-check: ${result.failures.length} failure(s), ${result.warnings.length} warning(s) — RESET_PLAN §8 PR body contract (.github/pull_request_template.md)`];
-    for (const f of result.failures) out.push(`FAIL ${f.rule}: ${f.message} — fix: ${f.fix}`);
-    for (const w of result.warnings) out.push(`WARN ${w.rule}: ${w.message} — fix: ${w.fix}`);
-    for (const n of result.notes) out.push(`NOTE ${n}`);
+    for (const f of result.failures) out.push(`FAIL ${f.rule}: ${inert(f.message)} — fix: ${inert(f.fix)}`);
+    for (const w of result.warnings) out.push(`WARN ${w.rule}: ${inert(w.message)} — fix: ${inert(w.fix)}`);
+    for (const n of result.notes) out.push(`NOTE ${inert(n)}`);
     return `${out.join('\n')}\n`;
 }
 
@@ -460,8 +514,8 @@ export function main(argv, deps = {}) {
         const report = formatReport(result);
         out(report);
         if (env.GITHUB_ACTIONS === 'true') {
-            for (const f of result.failures) out(`::error title=PR body ${f.rule}::${escData(`${f.message} — fix: ${f.fix}`)}\n`);
-            for (const w of result.warnings) out(`::warning title=PR body ${w.rule}::${escData(`${w.message} — fix: ${w.fix}`)}\n`);
+            for (const f of result.failures) out(`::error title=PR body ${f.rule}::${escData(inert(`${f.message} — fix: ${f.fix}`))}\n`);
+            for (const w of result.warnings) out(`::warning title=PR body ${w.rule}::${escData(inert(`${w.message} — fix: ${w.fix}`))}\n`);
         }
         if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, `### PR body check\n\n\`\`\`\n${report.replace(/`/g, "'")}\`\`\`\n`);
         return result.failures.length ? 1 : 0;
