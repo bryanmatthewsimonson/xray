@@ -36,8 +36,8 @@
 // removal's deletes — follow-ups). Earlier cuts of this branch mixed a
 // strict per-call pointer into ordinary paths, and each review found a
 // new straddle between the two (the verifiers' probes S1–S3, erase2/race,
-// P1–P6, T4, T6–T8, the case-bundle probe and the join test below are the
-// permanent observers).
+// P1–P6, T4, T6–T8, the case-bundle and ABA probes and the join test below
+// are the permanent observers).
 //
 // Each test models extension PAGES as module instances of
 // entity-model.js (`?page=B` gives a second instance) over one
@@ -982,6 +982,54 @@ test('T8: an import judging "is a key installed?" while the Map has not caught u
     assert.deepEqual(Object.keys(w), [E1], 'no foreign shadow of wsb\'s own keyed entity was adopted');
     assert.equal(adopted.id, E1, 'importForeign returns the local keyed entity');
     assert.ok(readJson('ws:wsb:local_keys')[kn].privateKey === TV3.privateKey, 'wsb\'s key is still stored (value not printed)');
+});
+
+// ABA (the verifiers' last probe): a switch THERE AND BACK around the two
+// imports' key read. The pointer names the planned workspace again by the
+// write, so the pin alone passes, but the key list came from the other
+// workspace. Both imports refuse unless the pointer held still
+// (Storage.workspaceEpoch) from before that read to the write.
+test('ABA: a pinned importRecord whose key read lands in another workspace, the pointer back by its write, writes nothing — never judged from that workspace\'s keys', async () => {
+    await reset();
+    const kn = `entity:${E1}`;
+    seed('entities', { [E1]: row(E1, 'Shared Name', { keyName: null, foreign_pubkey: TV1.pubkey }) });
+    seed('local_keys', { [kn]: keyRecord(kn, TV2) });   // default holds the key (a bundle's importKey just installed it)
+    seed('ws:wsb:local_keys', {});                      // wsb holds none
+    await otherPageSwitchesTo('wsb');
+    const before = _store.get('entities');
+    const unhook = onKeyRead((k) => k === 'ws:wsb:local_keys', () => { switchNow('default'); return settle(); });
+    let err;
+    try { err = await attempt(() => A.importRecord({ id: E1, name: 'Shared Name', type: 'person' }, { workspace: 'default' })); } finally { assert.ok(unhook(), 'sanity: the key read went to wsb'); }
+    await settle();
+    assert.equal(_store.get('entities'), before, 'default\'s record is untouched — not re-written foreign from wsb\'s key list');
+    assert.equal(_store.get('ws:wsb:entities'), undefined, 'and nothing was written into wsb');
+    assert.equal(err && err.name, 'StoreRefusedError');
+    assertRefused(err, 'importRecord');
+    const retried = await A.importRecord({ id: E1, name: 'Shared Name', type: 'person' }, { workspace: 'default' });
+    assert.ok(retried.keyName === kn && !retried.foreign_pubkey, 'with the pointer still, the retry judges from default\'s own keys: keyed');
+});
+
+test('ABA: an importForeign whose key read lands in another workspace, the pointer back by its write, adopts nothing — never a foreign shadow of the page\'s own keyed entity', async () => {
+    await reset();
+    const kn = `entity:${E1}`;
+    seed('entities', { [E1]: row(E1, 'Mine') });
+    seed('local_keys', { [kn]: keyRecord(kn, TV2) });   // default: E1 holds TV2
+    seed('ws:wsb:local_keys', {});                      // wsb holds none
+    _areaListeners[0]({ active_workspace: { newValue: JSON.stringify('default') } });   // storage.js's own listener: a cold cache
+    let unhookKeys = () => false;
+    const unhookPointer = onKeyRead((k) => k === 'active_workspace', async () => {   // the import's pointer read took 'default' ...
+        switchNow('wsb');                                                             // ... another page switches before it returns ...
+        await settle();                                                              // (the keystore's own refresh runs in wsb)
+        unhookKeys = onKeyRead((k) => k === 'ws:wsb:local_keys', () => { switchNow('default'); return settle(); });   // ... and back, around the key read
+    });
+    const before = _store.get('entities');
+    let err;
+    try { err = await attempt(() => A.importForeign({ name: 'Somebody', type: 'person', pubkey: TV2.pubkey })); } finally { assert.ok(unhookPointer() && unhookKeys(), 'sanity: the pointer read and the key read both landed'); }
+    await settle();
+    assert.equal(_store.get('entities'), before, 'no foreign shadow of default\'s own keyed E1 was adopted');
+    assertRefused(err, 'importForeign');
+    const again = await A.importForeign({ name: 'Somebody', type: 'person', pubkey: TV2.pubkey });
+    assert.equal(again.id, E1, 'with the pointer still, the retry returns the local keyed entity');
 });
 
 test('a destructive check on a cold cache adopts the pointer it verified — no fallback read is cached behind it', async () => {

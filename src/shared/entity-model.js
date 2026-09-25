@@ -472,9 +472,10 @@ export const EntityModel = {
         // from the row. A caller-supplied keyName could bind the record
         // to the reserved `xray:user` primary-identity slot.
         const derivedKeyName = `entity:${row.id}`;
-        const ws = workspace ?? await Storage.activeWorkspaceId(), keys = await readRegistryStrict('local_keys');   // ONE workspace
+        const ws = workspace ?? await Storage.activeWorkspaceId(), epoch = Storage.workspaceEpoch(), keys = await readRegistryStrict('local_keys');   // ONE workspace
 
         await mutateRegistry((all) => {
+        if (Storage.workspaceEpoch() !== epoch) throw storeRefusal('EntityModel', 'the workspace changed since its keys were read');   // ws→other→ws
         const existing = all[row.id];
         // Foreign keyless rows (KS.3): a row carrying a foreign_pubkey
         // imports keyless — unless a local key is already installed
@@ -581,9 +582,10 @@ export const EntityModel = {
         const pk = pubkey.toLowerCase();
         const hash = await Crypto.sha256('foreign:' + pk);
         const id = `entity_${hash.slice(0, 16)}`;
-        const ws = await Storage.activeWorkspaceId(), keys = await readRegistryStrict('local_keys');   // ONE workspace
+        const ws = await Storage.activeWorkspaceId(), epoch = Storage.workspaceEpoch(), keys = await readRegistryStrict('local_keys');   // ONE workspace
 
         const keyedId = await mutateRegistry((all) => {
+        if (Storage.workspaceEpoch() !== epoch) throw storeRefusal('EntityModel', 'the workspace changed since its keys were read');   // ws→other→ws
         for (const record of Object.values(all)) {
             if (!record.keyName) continue;
             const key = keys[record.keyName];
