@@ -27,7 +27,7 @@ import { join } from 'node:path';
 import {
     createLlmJobRunner, runLlmJob, ackLlmJob, findLlmJob, llmJobScopeKey,
     isLlmJobKey, jobStorageKey, LLM_JOB_LOST_ERROR, LLM_JOB_PASSES, LLM_JOB_TTL_MS,
-    LLM_JOB_STATUS_WAIT_MAX_MS, LLM_JOB_KEY_PREFIX
+    LLM_JOB_STATUS_WAIT_MAX_MS, LLM_JOB_KEY_PREFIX, jobElapsedSeconds
 } from '../src/shared/llm-jobs.js';
 import { memoryArea, createJobStub } from './helpers/llm-job-stub.mjs';
 
@@ -444,6 +444,17 @@ test('runLlmJob: an unsuccessful pass result is returned as-is (with jobId) and 
     assert.ok(!(jobStorageKey(out.jobId) in stub.area.store), 'nothing worth keeping');
 });
 
+test('client: the elapsed counter is anchored to the RECORD\'s start, so a reattached tab does not restart at 0', () => {
+    const now = 1_000_000;
+    // A status reply carries createdAt (publicView) — that anchors the clock.
+    assert.equal(jobElapsedSeconds({ createdAt: now - 95_000 }, now - 2_000, now), 95);
+    // No createdAt on the reply → the page's own start.
+    assert.equal(jobElapsedSeconds({}, now - 2_000, now), 2);
+    assert.equal(jobElapsedSeconds(null, now - 2_000, now), 2);
+    // A record from the future (clock skew) never reads as negative.
+    assert.equal(jobElapsedSeconds({ createdAt: now + 5_000 }, now, now), 0);
+});
+
 // ---- source guards ----
 
 const strip = (x) => x.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
@@ -500,6 +511,11 @@ test('GUARD: no page sends the retired single-message types; every map/reduce/pa
         assert.match(strip(read(rel)), /runLlmJob\(\{/, `${rel} does not use the job client`);
         assert.match(strip(read(rel)), /ackLlmJob\(/, `${rel} never releases its job record`);
     }
+    // The two long-poll surfaces show elapsed time — anchored to the
+    // record, never a page-local clock (a reload restarted it at 0).
+    for (const rel of ['src/portal/synthesis-block.js', 'src/portal/entity-page-block.js']) {
+        assert.match(strip(read(rel)), /jobElapsedSeconds\(st,/, `${rel} times the job from a page-local clock`);
+    }
 });
 
 test('GUARD (copy): the synthesis failure names the stage that re-runs and that the reduce re-bills', () => {
@@ -507,6 +523,8 @@ test('GUARD (copy): the synthesis failure names the stage that re-runs and that 
     assert.ok(!src.includes('make the retry cheap'), 'the misleading "retry cheap" copy is back');
     assert.match(src, /re-runs only the synthesis stage/);
     assert.match(src, /billed again/);
+    // A failure with an older brief still on screen says whose brief it is.
+    assert.match(src, /from the previous run and is unchanged/);
     assert.match(src, /extracts are cached/);
 });
 

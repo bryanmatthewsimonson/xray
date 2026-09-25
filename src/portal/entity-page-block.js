@@ -29,7 +29,7 @@ import { getArticle } from '../shared/archive-cache.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { resolveActiveCaseRef } from '../shared/case-membership.js';
-import { runLlmJob, ackLlmJob, llmJobScopeKey } from '../shared/llm-jobs.js';
+import { runLlmJob, ackLlmJob, llmJobScopeKey, jobElapsedSeconds } from '../shared/llm-jobs.js';
 import { Signer } from '../shared/signer.js';
 import { Storage } from '../shared/storage.js';
 import { EntityModel } from '../shared/entity-model.js';
@@ -185,7 +185,8 @@ export function mountEntityPageBlock(host, { entityId } = {}) {
                 },
                 onTick: (st) => {
                     if (st.status !== 'running') return;
-                    status.textContent = `Writing the page… ${Math.round((Date.now() - writeStartedAt) / 1000)}s`;
+                    // Anchored to the record's own start (survives a reload).
+                    status.textContent = `Writing the page… ${jobElapsedSeconds(st, writeStartedAt)}s`;
                 }
             });
             if (!res || !res.ok) {

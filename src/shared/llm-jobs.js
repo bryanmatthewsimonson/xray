@@ -517,6 +517,23 @@ export async function runLlmJob({
     }
 }
 
+/**
+ * Seconds a job has been running, anchored to the RECORD's own start
+ * (`createdAt` on a status reply) rather than the page's — so a tab
+ * that reattaches to a running job after a reload shows the real
+ * elapsed time, not a counter restarted at 0. Falls back to the page's
+ * own start when the reply carries none. Never negative.
+ *
+ * @param {object} st               a status reply (publicView shape)
+ * @param {number} fallbackStartedAt the page's own Date.now() at start
+ * @param {number} [now]
+ * @returns {number}
+ */
+export function jobElapsedSeconds(st, fallbackStartedAt, now = Date.now()) {
+    const startedAt = st && Number.isFinite(st.createdAt) ? st.createdAt : fallbackStartedAt;
+    return Math.max(0, Math.round((now - startedAt) / 1000));
+}
+
 /** Delete a job record once its result is safely persisted page-side. */
 export async function ackLlmJob(sendMessage, jobId) {
     if (typeof jobId !== 'string' || !jobId) return { ok: false };
