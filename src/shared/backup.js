@@ -51,7 +51,7 @@ import { WORKSPACE_DATABASES } from './identity-profiles.js';
 import { withKeyStoreLock } from './local-key-manager.js';
 import { withEntityStoreLock } from './entity-model.js';
 import { Storage } from './storage.js';
-import { WORKSPACE_CONTENT_KEYS, workspaceDbName, storageLastError, StoreRefusedError } from './workspace-keys.js';
+import { WORKSPACE_CONTENT_KEYS, workspaceDbName, StoreRefusedError } from './workspace-keys.js';
 import { LLM_KEY_STORAGE } from './llm-prompts.js';
 import { isLlmJobKey } from './llm-jobs.js';
 import {
@@ -324,10 +324,15 @@ function storageArea() {
 // A failed read REJECTS: read as `{}`, a merge wrote the file over local (JOURNAL 2026-09-25).
 function areaGetAll(area) {
     return new Promise((resolve, reject) => area.get(null, (all) => {
-        const err = storageLastError();
+        const err = Storage.lastError();
         if (err || !all) reject(new Error('reading extension storage failed: ' + ((err && err.message) || 'no result')));
         else resolve(all);
     }));
+}
+
+// Before each database: still the verified `ws` (its opener resolves the cache in this same microtask chain).
+async function stillOn(ws, label) {
+    if (await Storage.verifiedWorkspaceId(label).catch(() => null) !== ws) throw new StoreRefusedError(`${label}: the workspace changed or became unreadable mid-operation — stopped`);
 }
 
 // Under the locks: still the verified `ws`, current storage read strictly — else refused.
@@ -336,12 +341,14 @@ async function writeScope(ws, label) {
     return areaGetAll(storageArea()).catch((err) => { throw new StoreRefusedError(`${label}: ${err.message} — nothing written`); });
 }
 
+// A failed remove or write rejects: ignored, a restore could empty the workspace and report success.
+const settled = (resolve, reject, what) => () => { const e = Storage.lastError(); if (e) reject(new Error(`${what} failed: ${e.message || e}`)); else resolve(); };
 function areaRemove(area, keys) {
-    return new Promise((resolve) => area.remove(keys, () => resolve()));
+    return new Promise((resolve, reject) => area.remove(keys, settled(resolve, reject, 'removing storage keys')));
 }
 
 function areaSet(area, obj) {
-    return new Promise((resolve) => area.set(obj, () => resolve()));
+    return new Promise((resolve, reject) => area.set(obj, settled(resolve, reject, 'writing storage')));
 }
 
 // 28.1 scope: the backup carries the ACTIVE workspace's content keys
@@ -468,6 +475,7 @@ export async function collectBackup({ includeSourceBytes = true, shareable = fal
     const databases = {};
     for (const name of WORKSPACE_DATABASES) {
         const skipStores = includeSourceBytes ? [] : (BYTE_STORES[name] || []);
+        await stillOn(ws, 'backup export');
         databases[name] = await dumpDatabase(name, { skipStores });
     }
     let storage = await collectStorage(ws);
@@ -611,6 +619,7 @@ export async function applyBackup(backup, { warn = () => {} } = {}) {
             warn(`backup restore: database ${name} not covered — skipped`);
             continue;
         }
+        await stillOn(ws, 'backup restore');
         await restoreDatabase(name, dump, { warn });
     }
 }
@@ -841,6 +850,7 @@ export async function mergeBackup(backup, { warn = () => {}, onProgress = () => 
             continue;
         }
         try {
+            await stillOn(ws, 'backup merge');   // a moved pointer fails THIS database, reported below
             databases[name] = await mergeIntoDatabase(name, dump, { warn, onProgress });
         } catch (err) {
             const message = (err && err.message) || String(err);

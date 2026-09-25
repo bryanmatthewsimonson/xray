@@ -550,7 +550,8 @@ test('workspace switch with the change event withheld: the write still reads the
     await A.init();
     muteEvents();
     await Storage.setActiveWorkspaceId('wsb');
-    assert.ok(A.getKey('entity:a'), 'precondition: A\'s map still lists workspace-default keys');
+    assert.ok(A.keys.has('entity:a'), 'precondition: A\'s map still holds workspace-default keys…');
+    assert.equal(A.getKey('entity:a'), null, '…but serves none of them while the page is on wsb (JOURNAL 2026-09-25)');
     await A.installDerivedKey('entity:n', TV3.privateKey, {});
     assert.deepEqual(storedNames('ws:wsb:local_keys'), ['entity:n'], 'no default-workspace key leaked into wsb');
     assert.deepEqual(storedNames('local_keys'), ['entity:a']);

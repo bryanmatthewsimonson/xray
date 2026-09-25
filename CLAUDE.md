@@ -160,15 +160,20 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   scope (`workspace-keys.js` defers to `storage.js`'s cache once it
   loads) — resolves the workspace through `storage.js`'s cached
   pointer, which reads a failed pointer read as `'default'` and caches
-  it until the pointer next changes: a fault misroutes a page
-  consistently, never across two workspaces. The destructive wholesale
+  it until the pointer next changes; callers that find the cache empty
+  share ONE read. So a fault misroutes a page consistently. The
+  keystore Map serves a key only while the pointer names the workspace
+  the Map was loaded under, and a step of an operation planned in one
+  workspace (entity create / delete, the sync pull, key restore) is
+  refused, never redone in another. The destructive wholesale
   operations (reset, workspace removal, backup restore / merge /
   export, the reset's safety backup) first re-read the pointer strictly
   (`Storage.verifiedWorkspaceId`) and refuse with a `StoreRefusedError`
   — nothing written or downloaded — when that read fails or disagrees
-  with the cache; the reset also refuses any workspace but the one its
-  safety file names. Never add a second pointer read to an ordinary
-  path.
+  with the cache; all but the removal then re-verify before each
+  database or key they touch, and a reset handed its safety file's
+  `workspace` (Options passes it) refuses any other. Never add a
+  second pointer read to an ordinary path.
 - **`signer.js`** — unified signing façade over Local / NIP-07 /
   NSecBunker, dispatched on `preferences.signing_method`. NIP-07 only works
   where a `nip07Client` is injected (`Signer.configure({ nip07Client })`),

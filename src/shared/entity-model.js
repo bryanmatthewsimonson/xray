@@ -214,13 +214,11 @@ function synthesizeForeignKeypair(record) {
     return { pubkey: record.foreign_pubkey, privateKey: null, npub, nsec: null };
 }
 
-// ONE REGISTRY, MANY PAGES (JOURNAL 2026-09-25): every write is a locked read-modify-write
-// of a FRESH strict read (lock `xray.entities`), async work BEFORE the lock; planning reads
-// are strict, display reads plain. Wholesale writers elsewhere take withEntityStoreLock,
-// never calling a writer here.
+// ONE REGISTRY, MANY PAGES (JOURNAL 2026-09-25): every write a locked read-modify-write of a FRESH strict
+// read (`xray.entities`), async work first; wholesale writers elsewhere take withEntityStoreLock.
 const ORIGIN_WHAT = 'EntityModel: the entity registry';
 export const withEntityStoreLock = (fn) => withStoreLock(STORE_LOCKS.entities, fn, ORIGIN_WHAT);
-const mutateRegistry = (apply) => lockedReadModifyWrite({ key: 'entities', label: 'EntityModel', what: ORIGIN_WHAT, apply });
+const mutateRegistry = (apply, workspace) => lockedReadModifyWrite({ key: 'entities', label: 'EntityModel', what: ORIGIN_WHAT, apply, workspace });
 
 async function readRegistryStrict() {
     let all;
@@ -272,8 +270,7 @@ export const EntityModel = {
         return out;
     },
 
-    /** The stored records (no keypair merge), read STRICTLY — to plan a write. */
-    readRecordsStrict: () => readRegistryStrict(),
+    readRecordsStrict: () => readRegistryStrict(),   // the stored records, read STRICTLY — to plan a write
 
     /**
      * Create a new entity. Generates a secp256k1 keypair and a hash-based
@@ -289,6 +286,7 @@ export const EntityModel = {
         assertValidType(type);
 
         const id = await generateEntityId(type, name);
+        const ws = await Storage.activeWorkspaceId();   // the plan's workspace: the record goes there or nowhere
         const all = await readRegistryStrict();
         if (all[id]) {
             const existing = all[id];
@@ -342,7 +340,7 @@ export const EntityModel = {
         // profile instead of silently minting a wrong pubkey. (Legacy
         // pre-Option-C random keys carry null — not recoverable.)
         const child = await Crypto.deriveChildKey(primary.privateKey, ENTITY_KEY_DOMAIN, id);
-        await LocalKeyManager.installDerivedKey(keyName, child, keyMeta);
+        await LocalKeyManager.installDerivedKey(keyName, child, keyMeta, { workspace: ws });
         const derivedFrom = primary.pubkey || Crypto.getPublicKey(primary.privateKey);
 
         const now = Math.floor(Date.now() / 1000);
@@ -360,15 +358,17 @@ export const EntityModel = {
             updated: now
         };
 
-        // Into a FRESH locked read — other pages may have written while the key
-        // install waited; the same entity made meanwhile is kept as it is.
+        // Re-read before writing: the key install above waits on the
+        // cross-page keystore lock, and writing the snapshot read at the
+        // top would erase any entity another page created meanwhile
+        // (JOURNAL 2026-09-24).
         await mutateRegistry((fresh) => {
-            const other = fresh[id];
+            const other = fresh[id];   // the same entity made meanwhile is kept as it is
             if (other && other.type === type && normalizeName(other.name) === normalizeName(name)) return { write: false };
             if (other) throw new Error(`Id collision: entity_${id.slice(7, 15)}… already exists with different type/name`);
             fresh[id] = record;
             return { write: true };
-        });
+        }, ws);
         Utils.log('Created entity:', id, name, type);
         return await EntityModel.get(id);
     },
@@ -403,6 +403,7 @@ export const EntityModel = {
         // empty or stale Map made this re-derive keys that existed —
         // re-keying legacy random-keyed entities (JOURNAL 2026-09-24).
         await LocalKeyManager.refresh();
+        const ws = await Storage.activeWorkspaceId();   // keys and stamps go where the plan was read, or nowhere
         const all = await readRegistryStrict();   // unreadable is an error, never "nothing to restore"
         const restored = [];
         const skipped = [];
@@ -424,7 +425,7 @@ export const EntityModel = {
             try {
                 installed = await LocalKeyManager.installDerivedKey(record.keyName, child, {
                     entityId: record.id, entityName: record.name, entityType: record.type, restored: true
-                });
+                }, { workspace: ws });
             } catch (err) {
                 if (/Key conflict/.test(String(err && err.message))) continue;
                 throw err;
@@ -445,7 +446,7 @@ export const EntityModel = {
                 }
             }
             return { write: dirty };
-            }).catch((err) => { stampFailed = true; Utils.error('restoreDerivedKeys: keys restored, but recording their origin failed:', err); });
+            }, ws).catch((err) => { stampFailed = true; Utils.error('restoreDerivedKeys: keys restored, but recording their origin failed:', err); });
         }
         Utils.log('restoreDerivedKeys:', restored.length, 'restored,', skipped.length, 'skipped (different primary)');
         return { restored, skipped, stampFailed };
@@ -668,12 +669,12 @@ export const EntityModel = {
      */
     delete: async (id) => {
         let unlinkedAliases = 0;
+        const ws = await Storage.activeWorkspaceId();   // the record and its key go from ONE workspace
         const record = await mutateRegistry((all) => {
         const record = all[id];
         if (!record) return { write: false, result: null };
 
         // Unlink aliases that pointed here.
-        unlinkedAliases = 0;
         for (const [otherId, other] of Object.entries(all)) {
             if (other.canonical_id === id) {
                 other.canonical_id = null;
@@ -684,13 +685,13 @@ export const EntityModel = {
 
         delete all[id];
         return { write: true, result: record };
-        });
+        }, ws);
         if (!record) return false;
 
         // Delete the keypair too — the entity no longer signs for
         // anything. The relay-published kind-0 stays, of course.
         if (record.keyName) {
-            try { await LocalKeyManager.deleteKey(record.keyName); } catch (_) { /* best-effort */ }
+            try { await LocalKeyManager.deleteKey(record.keyName, { workspace: ws }); } catch (_) { /* best-effort */ }
         }
 
         if (unlinkedAliases > 0) {
@@ -844,7 +845,7 @@ export const EntityModel = {
     },
 
     /** The pull's write: each `{ row, updated }` (PULLED stamp, 0 if none) replaces only a staler record. */
-    mergePulledRows: (entries) => mutateRegistry((all) => {
+    mergePulledRows: (entries, workspace) => mutateRegistry((all) => {
         const counts = { added: 0, updated: 0, unchanged: 0 };
         for (const { row, updated } of entries) {
             const local = all[row.id];
@@ -854,7 +855,7 @@ export const EntityModel = {
             else       counts.added++;
         }
         return { write: counts.added + counts.updated > 0, result: counts };
-    })
+    }, workspace)
 };
 
 /**

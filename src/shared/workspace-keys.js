@@ -66,22 +66,11 @@ export function workspaceDbName(base, wsId) {
     return (!wsId || wsId === 'default') ? base : `${base}::${wsId}`;
 }
 
-/** `runtime.lastError` of either namespace (Firefox sets it per namespace). */
-export function storageLastError() {
-    try {
-        return (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError)
-            || (typeof browser !== 'undefined' && browser.runtime && browser.runtime.lastError)
-            || null;
-    } catch (_) { return null; }
-}
-
 /** A STORE-level refusal (nothing written): an importer stops on it by `name`; row-level errors stay plain. */
 export class StoreRefusedError extends Error {
     constructor(message) { super(message); this.name = 'StoreRefusedError'; }
 }
 
-// ONE POINTER PER PAGE (JOURNAL 2026-09-25): storage.js registers its CACHED pointer, so the
-// IndexedDB names and the LLM-job scope resolve what its key mapping does, never a second read.
 let pagePointer = null;
 export function usePagePointer(fn) { pagePointer = fn; }
 
@@ -90,7 +79,8 @@ export function usePagePointer(fn) { pagePointer = fn; }
  * call-time only, no import-time chrome dependency, so the
  * dependency-light IDB cache modules can use it and their Node tests
  * (no chrome stub) fall back to 'default' = the bare DB names they
- * have always used. Once storage.js loads, its cached pointer answers.
+ * have always used. storage.js keeps its own CACHED copy for hot
+ * key-mapping, and once it loads that cache answers here too: ONE pointer per page (JOURNAL 2026-09-25).
  */
 export async function activeWorkspaceId() {
     if (pagePointer) return pagePointer();

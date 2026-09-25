@@ -36,6 +36,7 @@
 // routes legacy events to nip04Decrypt with the raw ECDH shared
 // secret. Push remains NIP-44 only — userscript v4.x can read NIP-44.
 
+import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
 import { Utils } from './utils.js';
 import { EventBuilder } from './event-builder.js';
@@ -317,7 +318,8 @@ export async function pullEntities({ userPrivkey, relays, timeoutMs = 8000 }) {
     // key name each installs. That name is ALWAYS `entity:<the pulled
     // record's own id>`: a stored record whose keyName says anything
     // else (the reserved `xray:user` sync slot, another entity's slot)
-    // is refused — a pull never overwrites a key it does not own. STRICT (JOURNAL 2026-09-25).
+    // is refused — a pull never overwrites a key it does not own.
+    const ws = await Storage.activeWorkspaceId();   // STRICT plan; keys and rows land in its workspace or nowhere
     const planned = { ...(await EntityModel.readRecordsStrict()) };
     const winners = [];
     for (const record of records) {
@@ -363,19 +365,19 @@ export async function pullEntities({ userPrivkey, relays, timeoutMs = 8000 }) {
             privateKey: record.keypair.privateKey,
             metadata:   { entityId: record.id, entityType: record.type, entityName: record.name, source: 'sync' },
             created:    record.created || undefined
-        })));
+        })), { workspace: ws });
     } catch (err) {
         out.failed += winners.length;
         Utils.error('pull: installing pulled keys failed — no entity records written', err);
         return out;
     }
 
-    // Phase 4 — the records, merged into a FRESH registry read under the
-    // registry lock (EntityModel.mergePulledRows; a failed read rejects,
-    // nothing written). A record another page made at least as fresh
+    // Phase 4 — the records, merged into a FRESH registry read (the key
+    // write above waited on the lock), strict, under the registry lock
+    // (mergePulledRows). A record another page made at least as fresh
     // meanwhile stays; its key was already replaced above, which for a
     // derived key is the same key.
-    const merged = await EntityModel.mergePulledRows(winners.map(({ record, row }) => ({ row, updated: record.updated || 0 })));
+    const merged = await EntityModel.mergePulledRows(winners.map(({ record, row }) => ({ row, updated: record.updated || 0 })), ws);
     for (const k of ['added', 'updated', 'unchanged']) out[k] += merged[k];
     return out;
 }

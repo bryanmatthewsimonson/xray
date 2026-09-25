@@ -15,28 +15,37 @@
 // and write — plain and strict, the locked writes, the keystore Map and
 // signing, the entity list, the IndexedDB names — resolves the workspace
 // through the page's CACHED pointer with origin/main's rule (a failed
-// pointer read is 'default', cached until the pointer next changes), so
-// nothing read in one workspace is ever written into, or joined with,
-// another. Under that fault a page misroutes CONSISTENTLY into the
-// default workspace, as on main (a named follow-up). The destructive
-// wholesale operations — reset, workspace removal, replace-all restore,
-// merge-import, export, the reset's safety file — are the ones a misroute
-// would turn into erasure, so they first re-read the pointer strictly and
-// refuse unless it agrees with the cache. Earlier cuts of this branch
-// mixed a strict per-call pointer into ordinary paths, and each review
-// found a new straddle between the two (the verifiers' probes S1–S3 and
-// the join test below are the permanent observers).
+// pointer read is 'default', cached until the pointer next changes).
+// Callers that find the cache empty share ONE read (single flight), and a
+// read that started before a switch never fills the cache after it, so a
+// page never holds two answers. Under that fault a page misroutes
+// CONSISTENTLY into the default workspace, as on main (a named
+// follow-up). The keystore Map answers only while the pointer names the
+// workspace it was loaded under, so a Map kept across a switch (a failed
+// or unfinished refresh) serves no key. A step of an operation planned in
+// one workspace (create, delete, the pull, restoreDerivedKeys) is refused
+// rather than redone in another. The destructive wholesale operations —
+// reset, workspace removal, replace-all restore, merge-import, export,
+// the reset's safety file — first re-read the pointer strictly and refuse
+// unless it agrees with the cache, and re-verify before each database or
+// key they touch. Earlier cuts of this branch mixed a strict per-call
+// pointer into ordinary paths, and each review found a new straddle
+// between the two (the verifiers' probes S1–S3, erase2/race, P1–P6 and the
+// join test below are the permanent observers).
 //
 // Each test models extension PAGES as module instances of
 // entity-model.js (`?page=B` gives a second instance) over one
 // chrome.storage stub. They share storage.js and local-key-manager.js,
 // as two real pages share one storage area. The stub is asynchronous
 // like the real API, delivers onChanged events, and injects faults: a
-// read of the registry, of the workspace pointer, or of the whole area
-// can fail by runtime.lastError (chrome's or, Firefox-style, browser's),
-// or by a throw, and `onRegistryRead(n, fn)` (one-shot) runs `fn` after
-// the n-th registry read took its snapshot and before the reader sees it
-// — so another actor can land "between a write's read and its write".
+// read of the registry, the keystore, the workspace pointer, or the whole
+// area can fail by runtime.lastError (chrome's or, Firefox-style,
+// browser's), or by a throw, as can a removal; `onRegistryRead(n, fn)`
+// (one-shot) runs `fn` after the n-th registry read took its snapshot and
+// before the reader sees it — so another actor can land "between a
+// write's read and its write" — and `_registryWriteHook` runs right after
+// a registry write lands. An IndexedDB transaction hook lands a switch in
+// the middle of one database (section 3).
 //
 // Key material: only the BIP-340 vector keys TV1/TV2/TV3
 // (tests/tools/fixture-keys.mjs) plus keys derived at test time.
@@ -60,10 +69,14 @@ const later = (fn) => setImmediate(fn);
 
 const isRegistryKey = (k) => k === 'entities'
     || (typeof k === 'string' && k.startsWith('ws:') && k.endsWith(':entities'));
+const isKeystoreKey = (k) => k === 'local_keys'
+    || (typeof k === 'string' && k.startsWith('ws:') && k.endsWith(':local_keys'));
 // fail.<kind> = null | { mode: 'lastError' | 'ffLastError' | 'throw', skip, times }
-// (`write`: a write of the registry key fails by runtime.lastError).
-const fail = { registry: null, pointer: null, all: null, write: null };
+// (`write`: a write of the registry key fails by runtime.lastError;
+// `remove`: a removal of any key does).
+const fail = { registry: null, keystore: null, pointer: null, all: null, write: null, remove: null };
 let _registryHook = null;     // { n, fn }: one-shot, fires on the n-th registry read after arming
+let _registryWriteHook = null;   // fn: one-shot, runs right after a registry write lands, before its callback
 
 function withLastError(message, fn) {
     const saved = globalThis.chrome.runtime;
@@ -95,6 +108,7 @@ const localArea = {
         const list = keys === null ? null : (Array.isArray(keys) ? keys : [keys]);
         const kind = list === null ? 'all'
             : list.some(isRegistryKey) ? 'registry'
+            : list.some(isKeystoreKey) ? 'keystore'
             : list.includes('active_workspace') ? 'pointer' : null;
         const mode = kind ? takeFailure(kind) : null;
         if (mode === 'throw') throw new Error('stub: storage read threw');
@@ -134,10 +148,16 @@ const localArea = {
             changes[k] = { oldValue: _store.get(k), newValue: v };
             _store.set(k, v);
         }
+        const hook = Object.keys(obj).some(isRegistryKey) ? _registryWriteHook : null;
+        if (hook) { _registryWriteHook = null; hook(); }
         later(() => cb && cb());
         emit(changes);
     },
     remove(keys, cb) {
+        if (takeFailure('remove')) {
+            later(() => withLastError('stub: remove failed', () => cb && cb()));
+            return;
+        }
         const changes = {};
         for (const k of Array.isArray(keys) ? keys : [keys]) {
             if (_store.has(k)) changes[k] = { oldValue: _store.get(k), newValue: undefined };
@@ -170,6 +190,8 @@ const { ClaimModel } = await import('../src/shared/claim-model.js');
 const { importCaseBundle, collectCaseBundle, CASE_BUNDLE_FORMAT } = await import('../src/shared/case-bundle.js');
 const { activeWorkspaceId: wsKeysActiveWorkspaceId, resolveActiveDbName } = await import('../src/shared/workspace-keys.js');
 const { TV1, TV2, TV3, FIXED_TIME_S } = await import('./tools/fixture-keys.mjs');
+const { openArchiveDb } = await import('../src/shared/archive-cache.js');
+const { openEventJournalDb } = await import('../src/shared/event-journal.js');
 
 // ---- helpers ---------------------------------------------------------------
 const settle = () => new Promise((r) => setTimeout(r, 15));
@@ -234,8 +256,8 @@ function withTimeout(p, ms, label) {
 }
 
 async function reset() {
-    fail.registry = fail.pointer = fail.all = fail.write = null;
-    _registryHook = null;
+    for (const k of Object.keys(fail)) fail[k] = null;
+    _registryHook = _registryWriteHook = null;
     await settle();
     await Storage.setActiveWorkspaceId('default');
     await settle();
@@ -455,6 +477,40 @@ test('restoreDerivedKeys: the keys come back but recording their origin fails �
     assert.equal(out.stampFailed, true, 'and the caller is told, so Options can say so');
 });
 
+test('a registry that is not an object stops create, the pull and a bundle import before any key is written', async () => {
+    await reset();
+    await Storage.primaryIdentity.set(TV1.privateKey);
+    seed('entities', [row(E1, 'Array Shape')]);   // corrupt: not an object
+    const before = _store.get('entities');
+    const ev = await syncEvent(pulledRecord(TV3, FIXED_TIME_S + 20), 'ev-corrupt');
+    const bundle = { format: CASE_BUNDLE_FORMAT, version: 1, case_id: EX, entities: [{ ...row(EX, 'Bundled'), privkey: TV2.privateKey }] };
+    const errs = captureErrors();
+    const got = {};
+    try {
+        got.create = await attempt(() => A.create({ name: 'Fresh Person', type: 'person' }));
+        got.pull = await attempt(() => pullWith([ev]));
+        got.bundle = await attempt(() => importCaseBundle(bundle));
+    } finally { errs.restore(); }
+    assert.ok(_store.get('entities') === before, 'the corrupt value was not overwritten');
+    assert.deepEqual(Object.keys(readJson('local_keys')), [], 'no key was installed for a record that could not be planned');
+    for (const [label, err] of Object.entries(got)) {
+        assertRefused(err, label);
+        assert.equal(err.name, 'StoreRefusedError', `${label}: typed`);
+    }
+});
+
+test('a case-bundle import whose key install the keystore refuses stops there — never filed as a conflict or a malformed row', async () => {
+    await reset();
+    seed('entities', { [E1]: row(E1, 'One') });
+    const bundle = { format: CASE_BUNDLE_FORMAT, version: 1, case_id: EX, entities: [{ ...row(EX, 'Bundled'), privkey: TV2.privateKey }] };
+    failReads('keystore', 'lastError');
+    let err, out;
+    try { err = await attempt(async () => { out = await importCaseBundle(bundle); }); } finally { fail.keystore = null; }
+    assert.deepEqual(ids(), [E1], 'no row was written after its key was refused');
+    assert.equal(out, undefined, 'no summary filing a storage refusal under conflicts or malformed rows');
+    assert.equal(err && err.name, 'StoreRefusedError', 'the typed refusal reached the caller');
+});
+
 // ---- 2. ONE workspace pointer per page: a fault misroutes consistently, never straddles
 
 const claim = (id, text) => ({ id, text, about: [], source: null, is_key: false, source_url: 'https://example.com/a', created: 1, updated: 1 });
@@ -614,6 +670,203 @@ test('no straddle: with the cache fallen back to \'default\' and the pointer at 
     assert.equal(await resolveActiveDbName('xray-archive'), 'xray-archive::wsb');
 });
 
+// Both workspaces hold the SAME entity id: default with TV2, wsb with TV3.
+function sameEntityInTwoWorkspaces({ defaultUpdated = FIXED_TIME_S, wsbUpdated = FIXED_TIME_S } = {}) {
+    const kn = `entity:${E1}`;
+    seed('entities', { [E1]: row(E1, 'Shared Name', { description: 'DEFAULT workspace text', updated: defaultUpdated }) });
+    seed('local_keys', { [kn]: keyRecord(kn, TV2) });
+    seed('ws:wsb:entities', { [E1]: row(E1, 'Shared Name', { description: 'WSB workspace text', updated: wsbUpdated }) });
+    seed('ws:wsb:local_keys', { [kn]: keyRecord(kn, TV3) });
+    return kn;
+}
+const unsignedProfile = () => ({ kind: 0, content: '{}', tags: [], created_at: FIXED_TIME_S });
+/** Page code that runs on every pointer change (the side panel re-renders). Returns its remover. */
+function onPointerChange(fn) {
+    const l = (changes) => { if ('active_workspace' in changes) fn(); };
+    _areaListeners.push(l);
+    return () => { _areaListeners.splice(_areaListeners.indexOf(l), 1); };
+}
+/** Another page's switch, landing synchronously inside whatever is running. */
+function switchNow(ws) {
+    _store.set('active_workspace', JSON.stringify(ws));
+    emit({ active_workspace: { newValue: JSON.stringify(ws) } });
+}
+async function pushCapture() {
+    const sent = [];
+    const origPublish = NostrClient.publishToRelays;
+    NostrClient.publishToRelays = async (relays, ev) => { sent.push(ev); return { successful: 1, total: 1, results: [] }; };
+    let pushed;
+    try { pushed = await pushEntities({ userPrivkey: TV1.privateKey, relays: ['wss://relay.example'] }); } finally { NostrClient.publishToRelays = origPublish; }
+    const convKey = await Crypto.nip44GetConversationKey(TV1.privateKey, TV1.pubkey);
+    const payloads = [];
+    for (const ev of sent.filter((e) => e.kind === 30078)) payloads.push(JSON.parse(await Crypto.nip44Decrypt(ev.content, convKey)));
+    return { pushed, payloads };
+}
+
+// SINGLE FLIGHT: every caller that finds the cache empty shares ONE pointer
+// read, so one failed read can never hand one caller the fallback and
+// another the real pointer (the verifiers' erase2 and race probes).
+test('single flight: page code racing the keystore\'s re-read after a switch shares its ONE pointer read — a plain read-modify-write stays in one workspace', async () => {
+    await reset();
+    await seedClaims();
+    let rmw = null, other = null;
+    const off = onPointerChange(() => {
+        rmw = (async () => { const snap = await Storage.get('article_claims', {}); snap.claim_new = claim('claim_new', 'new'); return Storage.set('article_claims', snap); })();
+        other = Storage.get('platform_accounts', {});
+    });
+    const errs = captureErrors();
+    failReads('pointer', 'lastError', { skip: 1, times: 1 });   // a SECOND pointer read would fail
+    try { await otherPageSwitchesTo('wsb'); await rmw; await other; await settle(); } finally { off(); fail.pointer = null; errs.restore(); }
+    assert.equal(await Storage.activeWorkspaceId(), 'wsb', 'one read, one answer');
+    assert.deepEqual(ids('ws:wsb:article_claims'), ['claim_new', 'claim_w1', 'claim_w2'], 'wsb keeps both its claims and gains the new one');
+    assert.deepEqual(ids('article_claims'), ['claim_d1'], 'the default workspace neither lost nor gained a claim');
+});
+
+test('single flight: the keystore\'s refresh and a re-render racing it get ONE answer, even a failed one — each record is shown, signed and bundled with its own workspace\'s key', async () => {
+    await reset();
+    await Storage.primaryIdentity.set(TV1.privateKey);
+    const kn = sameEntityInTwoWorkspaces();
+    await LocalKeyManager.refresh();
+    let rerender = null;
+    const off = onPointerChange(() => { rerender = A.getAll(); });
+    const errs = captureErrors();
+    failReads('pointer', 'lastError', { times: 1 });   // the one shared read fails
+    try { await otherPageSwitchesTo('wsb'); await rerender; await settle(); } finally { off(); fail.pointer = null; errs.restore(); }
+    const shown = await rerender;
+    const one = await A.get(E1);
+    const signed = await LocalKeyManager.signEvent(unsignedProfile(), kn);
+    const shipped = (await collectCaseBundle(E1)).entities.find((e) => e.id === E1);
+    assert.equal(await Storage.activeWorkspaceId(), 'default', 'the page took the fallback, consistently (as on main — a named follow-up)');
+    assert.ok(shown[E1].description === 'DEFAULT workspace text' && shown[E1].keypair.pubkey === TV2.pubkey, 'the re-render: the default record with its own key');
+    assert.ok(one.description === 'DEFAULT workspace text' && one.keypair.pubkey === TV2.pubkey, 'get(): the same pair');
+    assert.equal(signed.pubkey, TV2.pubkey, 'signEvent: the default workspace\'s key, for the default workspace\'s record');
+    assert.ok(shipped.description === 'DEFAULT workspace text' && shipped.privkey === TV2.privateKey, 'the case bundle: one workspace\'s record with its own key');
+});
+
+test('a pointer read that started before a switch never fills the cache after it — the page re-reads instead of keeping the old workspace', async () => {
+    await reset();
+    const invalidate = (ws) => {                       // storage.js's own listener (registered first)
+        _store.set('active_workspace', JSON.stringify(ws));
+        _areaListeners[0]({ active_workspace: { newValue: JSON.stringify(ws) } });
+    };
+    invalidate('default');
+    assert.equal(Storage.cachedWorkspaceId(), undefined, 'sanity: the cache is cold');
+    const early = Storage.activeWorkspaceId();         // its read snapshots 'default'…
+    invalidate('wsb');                                  // …and the switch lands before it returns
+    assert.equal(await early, 'default', 'sanity: the early caller got the pointer as it was when it asked');
+    assert.equal(await Storage.activeWorkspaceId(), 'wsb', 'the next caller reads the pointer afresh');
+});
+
+// THE KEYSTORE MAP answers only while the page's pointer names the workspace
+// it was loaded under: a Map kept from before a switch (a failed refresh, or
+// the refresh still in flight) serves no key at all.
+test('the keystore Map answers only for its own workspace: after a switch whose keystore read fails, nothing is shown, signed, bundled or pushed with the previous workspace\'s key', async () => {
+    await reset();
+    await Storage.primaryIdentity.set(TV1.privateKey);
+    const kn = sameEntityInTwoWorkspaces();
+    await LocalKeyManager.refresh();
+    assert.equal(LocalKeyManager.getKey(kn).pubkey, TV2.pubkey, 'sanity: the Map holds the default workspace\'s key');
+    const errs = captureErrors();
+    failReads('keystore', 'lastError', { times: 1 });   // the refresh the switch triggers
+    try { await otherPageSwitchesTo('wsb'); } finally { fail.keystore = null; errs.restore(); }
+    assert.equal(await Storage.activeWorkspaceId(), 'wsb', 'sanity: the page follows the switch');
+    assert.ok(LocalKeyManager.keys.has(kn), 'sanity: the failed refresh kept the previous Map');
+
+    const one = await A.get(E1);
+    const all = await A.getAll();
+    const signErr = await attempt(() => LocalKeyManager.signEvent(unsignedProfile(), kn));
+    const shipped = (await collectCaseBundle(E1)).entities.find((e) => e.id === E1);
+    const { pushed, payloads } = await pushCapture();
+    assert.ok(one.description === 'WSB workspace text' && one.keypair === null, 'get(): wsb\'s record, with NO key — never the default workspace\'s');
+    assert.equal(all[E1].keypair, null, 'getAll(): the same');
+    assert.match(String(signErr && signErr.message), /Key not found/, 'signEvent refuses instead of signing with the default workspace\'s key');
+    assert.ok(shipped && !shipped.privkey, 'the case bundle ships no private key with wsb\'s record');
+    assert.ok(pushed.pushed === 0 && payloads.length === 0, 'the sync push publishes no record with a key');
+    assert.deepEqual(LocalKeyManager.listKeys(), [], 'listKeys serves nothing either');
+
+    await LocalKeyManager.refresh();                   // readable again
+    const again = await A.get(E1);
+    assert.ok(again.description === 'WSB workspace text' && again.keypair.pubkey === TV3.pubkey, 'with wsb\'s keys loaded, wsb\'s record gets its own key');
+});
+
+test('the keystore Map answers only for its own workspace: between this page\'s switch and the refresh it triggers, no key is served', async () => {
+    await reset();
+    const kn = sameEntityInTwoWorkspaces();
+    await LocalKeyManager.refresh();
+    await Storage.setActiveWorkspaceId('wsb');        // the change event is still queued
+    assert.ok(LocalKeyManager.keys.has(kn), 'sanity: the Map still holds the default workspace\'s key');
+    assert.equal(LocalKeyManager.getKey(kn), null, 'getKey serves nothing from the previous workspace');
+    await assert.rejects(() => LocalKeyManager.signEvent(unsignedProfile(), kn), /Key not found/, 'signEvent refuses');
+    await settle();                                    // the event: the Map refreshes under wsb
+    assert.equal(LocalKeyManager.getKey(kn).pubkey, TV3.pubkey, 'then wsb\'s own key');
+});
+
+// A STEP of an operation planned in one workspace never lands in another:
+// a switch from another page mid-operation refuses the rest (nothing is
+// redone in the new workspace — the plan was never read there).
+test('a create that another page\'s switch interrupts after its plan makes nothing — no record and no key in either workspace', async () => {
+    await reset();
+    await Storage.primaryIdentity.set(TV1.privateKey);
+    seed('ws:wsb:entities', { [E2]: row(E2, 'B One') });
+    const wsbBefore = wsbKeys();
+    onRegistryRead(1, () => otherPageSwitchesTo('wsb'));   // create's planning read (the default workspace's)
+    const errs = captureErrors();
+    let err;
+    try { err = await attempt(() => A.create({ name: 'Fresh Person', type: 'person' })); } finally { errs.restore(); }
+    assert.equal(wsbKeys(), wsbBefore, 'wsb gained no record and no key');
+    assert.deepEqual(ids(), [], 'the default workspace gained no record…');
+    assert.deepEqual(Object.keys(readJson('local_keys')), [], '…and no orphan key');
+    assertRefused(err, 'create');
+    assert.equal(err.name, 'StoreRefusedError');
+});
+
+test('a delete that another page\'s switch interrupts never reaches into that workspace: wsb keeps its record AND its key', async () => {
+    await reset();
+    const kn = sameEntityInTwoWorkspaces();
+    await LocalKeyManager.refresh();
+    _registryWriteHook = () => switchNow('wsb');       // lands right on the record delete
+    const errs = captureErrors();
+    let ok;
+    try { ok = await A.delete(E1); } finally { errs.restore(); }
+    await settle();
+    assert.ok(readJson('ws:wsb:entities')[E1], 'wsb\'s record stays');
+    assert.ok(readJson('ws:wsb:local_keys')[kn].privateKey === TV3.privateKey, 'wsb\'s key stays (value not printed)');
+    assert.equal(readJson('entities')[E1], undefined, 'the default record is gone — the delete ran there');
+    assert.ok(readJson('local_keys')[kn], 'its key stays behind (the key delete refused rather than follow the switch; nothing points at it)');
+    assert.equal(ok, true);
+});
+
+test('a pull that another page\'s switch interrupts after its plan installs no key and writes no row — wsb\'s fresher record keeps its own key', async () => {
+    await reset();
+    await Storage.primaryIdentity.set(TV1.privateKey);
+    const kn = sameEntityInTwoWorkspaces({ defaultUpdated: FIXED_TIME_S, wsbUpdated: FIXED_TIME_S + 1000 });
+    await LocalKeyManager.refresh();
+    const pulled = { id: E1, name: 'Shared Name', type: 'person', created: FIXED_TIME_S, updated: FIXED_TIME_S + 500,
+        keypair: { privateKey: TV1.privateKey, pubkey: TV1.pubkey, npub: TV1.npub, nsec: TV1.nsec } };
+    const ev = await syncEvent(pulled, 'ev-mid-switch');   // fresher than default's record, staler than wsb's
+    onRegistryRead(1, () => otherPageSwitchesTo('wsb'));   // the pull's planning read (the default workspace's)
+    const errs = captureErrors();
+    let out;
+    try { out = await pullWith([ev]); } finally { errs.restore(); }
+    assert.ok(readJson('ws:wsb:local_keys')[kn].privateKey === TV3.privateKey, 'wsb\'s key was not replaced (value not printed)');
+    assert.equal(readJson('ws:wsb:entities')[E1].updated, FIXED_TIME_S + 1000, 'wsb\'s record is as it was');
+    assert.ok(readJson('local_keys')[kn].privateKey === TV2.privateKey && readJson('entities')[E1].updated === FIXED_TIME_S,
+        'and the default workspace, where it planned, is untouched too');
+    assert.ok(out.failed === 1 && out.updated === 0 && out.added === 0, 'the pull reports the refusal as a failure');
+});
+
+test('a destructive check on a cold cache adopts the pointer it verified — no fallback read is cached behind it', async () => {
+    await reset();
+    _store.set('active_workspace', JSON.stringify('wsb'));
+    _areaListeners[0]({ active_workspace: { newValue: JSON.stringify('wsb') } });   // storage.js's own listener (registered first): cold, nothing in flight
+    assert.equal(Storage.cachedWorkspaceId(), undefined, 'sanity: the cache is cold');
+    failReads('pointer', 'lastError', { skip: 1 });   // the strict read succeeds; any later pointer read would fail
+    let verified;
+    try { verified = await Storage.verifiedWorkspaceId('probe'); } finally { fail.pointer = null; }
+    assert.equal(verified, 'wsb');
+    assert.equal(await Storage.activeWorkspaceId(), 'wsb', 'the page follows the pointer it just verified');
+});
+
 // ---- 3. destructive wholesale operations verify the page's pointer first ---------
 // Each acts on the page's cached workspace only when a STRICT re-read of the
 // pointer agrees with it; unreadable or different, it refuses with a
@@ -722,7 +975,8 @@ test('the reset clears exactly the workspace its safety file holds, and refuses 
 
 for (const [label, start, expect] of [
     ['a workspace reset', () => resetWorkspace({ idb: NO_IDB }), /nothing written/],
-    ['a replace-all restore', () => applyBackup(fromFile()), /nothing written/]
+    ['a replace-all restore', () => applyBackup(fromFile()), /nothing written/],
+    ['a merge-import', () => mergeBackup(fromFile()), /nothing written/]
 ]) {
     test(`${label} whose workspace is switched while it waits for the locks writes nothing`, async () => {
         await reset();
@@ -776,6 +1030,151 @@ test('a replace-all restore whose read of current storage fails refuses instead 
     assert.deepEqual(Object.keys(readJson('claims')), ['c1'], 'sanity: content outside the file is still there');
     assert.deepEqual(ids('entities'), [E1], 'nothing was half-replaced: the registry is the local one, not the file\'s beside stale claims');
     assertStoreRefused(err, 'applyBackup');
+});
+
+// MID-OPERATION: a multi-step destructive operation re-verifies right before
+// each step resolves the workspace (a database open, a key read) in the same
+// microtask chain, so every step acts on the verified workspace or the rest
+// is refused. An IndexedDB transaction hook lands another page's switch in
+// the middle of one database.
+function onIdbTransaction(pred, fn) {
+    const P = globalThis.IDBDatabase.prototype;
+    const orig = P.transaction;
+    let fired = false;
+    P.transaction = function (stores, mode, ...rest) {
+        if (!fired && pred(this.name, mode)) { fired = true; fn(); }
+        return orig.call(this, stores, mode, ...rest);
+    };
+    return () => { P.transaction = orig; return fired; };
+}
+const EVENTS = Array.from((await openEventJournalDb()).objectStoreNames)[0];
+async function putRow(open, store, value) {
+    const db = await open();
+    await new Promise((res, rej) => { const tx = db.transaction(store, 'readwrite'); tx.objectStore(store).put(value); tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
+}
+async function rowKeys(open, store, field) {
+    const db = await open();
+    return new Promise((res) => { const r = db.transaction(store, 'readonly').objectStore(store).getAll(); r.onsuccess = () => res(r.result.map((x) => x[field])); });
+}
+const articleHashes = () => rowKeys(openArchiveDb, 'articles', 'urlHash');
+/** Seed one article in wsb's archive (and come back to the default workspace). */
+async function seedWsbArticle(hash) {
+    await otherPageSwitchesTo('wsb');
+    await putRow(openArchiveDb, 'articles', { urlHash: hash, url: `https://wsb.example/${hash}` });
+    await otherPageSwitchesTo('default');
+}
+
+test('a replace-all restore that another page\'s switch interrupts mid-database stops before the next one — the other workspace\'s databases are untouched', async () => {
+    await reset();
+    seed('entities', { [E1]: row(E1, 'Default One') });
+    await seedWsbArticle('h-wsb-restore');
+    const file = { ...fromFile(), databases: { 'xray-events': { [EVENTS]: [] }, 'xray-archive': { articles: [] } } };
+    const unhook = onIdbTransaction((name, mode) => name === 'xray-events' && mode === 'readwrite', () => switchNow('wsb'));
+    let err;
+    try { err = await attempt(() => applyBackup(file)); } finally { assert.ok(unhook(), 'sanity: the switch landed mid-restore'); }
+    await settle();
+    assert.equal(await Storage.activeWorkspaceId(), 'wsb', 'sanity: the page followed the switch');
+    assert.ok((await articleHashes()).includes('h-wsb-restore'), 'wsb\'s archive was never cleared');
+    assert.deepEqual(ids(), [E3], 'the default workspace\'s storage was restored before the switch');
+    assert.equal(err && err.name, 'StoreRefusedError');
+    assert.match(err.message, /stopped/);
+});
+
+test('a merge-import that another page\'s switch interrupts mid-database merges nothing into the other workspace, and reports what it did not merge', async () => {
+    await reset();
+    seed('entities', { [E1]: row(E1, 'Default One') });
+    const file = { ...fromFile(), databases: { 'xray-events': { [EVENTS]: [] }, 'xray-archive': { articles: [{ urlHash: 'h-merged', url: 'https://merged.example/' }] } } };
+    const unhook = onIdbTransaction((name, mode) => name === 'xray-events' && mode === 'readwrite', () => switchNow('wsb'));
+    let result;
+    try { result = await mergeBackup(file); } finally { assert.ok(unhook(), 'sanity: the switch landed mid-merge'); }
+    await settle();
+    assert.ok(!(await articleHashes()).includes('h-merged'), 'nothing was merged into wsb\'s archive');
+    await otherPageSwitchesTo('default');
+    assert.ok(!(await articleHashes()).includes('h-merged'), 'nor, after the switch, into the default one');
+    assert.ok(ids().includes(E3), 'the storage merge that ran before the switch stands');
+    assert.ok(result.errors.some((e) => e.database === 'xray-archive' && /stopped/.test(e.error)), 'the unmerged database is reported');
+});
+
+test('an export that another page\'s switch interrupts mid-dump produces no file — never one workspace\'s storage beside another\'s databases', async () => {
+    await reset();
+    seed('entities', { [E1]: row(E1, 'Default One') });
+    await otherPageSwitchesTo('wsb');
+    await putRow(openEventJournalDb, EVENTS, { eventId: 'ev-wsb-export', kind: 1, flush: { state: 'done' } });
+    await otherPageSwitchesTo('default');
+    const unhook = onIdbTransaction((name, mode) => name === 'xray-archive' && mode === 'readonly', () => switchNow('wsb'));
+    let out, err;
+    try { err = await attempt(async () => { out = await collectBackup(); }); } finally { assert.ok(unhook(), 'sanity: the switch landed mid-export'); }
+    assert.equal(out, undefined, 'no file');
+    assert.equal(err && err.name, 'StoreRefusedError');
+});
+
+test('the reset\'s safety backup that another page\'s switch interrupts mid-read produces no file — never one naming a workspace it only partly holds', async () => {
+    await reset();
+    seedThreeWorkspaces();
+    onRegistryRead(1, () => otherPageSwitchesTo('wsb'));   // its first key read (the default workspace's registry)
+    let snap, err;
+    try { err = await attempt(async () => { snap = await workspaceBackup(); }); } finally { _registryHook = null; }
+    assert.equal(snap, undefined, 'no safety file, so the Options flow never reaches the reset');
+    assert.equal(err && err.name, 'StoreRefusedError');
+});
+
+test('a reset whose delete fails stops there: the stores after it and every database are left, and it says how far it got', async () => {
+    await reset();
+    seedThreeWorkspaces();
+    const deleted = [];
+    failReads('remove', 'lastError', { skip: 1, times: 1 });   // the first store clears; the second fails
+    let err;
+    try { err = await attempt(() => resetWorkspace({ idb: { deleteDatabase(name) { deleted.push(name); } } })); } finally { fail.remove = null; }
+    assert.equal(_store.has('entities'), false, 'the first store was cleared');
+    assert.ok(_store.has('article_claims'), 'the stores after the failed one are untouched');
+    assert.deepEqual(deleted, [], 'no database was deleted after a failed store');
+    assert.match(String(err && err.message), /clearing local_keys failed after 1 of/);
+});
+
+test('the wholesale writers nest the registry lock inside the keystore lock (restore, reset, removal); the merge takes the registry lock alone', async () => {
+    await reset();
+    seedThreeWorkspaces();
+    const taken = [];
+    const locks = { request(name, cb) { taken.push(name); return Promise.resolve().then(() => cb({ name })); } };
+    const saved = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    Object.defineProperty(globalThis, 'navigator', { value: { locks }, configurable: true, writable: true });
+    const order = {};
+    try {
+        for (const [label, run] of [
+            ['applyBackup', () => applyBackup(fromFile())],
+            ['mergeBackup', () => mergeBackup(fromFile())],
+            ['Workspaces.remove', () => Workspaces.remove('wsc', { idb: NO_IDB })],
+            ['resetWorkspace', () => resetWorkspace({ idb: NO_IDB })]
+        ]) {
+            taken.length = 0;
+            await run();
+            order[label] = [...taken];
+        }
+    } finally {
+        if (saved) Object.defineProperty(globalThis, 'navigator', saved);
+        else delete globalThis.navigator;
+    }
+    const nested = ['xray.local_keys', 'xray.entities'];
+    assert.deepEqual(order, { applyBackup: nested, mergeBackup: ['xray.entities'], 'Workspaces.remove': nested, resetWorkspace: nested });
+});
+
+test('a replace-all restore or merge whose raw storage remove or write fails says so — never "restored" over an emptied workspace', async () => {
+    await reset();
+    seed('entities', { [E1]: row(E1, 'Local One') });
+    seed('article_claims', { c1: { id: 'c1' } });
+    let removeErr;
+    failReads('remove', 'lastError');
+    try { removeErr = await attempt(() => applyBackup(fromFile())); } finally { fail.remove = null; }
+    assert.match(String(removeErr && removeErr.message), /removing storage keys failed/, 'the restore reports the failed remove…');
+    assert.deepEqual(ids(), [E1], '…and writes nothing after it');
+    let restoreErr, mergeErr;
+    failReads('write', 'lastError');
+    try {
+        restoreErr = await attempt(() => applyBackup(fromFile()));
+        mergeErr = await attempt(() => mergeBackup(fromFile()));
+    } finally { fail.write = null; }
+    assert.match(String(restoreErr && restoreErr.message), /writing storage failed/, 'the restore reports the failed write');
+    assert.match(String(mergeErr && mergeErr.message), /writing storage failed/, 'so does the merge');
 });
 
 // ---- 4. two pages, one registry: no lost update ------------------------------
