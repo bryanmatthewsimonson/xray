@@ -267,6 +267,18 @@ put back afterwards.
 ## Pull requests
 
 - One concern per PR. Don't rename + refactor + add a feature in one go.
+- Fill in the template's **Contract** lines (RESET_PLAN §8):
+  `Verification layer:`, `Wire format:` when a wire-lane builder or
+  publisher changed, `Docs:`, `Interpretive steps (n):`, and
+  `Cross-lane: <reason>` if your `src/` edits span more than one lane
+  (`scripts/lanes.mjs`). A `fix:` PR needs a `tests/` change or a
+  `no-test rationale:` line; a PR touching a process file (`.github/**`,
+  `.claude/skills/**`, `docs/SMOKE_TEST.md`, this file, `CLAUDE.md`)
+  adds a JOURNAL entry or cites one as "JOURNAL YYYY-MM-DD". The
+  `PR body` workflow (`scripts/pr-body-check.mjs`) checks all of it and
+  prints one line per failure with the fix; it re-runs when you edit the
+  description. It is not a required check unless the maintainer makes it
+  one in branch protection. Dependabot PRs are skipped.
 - Flag behavior changes that affect the NOSTR event wire format
   explicitly — those have compatibility consequences for anyone
   consuming X-Ray's events.
