@@ -289,17 +289,18 @@ test('rule 3: DOM globals in src/shared — per-module count ceilings and bundle
 // AND re-derived from the dispatch chains, so a drift either way fails.
 const HANDLERS_BACKGROUND = [
     'xray:openEntities', 'xray:openPortal', 'xray:openNetwork', 'xray:openCaptureTips', 'xray:pdf:open',
-    'xray:reader:open', 'xray:capture:getPubkey', 'xray:capture:publish', 'xray:llm:extract', 'xray:audit:run',
+    'xray:reader:open', 'xray:capture:getPubkey', 'xray:capture:publish', 'xray:llm:extract',
     'xray:audit:module', 'xray:llm:config', 'xray:lens:read', 'xray:vision:describe', 'xray:vision:config',
-    'xray:lens:config', 'xray:llm:forensic-corpus', 'xray:llm:entity-audit',
-    'xray:llm:hypothesis-edges', 'xray:llm:corpus-links',   // corpus-map / corpus-reduce / entity-page became xray:llm:job:* (#374)
+    'xray:lens:config',
+    // corpus-map / corpus-reduce / entity-page became xray:llm:job:* (#374); audit:run, forensic-corpus,
+    // entity-audit, hypothesis-edges, corpus-links followed (JOURNAL 2026-09-05 and its 2026-09-25 addendum)
     'xray:llm:corpus-config', 'xray:transcribe:config', 'xray:transcribe:ping', 'xray:transcribe:start',
     'xray:transcribe:status', 'xray:transcribe:direct:start', 'xray:transcribe:direct:status',
     'xray:transcribe:direct:deepgram', 'xray:transcribe:claims', 'xray:youtube:fetchTranscript',
     'xray:youtube:captureTranscriptViaHook', 'xray:substack:fetchPost', 'xray:substack:fetchComments',
     'xray:scholar:fetch', 'xray:scholar:crossref', 'xray:media:lookup', 'xray:screenshot:capture',
     'xray:archive:reconstruct', 'xray:relay:query', 'xray:relay:publish', 'xray:notify',
-    'xray:llm:job:start', 'xray:llm:job:status', 'xray:llm:job:find', 'xray:llm:job:ack',   // #374 LLM jobs
+    'xray:llm:job:start', 'xray:llm:job:status', 'xray:llm:job:find', 'xray:llm:job:ack',   // #374 LLM jobs (eight passes since 2026-09-25)
 ];
 const HANDLERS_CONTENT = ['xray:capture', 'xray:capture:transcribe', 'xray:getPubkey', 'xray:sign'];
 const FORWARD_PREFIX = 'xray:forward:';   // background/index.js:479 wildcard; ROAD_TO_1_0 K4 open, single sender options/index.js:1863

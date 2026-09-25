@@ -2,7 +2,10 @@
 // passes as JOBS (JOURNAL 2026-09-05): the corpus map (one per member
 // article; the portal, the reader's Suggest, and the entity page all
 // drive it), the corpus reduce (Phase 20.4, one synthesis call), and
-// the entity-page reduce (EP.2).
+// the entity-page reduce (EP.2) — and, since the 2026-09-25 addendum,
+// hypothesis edges (H.4), claim links (28.3), the per-subject forensic
+// corpus pass (FA.1), the entity audit (E2), and the reader's Quick
+// epistemic audit.
 //
 // None of these may hold a chrome.runtime message open across the
 // model call: MV3 kills a worker whose single request outlives ~5
@@ -15,7 +18,7 @@
 // One runner per worker instance: its registry is exactly "the jobs
 // THIS worker is running", so a `running` record it does not know
 // belongs to a worker that died and reads as `lost`. The pass table
-// here is the ONLY way a page reaches these three passes. Validated at
+// here is the ONLY way a page reaches these passes. Validated at
 // shared/llm-jobs.js: pass allowlist, object request, clamped scope
 // key / job id / wait. The passes keep their own gates (flags + key)
 // and still return RAW model output; the page keeps the whole firewall
@@ -28,14 +31,22 @@
 // delegates each to respondLlmJob, under the surface ceiling of
 // tests/structure-guards.test.mjs rule 5 ("extract, never raise").
 
-import { runCorpusMapPass, runCorpusReducePass, runEntityPagePass } from '../shared/llm-client.js';
+import {
+    runCorpusMapPass, runCorpusReducePass, runEntityPagePass,
+    runHypothesisEdgePass, runClaimLinksPass, runForensicCorpusPass, runEntityAuditPass, runAuditPass
+} from '../shared/llm-client.js';
 import { createLlmJobRunner } from '../shared/llm-jobs.js';
 
 const llmJobs = createLlmJobRunner({
     passes: {
         'corpus-map': runCorpusMapPass,
         'corpus-reduce': runCorpusReducePass,
-        'entity-page': runEntityPagePass
+        'entity-page': runEntityPagePass,
+        'hypothesis-edges': runHypothesisEdgePass,
+        'corpus-links': runClaimLinksPass,
+        'forensic-corpus': runForensicCorpusPass,
+        'entity-audit': runEntityAuditPass,
+        'audit-run': runAuditPass
     }
 });
 

@@ -1,7 +1,7 @@
 // Standalone link-suggestion block — Phase 28.3. The case-dashboard
 // surface that proposes cross-article claim relationships WITHOUT
 // running the full corpus synthesis: one claims-index LLM call
-// (xray:llm:corpus-links, the corpus triple gate), reviewed through
+// (the `corpus-links` LLM job, the corpus triple gate), reviewed through
 // the SAME proposals UI as the synthesis (renderProposals → Accept →
 // EvidenceLinker, stamped llm:<model>). Decoupled on purpose: argument
 // structure built here BEFORE an Analyze-corpus run enriches the
@@ -19,12 +19,23 @@ import { EvidenceLinker } from '../shared/evidence-linker.js';
 import { getCaseLinkRun, saveCaseLinkRun } from '../shared/audit/audit-cache.js';
 import { prepareLinkProposals, linkRecordKey } from '../shared/case-synthesis.js';
 import { CLAIM_LINKS_PROMPT_VERSION, MAX_CLAIM_LINKS_CLAIMS } from '../shared/corpus-prompts.js';
+import {
+    runLlmJob, ackLlmJob, llmJobScopeKey, llmJobRequestHash, jobElapsedSeconds, jobFailureNote
+} from '../shared/llm-jobs.js';
 import { renderProposals } from './synthesis-review.js';
 
 function sendMessage(msg) {
     return new Promise((resolve) => {
-        try { chrome.runtime.sendMessage(msg, (resp) => resolve(resp)); }
-        catch (_) { resolve(null); }
+        try {
+            chrome.runtime.sendMessage(msg, (resp) => {
+                // A torn-down worker fires this with lastError set: flag it
+                // as a DROPPED channel, so the job client retries its poll
+                // instead of reading the drop as the worker's refusal.
+                const err = chrome.runtime.lastError;
+                if (err) { resolve({ ok: false, error: err.message, swLost: true }); return; }
+                resolve(resp);
+            });
+        } catch (_) { resolve(null); }
     });
 }
 
@@ -128,13 +139,29 @@ export function renderLinksBlock(host, { data, dossier, callbacks = {} }) {
                 const existingLines = links.map((l) =>
                     `${l.source_claim_id} ${l.relationship} ${l.target_claim_id}`);
 
-                const resp = await sendMessage({ type: 'xray:llm:corpus-links', request: {
+                // A JOB, never a held-open message (JOURNAL 2026-09-05):
+                // the worker persists the raw proposals before any response
+                // hop, scoped to this case + this exact request, so a run
+                // that finished after this tab went away is picked up by
+                // the next identical Suggest instead of billed again.
+                const request = {
                     claims, existing: existingLines,
                     caseName: data.case.name || '',
                     scopeQuestion: (dossier.scope && dossier.scope.question) || ''
-                } });
-                if (!resp || !resp.ok) {
-                    status.textContent = `Suggestion failed: ${(resp && resp.error) || 'no response'}`;
+                };
+                const startedAt = Date.now();
+                const resp = await runLlmJob({
+                    sendMessage, pass: 'corpus-links', request,
+                    scopeKey: llmJobScopeKey(caseId, await llmJobRequestHash(request)),
+                    onTick: (st) => {
+                        if (st.status !== 'running') return;
+                        // Anchored to the record's start (survives a reload).
+                        status.textContent = `Scanning the claims index… ${jobElapsedSeconds(st, startedAt)}s`;
+                    }
+                });
+                if (!resp.ok) {
+                    status.textContent = `Suggestion failed: ${String(resp.error || 'no response').replace(/\.$/, '')}.`
+                        + jobFailureNote(resp, 'Suggest links…');
                     return;
                 }
                 const { acceptable, rejected } = prepareLinkProposals(resp.linksInput, { claimsById, existingKeys });
@@ -149,8 +176,13 @@ export function renderLinksBlock(host, { data, dossier, callbacks = {} }) {
                     triage: (prior && prior.triage) || {},
                     createdAt: Math.floor(Date.now() / 1000)
                 };
+                let saved = true;
                 try { await saveCaseLinkRun(record); }
-                catch (err) { Utils.error('saveCaseLinkRun failed', err); }
+                catch (err) { saved = false; Utils.error('saveCaseLinkRun failed', err); }
+                // The run is in the case-link-suggestions store — release
+                // the job record. An unsaved run keeps it: the next
+                // identical Suggest picks it up with no new call.
+                if (saved) ackLlmJob(sendMessage, resp.jobId).catch(() => {});
 
                 status.textContent = `Done — ${acceptable.length} proposal${acceptable.length === 1 ? '' : 's'}`
                     + (rejected.length ? ` (${rejected.length} rejected)` : '') + '.';

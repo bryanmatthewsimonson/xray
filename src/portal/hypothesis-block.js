@@ -15,7 +15,7 @@
 //     edge;
 //   - no progress bars, no meters, no per-hypothesis totals compared.
 
-import { el, truncate } from './dom.js';
+import { el, truncate, isShown } from './dom.js';
 import { collectHypothesisMapData, buildHypothesisMap } from '../shared/hypothesis-map.js';
 import { HypothesisModel, HypothesisEdgeModel, HYPOTHESIS_EDGE_ROLES, HYPOTHESIS_EDGE_ROLE_LABELS } from '../shared/hypothesis-model.js';
 import {
@@ -23,12 +23,23 @@ import {
 } from '../shared/hypothesis-suggest.js';
 import { digestDossier, DIGEST_CLAIM_CAP } from '../shared/case-synthesis.js';
 import { VERDICT_STATE_LABELS, PROPOSITION_CLASS_LABELS } from '../shared/truth-taxonomy.js';
+import {
+    runLlmJob, ackLlmJob, llmJobScopeKey, llmJobRequestHash, jobElapsedSeconds, jobFailureNote
+} from '../shared/llm-jobs.js';
 import { Utils } from '../shared/utils.js';
 
 function sendMessage(msg) {
     return new Promise((resolve) => {
-        try { chrome.runtime.sendMessage(msg, (resp) => resolve(resp)); }
-        catch (_) { resolve(null); }
+        try {
+            chrome.runtime.sendMessage(msg, (resp) => {
+                // A torn-down worker fires this with lastError set: flag it
+                // as a DROPPED channel, so the job client retries its poll
+                // instead of reading the drop as the worker's refusal.
+                const err = chrome.runtime.lastError;
+                if (err) { resolve({ ok: false, error: err.message, swLost: true }); return; }
+                resolve(resp);
+            });
+        } catch (_) { resolve(null); }
     });
 }
 
@@ -51,6 +62,18 @@ export function suggestStatusLine({ checked, dropped, rejected, proposals }) {
     return `${checked} quote${checked === 1 ? '' : 's'} checked · `
         + `${dropped} ungrounded (dropped) · ${rejected} rejected · `
         + `${proposals} proposal${proposals === 1 ? '' : 's'}`;
+}
+
+/** While the job runs — pure, so the guard walks it. `secs` is anchored
+ *  to the job record's own start (jobElapsedSeconds), not this panel's. */
+export function suggestProgressLine(secs) {
+    return `${SUGGEST_STATUS_PROPOSING} ${secs}s`;
+}
+
+/** A failed pass, with what a retry costs — pure, so the guard walks it. */
+export function suggestFailureLine(res) {
+    const detail = String((res && res.error) || 'no response').replace(/\.$/, '');
+    return `${SUGGEST_STATUS_FAILED}: ${detail}.${jobFailureNote(res, 'Suggest edges (LLM)…')}`;
 }
 
 export const AUTHORING_STRINGS = Object.freeze([
@@ -281,6 +304,12 @@ function mountSuggestPanel(panelHost, { data, dossier, onChanged, onSettled, mod
     const status = el('div', 'xr-inspector__mono', SUGGEST_STATUS_PROPOSING);
     panelHost.appendChild(status);
     const settle = () => { if (onSettled) onSettled(); };
+    // The job record is released once the proposals are on a LIVE panel
+    // (the panel is their only sink — each Accept persists one edge), or
+    // at once when the result is unusable: reusing a malformed result
+    // would fail the same way on every identical retry.
+    let jobId = null;
+    const release = () => { if (jobId) ackLlmJob(sendMessage, jobId).catch(() => {}); };
 
     (async () => {
         // Re-collect the map FRESH: edges accepted in a previous panel
@@ -300,19 +329,33 @@ function mountSuggestPanel(panelHost, { data, dossier, onChanged, onSettled, mod
                 hypothesis_id: h.id, ref: e.ref, role: e.role
             })));
 
-        const res = await sendMessage({ type: 'xray:llm:hypothesis-edges', request: {
+        // A JOB, never a held-open message (JOURNAL 2026-09-05): scoped
+        // to this case + this exact request, so a pass that finished
+        // after this panel went away is picked up by the next identical
+        // Suggest instead of billed again.
+        const request = {
             dossierDigest: digestDossier(dossier, { claims: orbitClaims }),
             hypotheses: rows,
             caseName: data.case.name || '',
             scopeQuestion: map.question.text || ''
-        } });
-        if (!res || !res.ok) {
-            status.textContent = `${SUGGEST_STATUS_FAILED}: ${(res && res.error) || 'no response'}`;
+        };
+        const startedAt = Date.now();
+        const res = await runLlmJob({
+            sendMessage, pass: 'hypothesis-edges', request,
+            scopeKey: llmJobScopeKey(data.case.id, await llmJobRequestHash(request)),
+            onTick: (st) => {
+                if (st.status === 'running') status.textContent = suggestProgressLine(jobElapsedSeconds(st, startedAt));
+            }
+        });
+        if (!res.ok) {
+            status.textContent = suggestFailureLine(res);
             settle();
             return;
         }
+        jobId = res.jobId;
         const v = validateHypothesisEdges(res.edgesInput);
         if (!v.ok) {
+            release();
             status.textContent = SUGGEST_STATUS_MALFORMED;
             Utils.error('hypothesis edge validation', v.errors);
             settle();
@@ -331,6 +374,12 @@ function mountSuggestPanel(panelHost, { data, dossier, onChanged, onSettled, mod
             checked: grounded.checked, dropped: grounded.dropped,
             rejected: rejected.length, proposals: acceptable.length
         });
+        // Delivered (everything below is synchronous) — onto a panel
+        // someone can see. One the case view dropped mid-run (detached by
+        // a re-render, or hidden behind the library) keeps the record for
+        // the next identical Suggest: it would otherwise be a paid result
+        // nobody saw.
+        if (isShown(panelHost)) release();
         if (unopposed.length > 0) {
             panelHost.appendChild(el('div', 'xr-view__dossier-line',
                 `${unopposed.length} hypothes${unopposed.length === 1 ? 'is' : 'es'} `
@@ -389,6 +438,7 @@ function mountSuggestPanel(panelHost, { data, dossier, onChanged, onSettled, mod
         panelHost.appendChild(refresh);
     })().catch((err) => {
         Utils.error('Suggest edges failed', err);
+        release();   // a result this code threw on would throw on every reuse
         status.textContent = `${SUGGEST_STATUS_FAILED}.`;
         settle();
     });

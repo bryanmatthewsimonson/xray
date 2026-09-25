@@ -17,7 +17,9 @@
 //   5. The page client survives dropped polls without a second start.
 //
 // Plus the receiver-side validation the threat model asks for, and the
-// source guards that keep the three passes off the held-open path.
+// source guards that keep every job pass off the held-open path — #374's
+// three and the five of the 2026-09-25 addendum (their consumers are
+// driven end to end in tests/llm-job-consumers.test.mjs).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -25,9 +27,9 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
-    createLlmJobRunner, runLlmJob, ackLlmJob, findLlmJob, llmJobScopeKey,
+    createLlmJobRunner, runLlmJob, ackLlmJob, findLlmJob, llmJobScopeKey, llmJobRequestHash,
     isLlmJobKey, jobStorageKey, LLM_JOB_LOST_ERROR, LLM_JOB_PASSES, LLM_JOB_TTL_MS,
-    LLM_JOB_STATUS_WAIT_MAX_MS, LLM_JOB_KEY_PREFIX, jobElapsedSeconds
+    LLM_JOB_STATUS_WAIT_MAX_MS, LLM_JOB_KEY_PREFIX, jobElapsedSeconds, jobFailureNote
 } from '../src/shared/llm-jobs.js';
 import { memoryArea, createJobStub } from './helpers/llm-job-stub.mjs';
 
@@ -230,10 +232,10 @@ test('validation: the pass allowlist, the request shape, scope keys, job ids, an
         'corpus-map': async () => { invoked += 1; return { ok: true }; },
         'corpus-reduce': async () => { invoked += 1; return { ok: true }; },
         'entity-page': async () => { invoked += 1; return { ok: true }; },
-        'hypothesis-edges': async () => { invoked += 1; return { ok: true }; }   // present, NOT allowlisted
+        'lens-read': async () => { invoked += 1; return { ok: true }; }   // present, NOT allowlisted
     });
     for (const bad of [
-        { pass: 'hypothesis-edges', request: {} },
+        { pass: 'lens-read', request: {} },
         { pass: 'constructor', request: {} },
         { pass: '', request: {} },
         { request: {} },
@@ -261,13 +263,59 @@ test('validation: the pass allowlist, the request shape, scope keys, job ids, an
     assert.equal(unknown.unknown, true);
     assert.equal((await runner.find({ pass: 'nope', scopeKey: 'k' })).ok, false);
     assert.equal((await runner.find({ pass: 'corpus-map', scopeKey: 'bad key' })).ok, false);
-    assert.deepEqual([...LLM_JOB_PASSES], ['corpus-map', 'corpus-reduce', 'entity-page']);
+    // The allowlist is a security list: growing it is a deliberate,
+    // reviewed edit here AND in the worker's pass table (the table/list
+    // set-equality guard below keeps the two from drifting apart).
+    assert.deepEqual([...LLM_JOB_PASSES], [
+        'corpus-map', 'corpus-reduce', 'entity-page',
+        'hypothesis-edges', 'corpus-links', 'forensic-corpus', 'entity-audit', 'audit-run'
+    ]);
+    for (const pass of LLM_JOB_PASSES) {
+        assert.match(pass, /^[a-z-]+$/, `${pass}: a pass name must fit the job-id grammar`);
+    }
 });
 
 test('llmJobScopeKey clamps each part to the key alphabet and joins with ":"', () => {
     assert.equal(llmJobScopeKey('case 1/x', 'a'.repeat(64)), `case_1_x:${'a'.repeat(64)}`);
     assert.equal(llmJobScopeKey(null, undefined), ':');
     assert.ok(llmJobScopeKey('x'.repeat(500)).length <= 200);
+});
+
+test('llmJobRequestHash: SHA-256 hex of the exact request — any changed byte is a different job; the widest key fits the grammar', async () => {
+    const req = { mode: 'single', markdown: 'Body.', metadata: { url: 'https://x.test/a' } };
+    const h = await llmJobRequestHash(req);
+    assert.match(h, /^[0-9a-f]{64}$/);
+    assert.equal(await llmJobRequestHash(JSON.parse(JSON.stringify(req))), h, 'deterministic over the same content');
+    assert.notEqual(await llmJobRequestHash({ ...req, markdown: 'Body!' }), h, 'one character is a new job');
+    assert.notEqual(await llmJobRequestHash({ ...req, metadata: { url: 'https://x.test/b' } }), h, 'nested fields count');
+    // The known answer: sha256 of `null` (an absent request hashes as null).
+    assert.equal(await llmJobRequestHash(undefined),
+        '74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b');
+    // The widest scope a consumer builds (two 64-hex parts, the Quick
+    // audit's) must survive the runner's grammar un-truncated.
+    const scope = llmJobScopeKey('a'.repeat(64), h);
+    assert.equal(scope.length, 129);
+    const runner = runnerOver(memoryArea(), { 'audit-run': async () => ({ ok: true }) });
+    const started = await runner.start({ pass: 'audit-run', request: req, scopeKey: scope });
+    assert.equal(started.ok, true);
+    assert.equal(started.jobId, `audit-run:${scope}`);
+    assert.equal((await runner.status({ jobId: started.jobId, waitMs: 50 })).ok, true, 'the job id is inside JOB_ID_RE');
+});
+
+test('jobFailureNote: a LOST job names the re-bill; a lost CHANNEL names the free pickup; anything else adds nothing', () => {
+    const lost = { ok: false, jobId: 'audit-run:k', lost: true, swLost: true, timeout: true, error: LLM_JOB_LOST_ERROR };
+    assert.equal(jobFailureNote(lost, 'Suggest links…'), ' Suggest links… makes a new call, billed again.');
+    // Polls exhausted on a STARTED job: the client's error already says
+    // the result is kept — the note only names the control (no echo).
+    assert.equal(jobFailureNote({ ok: false, jobId: 'audit-run:k', swLost: true, error: 'lost contact' }, 'Quick audit'),
+        ' Quick audit with the same inputs picks it up without a new call.');
+    // A dropped START: whether a job began is unknown, and the note says so.
+    assert.equal(jobFailureNote({ ok: false, swLost: true, error: 'The message port closed' }, 'Quick audit'),
+        ' If the call started, its result is kept: Quick audit with the same inputs picks it up without a new call.');
+    assert.equal(jobFailureNote({ ok: false, error: 'LLM assist is off.' }, 'X'), '', 'the worker\'s own refusal explains itself');
+    assert.equal(jobFailureNote({ ok: false, timeout: true, error: 'aborted' }, 'X'), '', 'a pass timeout is not a lost job');
+    assert.equal(jobFailureNote({ ok: true }, 'X'), '');
+    assert.equal(jobFailureNote(null, 'X'), '');
 });
 
 // ---- housekeeping: sweep, heartbeat, persist failure ----
@@ -460,17 +508,75 @@ test('client: the elapsed counter is anchored to the RECORD\'s start, so a reatt
 const strip = (x) => x.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 const read = (rel) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
 
-test('GUARD: the three long passes never ride a held-open message in the service worker', () => {
+// The worker's pass table (background/llm-jobs.js), parsed: name → function.
+function passTable() {
+    const jobs = strip(read('src/background/llm-jobs.js'));
+    const open = jobs.indexOf('passes: {');
+    assert.ok(open > 0, 'sanity: the runner is built with a `passes: {` table');
+    const body = jobs.slice(open, jobs.indexOf('}', open));
+    return Object.fromEntries([...body.matchAll(/'([a-z-]+)':\s*(run\w+Pass)\b/g)].map((m) => [m[1], m[2]]));
+}
+
+// Every single-message type an LLM pass rode before it became a job —
+// #374's three and the 2026-09-25 addendum's five. Retired for good: the
+// worker must not handle them and no page may send them.
+const RETIRED_TYPES = Object.freeze([
+    'xray:llm:corpus-map', 'xray:llm:corpus-reduce', 'xray:llm:entity-page',
+    'xray:llm:hypothesis-edges', 'xray:llm:corpus-links', 'xray:llm:forensic-corpus',
+    'xray:llm:entity-audit', 'xray:audit:run'
+]);
+
+// The LLM passes that still ride ONE held-open message, each carrying a
+// single unit of a larger run. Each is bounded by its own abort, but
+// every one of those bounds is longer than MV3's 5-minute request kill
+// — so these are EXPOSED, deliberately and by name, not safe. Converting
+// one is a pass-table line plus its caller (JOURNAL 2026-09-05). A new
+// run*Pass lands in the pass table or here, with a reason — never
+// silently as a held-open handler.
+const HELD_OPEN_PASSES = Object.freeze({
+    runAuditModulePass: 'xray:audit:module — one Thorough-audit module; the reader draft-persists each completed module',
+    runLensPass: 'xray:lens:read — one jurisdiction; the lens panel renders per jurisdiction',
+    runVisionPass: 'xray:vision:describe — one image',
+    runExtractPass: 'xray:llm:extract — one archived PDF (Phase 18 C5)'
+});
+
+test('GUARD: the worker\'s pass table IS the allowlist — one function per allowlisted pass, nothing extra either way', () => {
+    const table = passTable();
+    assert.ok(Object.keys(table).length >= 3, 'sanity: the parser sees the table');
+    assert.deepEqual(Object.keys(table).sort(), [...LLM_JOB_PASSES].sort(),
+        'a pass allowlisted with no function is refused at start; a function with no allowlist entry is unreachable');
+    assert.equal(new Set(Object.values(table)).size, Object.keys(table).length, 'one function per pass');
+});
+
+test('GUARD: every run*Pass the LLM client exports is a JOB, or a NAMED held-open exception', () => {
+    const exported = [...strip(read('src/shared/llm-client.js')).matchAll(/export async function (run\w+Pass)\s*\(/g)]
+        .map((m) => m[1]);
+    assert.ok(exported.length >= 8, 'sanity: the scan sees the client\'s passes');
+    const jobFns = new Set(Object.values(passTable()));
+    for (const fn of exported) {
+        const job = jobFns.has(fn);
+        const held = Object.hasOwn(HELD_OPEN_PASSES, fn);
+        assert.ok(job || held, `${fn} is neither in the pass table nor a named held-open exception — make it a job`);
+        assert.ok(!(job && held), `${fn} is a job AND listed as held-open — drop the exception`);
+    }
+    for (const fn of Object.keys(HELD_OPEN_PASSES)) {
+        assert.ok(exported.includes(fn), `HELD_OPEN_PASSES names ${fn}, which the client no longer exports — remove it`);
+    }
+});
+
+test('GUARD: no job pass rides a held-open message in the service worker', () => {
     // The dispatch chain stays in index.js (the structure guard derives
     // the message registry from it); the runner and its pass table live
     // in background/llm-jobs.js (extracted under the surface ceiling).
     const bg = strip(read('src/background/index.js'));
     const jobs = strip(read('src/background/llm-jobs.js'));
     // The held-open shape: a direct handler awaiting the pass into sendResponse.
-    for (const t of ['xray:llm:corpus-map', 'xray:llm:corpus-reduce', 'xray:llm:entity-page']) {
+    for (const t of RETIRED_TYPES) {
         assert.ok(!bg.includes(`message.type === '${t}'`), `${t} is handled as a single held-open message again`);
     }
-    for (const fn of ['runCorpusMapPass', 'runCorpusReducePass', 'runEntityPagePass']) {
+    const fns = Object.values(passTable());
+    assert.equal(fns.length, LLM_JOB_PASSES.length);
+    for (const fn of fns) {
         assert.ok(!bg.includes(fn), `${fn} is referenced from index.js — the chain reaches it only through ./llm-jobs.js`);
         assert.ok(!new RegExp(`${fn}\\(message`).test(jobs), `${fn} is invoked straight from a message handler`);
         assert.ok(!new RegExp(`${fn}\\([^)]*\\)\\s*\\.then\\(\\s*\\(result\\) => sendResponse`).test(jobs),
@@ -489,7 +595,7 @@ test('GUARD: the three long passes never ride a held-open message in the service
     assert.ok(!/onMessage\.addListener/.test(jobs), 'background/llm-jobs.js must not open a second dispatch chain');
 });
 
-test('GUARD: no page sends the retired single-message types; every map/reduce/page call goes through the job client', () => {
+function srcFiles() {
     const files = [];
     const walk = (dir) => {
         for (const name of readdirSync(dir)) {
@@ -499,22 +605,106 @@ test('GUARD: no page sends the retired single-message types; every map/reduce/pa
         }
     };
     walk(new URL('../src', import.meta.url).pathname);
+    const root = new URL('..', import.meta.url).pathname;
+    return files.map((abs) => abs.slice(root.length));
+}
+
+// Who drives each pass page-side. Every runLlmJob call site in src must
+// be listed here (so it is pinned), and every allowlisted pass must have
+// a consumer (so none is dead).
+const JOB_CONSUMERS = Object.freeze({
+    'src/portal/synthesis-block.js': ['corpus-map', 'corpus-reduce'],
+    'src/portal/entity-page-block.js': ['entity-page'],
+    'src/shared/article-pass.js': ['corpus-map'],
+    'src/shared/entity-page.js': ['corpus-map'],
+    'src/portal/links-block.js': ['corpus-links'],
+    'src/portal/hypothesis-block.js': ['hypothesis-edges'],
+    'src/portal/forensic-corpus-block.js': ['forensic-corpus'],
+    'src/sidepanel/entity-audit.js': ['entity-audit'],
+    'src/reader/quick-audit.js': ['audit-run']
+});
+// The 2026-09-25 consumers: content-derived scopes and a record-anchored
+// elapsed counter, like the reduce (#374's two surfaces pin the latter below).
+const ADDENDUM_CONSUMERS = Object.freeze([
+    'src/portal/links-block.js', 'src/portal/hypothesis-block.js', 'src/portal/forensic-corpus-block.js',
+    'src/sidepanel/entity-audit.js', 'src/reader/quick-audit.js'
+]);
+
+test('GUARD: no page sends a retired single-message type — not as a send, not as any string literal', () => {
     const offenders = [];
-    for (const f of files) {
-        const src = strip(readFileSync(f, 'utf8'));
-        for (const t of ["'xray:llm:corpus-map'", "'xray:llm:corpus-reduce'", "'xray:llm:entity-page'"]) {
-            if (src.includes(`type: ${t}`)) offenders.push(`${f} sends ${t}`);
+    for (const f of srcFiles()) {
+        const src = strip(read(f));
+        for (const t of RETIRED_TYPES) {
+            if (new RegExp(`['"\`]${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['"\`]`).test(src)) offenders.push(`${f} names ${t}`);
         }
     }
     assert.deepEqual(offenders, []);
-    for (const rel of ['src/portal/synthesis-block.js', 'src/portal/entity-page-block.js', 'src/shared/article-pass.js', 'src/shared/entity-page.js']) {
-        assert.match(strip(read(rel)), /runLlmJob\(\{/, `${rel} does not use the job client`);
-        assert.match(strip(read(rel)), /ackLlmJob\(/, `${rel} never releases its job record`);
+});
+
+test('GUARD: every job consumer uses the job client, names an allowlisted pass, and releases its record', () => {
+    const callers = srcFiles().filter((f) => f !== 'src/shared/llm-jobs.js' && /\brunLlmJob\(\{/.test(strip(read(f))));
+    assert.ok(callers.length >= 4, 'sanity: the scan sees runLlmJob call sites');
+    assert.deepEqual(callers.sort(), Object.keys(JOB_CONSUMERS).sort(),
+        'a runLlmJob call site is not listed in JOB_CONSUMERS (or a listed one stopped using the client)');
+    const driven = new Set();
+    for (const [rel, passes] of Object.entries(JOB_CONSUMERS)) {
+        const src = strip(read(rel));
+        assert.match(src, /\brunLlmJob\(\{/, `${rel} does not use the job client`);
+        assert.match(src, /\backLlmJob\(/, `${rel} never releases its job record`);
+        const named = [...src.matchAll(/\bpass:\s*'([^']+)'/g)].map((m) => m[1]);
+        for (const p of named) assert.ok(LLM_JOB_PASSES.includes(p), `${rel} starts '${p}', which the worker refuses`);
+        for (const p of passes) {
+            assert.ok(named.includes(p), `${rel} does not start '${p}'`);
+            driven.add(p);
+        }
     }
+    assert.deepEqual([...driven].sort(), [...LLM_JOB_PASSES].sort(), 'an allowlisted pass has no page-side consumer');
+});
+
+test('GUARD: the 2026-09-25 consumers scope by CONTENT (id + request hash) and time from the record', () => {
+    for (const rel of ADDENDUM_CONSUMERS) {
+        const src = strip(read(rel));
+        assert.match(src, /scopeKey:\s*llmJobScopeKey\([^;]*await llmJobRequestHash\(request\)\)/,
+            `${rel}: the scope must end in the hash of the request it sends — an id-only scope would serve a stale result`);
+        assert.match(src, /jobElapsedSeconds\(st,/, `${rel} times the job from a page-local clock`);
+        assert.match(src, /jobFailureNote\(/, `${rel} fails without saying what a retry costs`);
+    }
+});
+
+test('GUARD: the reader never reads ingestAuditResult as a boolean — it is tri-state, and \'failed\' is truthy', () => {
+    // A truthiness read on the Thorough path would clear the resumable
+    // module draft after a FAILED import — paid modules, gone.
+    const src = strip(read('src/reader/index.js'));
+    const sites = src.split('\n').filter((l) => /\bingestAuditResult\(/.test(l) && !/async function ingestAuditResult\(/.test(l));
+    assert.equal(sites.length, 2, `sanity: the Quick and Thorough call sites (${sites.length} found)`);
+    for (const l of sites) {
+        assert.ok(/\)\) === INGEST_IMPORTED\b/.test(l) || /\bingest: \(audit, model\) => ingestAuditResult\(/.test(l),
+            `a boolean read of ingestAuditResult: ${l.trim()}`);
+    }
+});
+
+test('GUARD: #374\'s long-poll surfaces time the job from the record', () => {
     // The two long-poll surfaces show elapsed time — anchored to the
     // record, never a page-local clock (a reload restarted it at 0).
     for (const rel of ['src/portal/synthesis-block.js', 'src/portal/entity-page-block.js']) {
         assert.match(strip(read(rel)), /jobElapsedSeconds\(st,/, `${rel} times the job from a page-local clock`);
+    }
+});
+
+test('GUARD: every portal/side-panel job consumer flags a dropped channel (lastError) as swLost, not as the worker\'s refusal', () => {
+    // runLlmJob retries a poll only when the transport says the channel
+    // DROPPED (`!resp || resp.swLost`). A helper that turns lastError
+    // into a bare {ok:false} makes the first dropped poll abandon a live,
+    // paid job (the pre-job forensic helper did exactly that).
+    const pages = Object.keys(JOB_CONSUMERS).filter((f) => f.startsWith('src/portal/') || f.startsWith('src/sidepanel/'));
+    assert.ok(pages.length >= 5, 'sanity');
+    for (const rel of pages) {
+        const helper = strip(read(rel)).match(/function (?:sendMessage|sendRuntimeMessage)\(msg\)\s*\{[\s\S]*?\n\}/);
+        assert.ok(helper, `${rel}: no chrome.runtime sendMessage helper found`);
+        assert.match(helper[0], /chrome\.runtime\.lastError/, `${rel}: the helper never reads chrome.runtime.lastError`);
+        // Either drop signal the client accepts: `swLost: true`, or an empty resolve.
+        assert.ok(/swLost:\s*true/.test(helper[0]) || /lastError\)\s*\{\s*resolve\((?:null|undefined)\)/.test(helper[0]),
+            `${rel}: lastError resolves as the worker's refusal, not as a dropped channel`);
     }
 });
 

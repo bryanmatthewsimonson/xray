@@ -9,20 +9,26 @@
 // opt-in is deliberately NOT reused — findings are local until the
 // separately-flagged publish batch.
 
-import { el } from './dom.js';
+import { el, isShown } from './dom.js';
 import { Utils } from '../shared/utils.js';
 import { ForensicModel } from '../shared/forensic-model.js';
 import {
     buildSubjectBundle, validateForensicProposals, forensicSubjectRollup,
     MAX_FINDINGS_PER_SUBJECT
 } from '../shared/forensic-corpus.js';
+import {
+    runLlmJob, ackLlmJob, llmJobScopeKey, llmJobRequestHash, jobElapsedSeconds, jobFailureNote
+} from '../shared/llm-jobs.js';
 
 function sendMessage(msg) {
     return new Promise((resolve) => {
         try {
             chrome.runtime.sendMessage(msg, (resp) => {
+                // `swLost` marks a DROPPED channel (a torn-down worker), so
+                // the job client retries its poll rather than reading the
+                // drop as the worker's refusal and abandoning a live job.
                 const err = chrome.runtime.lastError;
-                if (err) { resolve({ ok: false, error: err.message }); return; }
+                if (err) { resolve({ ok: false, error: err.message, swLost: true }); return; }
                 resolve(resp);
             });
         } catch (_) { resolve(null); }
@@ -91,6 +97,10 @@ export function renderForensicCorpusBlock(host, { data, callbacks = {} }) {
             const subject = entities[sel.value];
             if (!subject) return;
             runBtn.disabled = true;
+            // Released once the proposals are in a LIVE review (the review
+            // is their only sink — each Accept files one finding), or at
+            // once when this code throws on them: a reuse would throw again.
+            let jobId = null;
             try {
                 status.textContent = 'Assembling the evidence bundle…';
                 const { bundle, memberTexts, sources, truncated } = buildSubjectBundle({
@@ -110,14 +120,38 @@ export function renderForensicCorpusBlock(host, { data, callbacks = {} }) {
                     return;
                 }
                 status.textContent = `Analyzing ${subject.name}…`;
-                const resp = await sendMessage({ type: 'xray:llm:forensic-corpus', request: { bundle, subjectName: subject.name } });
-                if (!resp || !resp.ok) { status.textContent = (resp && resp.error) || 'Pass failed.'; return; }
+                // A JOB, never a held-open message (JOURNAL 2026-09-05):
+                // scoped to this case + subject + this exact bundle, so a
+                // pass that finished after this tab went away is picked up
+                // by the next identical Analyze instead of billed again.
+                const request = { bundle, subjectName: subject.name };
+                const startedAt = Date.now();
+                const resp = await runLlmJob({
+                    sendMessage, pass: 'forensic-corpus', request,
+                    scopeKey: llmJobScopeKey((data.case && data.case.id) || '', subject.id,
+                        await llmJobRequestHash(request)),
+                    onTick: (st) => {
+                        if (st.status !== 'running') return;
+                        status.textContent = `Analyzing ${subject.name}… ${jobElapsedSeconds(st, startedAt)}s`;
+                    }
+                });
+                if (!resp.ok) {
+                    status.textContent = `Pass failed: ${String(resp.error || 'no response').replace(/\.$/, '')}.`
+                        + jobFailureNote(resp, 'Analyze subject…');
+                    return;
+                }
+                jobId = resp.jobId;
                 const { accepted, rejected } = validateForensicProposals(resp.findings, { memberTexts });
                 status.textContent = `${accepted.length} proposal${accepted.length === 1 ? '' : 's'}`
                     + (rejected.length ? ` · ${rejected.length} rejected by the firewall` : '');
                 renderReview(reviewHost, { subject, accepted, rejected, model: resp.model, callbacks });
+                // Delivered — onto a review someone can see. One the case
+                // view dropped mid-run (detached, or hidden behind the
+                // library) keeps the record for the next identical Analyze.
+                if (isShown(reviewHost)) ackLlmJob(sendMessage, jobId).catch(() => {});
             } catch (err) {
                 Utils.error('Forensic corpus pass failed', err);
+                if (jobId) ackLlmJob(sendMessage, jobId).catch(() => {});
                 status.textContent = `Failed: ${(err && err.message) || 'unknown error'}`;
             } finally {
                 runBtn.disabled = false;
