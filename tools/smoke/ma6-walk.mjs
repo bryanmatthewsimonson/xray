@@ -393,10 +393,21 @@ await waitFor('block', `the extraction block ${SEL.block} never rendered its ${N
         note('  --- case view text ---');
         note(diag.bodyText.split('\n').slice(0, 40).map((l) => '  | ' + l).join('\n'));
     } });
-await page.evaluate((sel) => { window.__xrWalkBlock = document.querySelector(sel); }, SEL.block);
+// Track the block and read it in ONE evaluate: case-view.js attaches the
+// block after two awaits, so a background re-render can leave a window in
+// which it is absent — that must reach finish() (and its tripwire) as a
+// named finding, never an uncaught TypeError with no report.
+blockText = await page.evaluate((sel) => {
+    const b = document.querySelector(sel);
+    window.__xrWalkBlock = b;
+    return b ? b.innerText : null;
+}, SEL.block);
 blockTracked = true;
+if (blockText === null) {
+    fail(`the extraction block ${SEL.block} left the DOM right after it rendered`);
+    await finish();
+}
 await page.screenshot({ path: join(OUT, 'ma6-01-case.png'), fullPage: true });
-blockText = await page.evaluate((sel) => document.querySelector(sel).innerText, SEL.block);
 ok('extraction block rendered');
 note(blockText.split('\n').slice(0, 10).map((l) => '  | ' + l).join('\n'));
 
@@ -411,7 +422,9 @@ await twoFrames('expanded frames');
 // Attached is not shown: innerText of a hidden node falls back to its
 // textContent, so the block must also be VISIBLE once every fold is open.
 if (!(await page.locator(SEL.block).first().isVisible())) {
-    fail('the extraction block is in the DOM but not visible with every section open');
+    fail(await page.locator(SEL.block).count()
+        ? 'the extraction block is in the DOM but not visible with every section open'
+        : `the extraction block ${SEL.block} left the DOM after its sections opened`);
 }
 await page.screenshot({ path: join(OUT, 'ma6-02-expanded.png'), fullPage: true });
 
