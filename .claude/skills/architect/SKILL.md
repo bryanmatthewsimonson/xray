@@ -11,9 +11,9 @@ description: >-
   src/page/ MAIN-world files, or a shared facade (storage.js,
   signer.js, nostr-client.js, crypto.js, platforms/). Also invoke on a
   new *_KICKOFF.md or *_DESIGN.md before code exists, when
-  tests/constitution-guards.test.mjs or tests/disciplines.test.mjs
-  goes red, and before a release tag. Output is a review report —
-  never a merge.
+  tests/constitution-guards.test.mjs, tests/disciplines.test.mjs, or
+  a family guard (e.g. lens-guards) goes red, and before a release
+  tag. Output is a review report — never a merge.
 ---
 
 # Architect — keep the load-bearing structure whole as changes accumulate
@@ -241,9 +241,11 @@ check does not bind.
 - The public surface of a shared facade changes: storage.js,
   signer.js, nostr-client.js, crypto.js, or platforms/index.js
   dispatch.
-- tests/constitution-guards.test.mjs or tests/disciplines.test.mjs
-  goes red — adjudicate bug versus unratified amendment (Art. 12:
-  those are the only two possibilities).
+- tests/constitution-guards.test.mjs, tests/disciplines.test.mjs, or
+  a family guard (e.g. lens-guards) goes red — the
+  bug-versus-unratified-amendment finding is governance's (Art. 12:
+  those are the only two possibilities); this review supplies the
+  structural verdict beside it.
 - Before a release tag, alongside docs/SMOKE_TEST.md, and after any
   cross-cutting refactor — a whole-tree pass, not a diff pass. The
   tag-time report feeds the automator-aggregated release preflight,
@@ -281,7 +283,11 @@ check does not bind.
    architecture section and message list, and any governing design
    doc — superseded designs get banners (standard 8).
 8. Run npm test. A red guard is a bug or an unratified amendment,
-   never a test to edit green; state which it is and what
+   never a test to edit green. For a normative guard
+   (constitution-guards, disciplines, a family guard such as
+   lens-guards) cite governance's finding on which it is and what
+   ratification would require; for any other guard (structure-guards,
+   the wire/idb/backup fixture guards), state which it is and what
    ratification would require (Art. 12).
 9. State the quality trade in one sentence, or state "no quality
    trade" explicitly (standard 9).
