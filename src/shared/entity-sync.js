@@ -276,8 +276,10 @@ export async function pullEntities({ userPrivkey, relays, timeoutMs = 8000 }) {
         byRelay:      byRelay || {}
     };
 
-    const localAll = await Storage.get('entities', {});
-
+    // Phase 1 — decrypt everything. No storage is read here: the loop
+    // awaits per event, and a registry snapshot read before it would
+    // erase whatever other pages wrote meanwhile (JOURNAL 2026-09-24).
+    const records = [];
     for (const event of events) {
         try {
             // NIP-04 events end with `?iv=<base64>` after the ciphertext;
@@ -297,58 +299,106 @@ export async function pullEntities({ userPrivkey, relays, timeoutMs = 8000 }) {
                 plaintext = await Crypto.nip44Decrypt(event.content, convKey);
             }
             const record = deserializeEntityFromSync(plaintext);
-            if (!record) { out.malformed++; continue; }
-
-            const local = localAll[record.id];
-            // Last-write-wins by payload.updated. If the local record
-            // is at least as fresh, do nothing.
-            if (local && (local.updated || 0) >= (record.updated || 0)) {
-                out.unchanged++;
-                continue;
-            }
-
-            // Persist the entity row (without the keypair — LocalKeyManager
-            // owns that).
-            const keyName = local?.keyName || `entity:${record.id}`;
-            localAll[record.id] = {
-                id:                record.id,
-                name:              record.name,
-                type:              record.type,
-                description:       record.description || '',
-                nip05:             record.nip05 || '',
-                canonical_id:      record.canonical_id || null,
-                keyName,
-                created:           record.created          || Math.floor(Date.now() / 1000),
-                updated:           record.updated          || Math.floor(Date.now() / 1000),
-                publishedAt:       record.publishedAt      || null,
-                publishedEventId:  record.publishedEventId || null
-            };
-
-            // Install or overwrite the keypair in LocalKeyManager.
-            // We bypass `createKey` (which throws on duplicate) and
-            // write directly, so repeated pulls are idempotent.
-            LocalKeyManager.keys.set(keyName, {
-                name:       keyName,
-                privateKey: record.keypair.privateKey,
-                pubkey:     record.keypair.pubkey,
-                npub:       record.keypair.npub,
-                nsec:       record.keypair.nsec,
-                metadata:   { entityId: record.id, entityType: record.type, entityName: record.name, source: 'sync' },
-                created:    record.created || Math.floor(Date.now() / 1000)
-            });
-
-            if (local) out.updated++;
-            else       out.added++;
+            // A key the keystore cannot install is as unusable as a
+            // missing one — count it with the other rejects. That
+            // includes 64 hex that is no secp256k1 scalar (0, or >= the
+            // curve order): upsertKeys would refuse the WHOLE batch.
+            if (!record || !isInstallablePrivateKey(record.keypair.privateKey)) { out.malformed++; continue; }
+            record.keypair.privateKey = String(record.keypair.privateKey).toLowerCase();
+            records.push(record);
         } catch (err) {
             out.failed++;
             Utils.error('pull decrypt failed for event', event.id, err);
         }
     }
 
-    await Storage.set('entities', localAll);
-    try { await LocalKeyManager.save(); } catch (_) { /* best-effort */ }
+    // Phase 2 — plan against a fresh registry read: which records win
+    // (last-write-wins by payload.updated; a later duplicate is judged
+    // against the earlier winner, as the old single loop did) and the
+    // key name each installs. That name is ALWAYS `entity:<the pulled
+    // record's own id>`: a stored record whose keyName says anything
+    // else (the reserved `xray:user` sync slot, another entity's slot)
+    // is refused — a pull never overwrites a key it does not own.
+    const planned = await Storage.get('entities', {});
+    const winners = [];
+    for (const record of records) {
+        const local = planned[record.id];
+        if (local && (local.updated || 0) >= (record.updated || 0)) {
+            out.unchanged++;
+            continue;
+        }
+        const keyName = `entity:${record.id}`;
+        if (local && local.keyName && local.keyName !== keyName) {
+            out.malformed++;
+            Utils.error('pull: entity', record.id, 'has a stored keyName other than its own entity:<id> slot — refused, no key installed');
+            continue;
+        }
+        // The entity row, without the keypair (LocalKeyManager owns that).
+        const row = {
+            id:                record.id,
+            name:              record.name,
+            type:              record.type,
+            description:       record.description || '',
+            nip05:             record.nip05 || '',
+            canonical_id:      record.canonical_id || null,
+            keyName,
+            created:           record.created          || Math.floor(Date.now() / 1000),
+            updated:           record.updated          || Math.floor(Date.now() / 1000),
+            publishedAt:       record.publishedAt      || null,
+            publishedEventId:  record.publishedEventId || null
+        };
+        planned[record.id] = row;
+        winners.push({ record, row });
+    }
+    if (winners.length === 0) return out;
+
+    // Phase 3 — KEYS FIRST, in one locked read-modify-write (every key
+    // other pages hold stays). The fresher record's key REPLACES any
+    // key under its name — upsertKeys is the keystore's explicit
+    // overwrite path; later entries win, as the loop order did. If it
+    // fails, no record is written: a record must never point at a key
+    // that is not there.
+    try {
+        await LocalKeyManager.upsertKeys(winners.map(({ record, row }) => ({
+            name:       row.keyName,
+            privateKey: record.keypair.privateKey,
+            metadata:   { entityId: record.id, entityType: record.type, entityName: record.name, source: 'sync' },
+            created:    record.created || undefined
+        })));
+    } catch (err) {
+        out.failed += winners.length;
+        Utils.error('pull: installing pulled keys failed — no entity records written', err);
+        return out;
+    }
+
+    // Phase 4 — the records, merged into a FRESH registry read (the key
+    // write above waited on the lock) with no await between that read
+    // and its write. A record another page made at least as fresh
+    // meanwhile stays; its key was already replaced above, which for a
+    // derived key is the same key.
+    const localAll = await Storage.get('entities', {});
+    let changed = false;
+    for (const { record, row } of winners) {
+        const local = localAll[record.id];
+        if (local && (local.updated || 0) >= (record.updated || 0)) {
+            out.unchanged++;
+            continue;
+        }
+        localAll[record.id] = row;
+        changed = true;
+        if (local) out.updated++;
+        else       out.added++;
+    }
+    if (changed) await Storage.set('entities', localAll);
 
     return out;
+}
+
+// 64 hex that secp256k1 accepts as a private key (0 < k < n).
+function isInstallablePrivateKey(value) {
+    const hex = String(value || '').toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(hex)) return false;
+    try { Crypto.getPublicKey(hex); return true; } catch (_) { return false; }
 }
 
 /**

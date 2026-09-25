@@ -36,6 +36,8 @@ the entry's heading anchor in its monthly file.
 
 ## 2026-09
 
+- **2026-09-24** — [PDF links never worked: pdf.js 6 has no `convertToViewportRectangle`, and the anchor text read the line above](journal/2026-09.md#2026-09-24--pdf-links-never-worked-pdfjs-6-has-no-converttoviewportrectangle-and-the-anchor-text-read-the-line-above) · bug, external, wire-format, pattern
+- **2026-09-24** — [One tab's key write erased another tab's keys: `local_keys` writes now merge into fresh storage](journal/2026-09.md#2026-09-24--one-tabs-key-write-erased-another-tabs-keys-local_keys-writes-now-merge-into-fresh-storage) · bug, security
 - **2026-09-24** — [The backup fixture's legacy entity could not sign; now it is the real shape](journal/2026-09.md#2026-09-24--the-backup-fixtures-legacy-entity-could-not-sign-now-it-is-the-real-shape) · bug, pattern
 - **2026-09-21** — [The split's verifier found the mover deleting text; now it refuses](journal/2026-09.md#2026-09-21--the-splits-verifier-found-the-mover-deleting-text-now-it-refuses) · bug, design, pattern
 - **2026-09-21** — [MA.6 stays advisory: the 2026-09-21 flip criterion, recorded](journal/2026-09.md#2026-09-21--ma6-stays-advisory-the-2026-09-21-flip-criterion-recorded) · design

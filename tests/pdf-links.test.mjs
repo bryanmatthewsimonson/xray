@@ -13,15 +13,19 @@ import assert from 'node:assert/strict';
 
 const { extractPdfLinks } = await import('../src/shared/pdf-layout.js');
 
-// A text run, in the viewport-mapped y-down space the caller produces:
-// (x, y) is the START of the BASELINE, so glyphs occupy [y - h, y].
+// A text run, in the viewport-mapped y-UP space the caller produces
+// (pdf-layout's module convention): (x, y) is the START of the
+// BASELINE, so glyphs occupy [y, y + h]. These builders once said
+// y-down, the helper agreed, and both disagreed with the real capture
+// — the anchor text came from the line above (JOURNAL 2026-09-24).
 const run = (str, x, y, w = 40, h = 10) => ({ str, x, y, w, h });
 // A link annotation rect in that same space, as EXPLICIT CORNERS
-// (y0 = top). This helper takes a run-style baseline origin and boxes
-// the glyphs above it, so a rect built with the same (x, y) as a run
-// covers that run — which is what a real PDF link rect does.
+// (y0 = bottom, y1 = top, as pdf-capture emits them). This helper
+// takes a run-style baseline origin and boxes the glyphs above it, so
+// a rect built with the same (x, y) as a run covers that run — which
+// is what a real PDF link rect does.
 const annot = (url, x, y, w = 40, h = 10) =>
-    ({ url, x0: x, y0: y - h, x1: x + w, y1: y });
+    ({ url, x0: x, y0: y, x1: x + w, y1: y + h });
 
 test('pdf-links: URI annotations become links in the HTML extractor\'s shape', () => {
     const { links, truncated } = extractPdfLinks([{
@@ -101,6 +105,22 @@ test('pdf-links: anchor text takes only runs the rect COVERS, not neighbours', (
         annots: [annot('https://x.example/p', 95, 100, 50, 10)]
     }], 'https://h/p.pdf', 'h');
     assert.equal(links[0].text, 'Pekar');
+});
+
+test('pdf-links: anchor text is the linked line, not the line above or below it', () => {
+    // Lines 14pt apart (12pt type); the rect boxes the middle line's
+    // glyphs, dipping below its baseline for descenders as real link
+    // rects do. Measured y-down, a run's centre sat half a line low,
+    // so the line ABOVE landed in the rect and the linked line fell out.
+    const { links } = extractPdfLinks([{
+        items: [
+            run('the line above', 72, 714, 100, 12),
+            run('the linked line', 72, 700, 100, 12),
+            run('the line below', 72, 686, 100, 12)
+        ],
+        annots: [{ url: 'https://x.example/l', x0: 70, y0: 697, x1: 180, y1: 713 }]
+    }], 'https://h/p.pdf', 'h');
+    assert.equal(links[0].text, 'the linked line');
 });
 
 test('pdf-links: no annotations / absent annots / non-array input degrade to empty', () => {

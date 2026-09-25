@@ -784,10 +784,12 @@ export function textDensity(pages) {
  *
  * PURE, per this module's contract: the caller (reader/pdf-capture)
  * owns pdf.js and passes annotation rectangles ALREADY mapped through
- * the viewport into the same y-down space as `items` — the identical
- * discipline the text runs use, so /Rotate pages behave.
+ * the viewport into the same y-UP space as `items` (the module header's
+ * convention) — the identical discipline the text runs use, so /Rotate
+ * pages behave.
  *
- * Annotation rects are EXPLICIT CORNERS (`x0,y0,x1,y1`, y0 = top),
+ * Annotation rects are EXPLICIT CORNERS (`x0,y0,x1,y1`; the capture
+ * emits y0 = bottom, y1 = top, and the order is normalized anyway),
  * deliberately not the `{x,y,w,h}` items use: a run's `y` is its
  * BASELINE with the glyphs above it, so an `h` on a rect would extend
  * the opposite way from an `h` on a run. Two conventions one letter
@@ -848,10 +850,12 @@ function anchorTextUnder(page, annot) {
     const y1 = Math.max(annot.y0, annot.y1);
     const parts = [];
     for (const it of (page.items || [])) {
-        // A run's box is y-down from its baseline: glyphs sit ABOVE
-        // `it.y`, so the body spans [it.y - it.h, it.y].
+        // Items are y-UP (module header): glyphs sit ABOVE the baseline
+        // `it.y`, so the body spans [it.y, it.y + it.h]. Measuring it
+        // y-down put every centre half a line low, and the rect read
+        // the line ABOVE the link as its anchor text.
         const cx = it.x + (it.w || 0) / 2;
-        const cy = it.y - (it.h || 0) / 2;
+        const cy = it.y + (it.h || 0) / 2;
         if (cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1) parts.push(it.str);
     }
     return parts.join(' ').replace(/\s+/g, ' ').trim().slice(0, 200);

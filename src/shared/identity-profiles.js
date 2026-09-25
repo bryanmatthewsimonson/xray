@@ -25,6 +25,7 @@
 
 import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
+import { withKeyStoreLock } from './local-key-manager.js';
 
 const PROFILES_KEY = 'identity_profiles';
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -225,10 +226,16 @@ export async function workspaceBackup() {
  */
 export async function resetWorkspace({ idb } = {}) {
     const cleared = [];
-    for (const key of WORKSPACE_CLEAR_KEYS) {
-        await Storage.delete(key);
-        cleared.push(key);
-    }
+    // The content keys include `local_keys`: clear them under the
+    // keystore lock, so a key write in flight on another page cannot
+    // land after the reset and put the old keys back (JOURNAL
+    // 2026-09-24). Nothing inside calls a keystore writer.
+    await withKeyStoreLock(async () => {
+        for (const key of WORKSPACE_CLEAR_KEYS) {
+            await Storage.delete(key);
+            cleared.push(key);
+        }
+    });
     const databases = [];
     const factory = idb || (typeof indexedDB !== 'undefined' ? indexedDB : null);
     if (factory && typeof factory.deleteDatabase === 'function') {
@@ -356,7 +363,10 @@ export const Workspaces = {
     async remove(id, { idb } = {}) {
         const all = await Workspaces.ensure();
         if (!all[id]) throw new Error(`Workspace not found: ${id}`);
-        const result = await Storage.removeWorkspaceData(id, { idb });
+        // Its `ws:<id>:local_keys` goes too — under the keystore lock,
+        // like the reset above, so a key write still in flight for that
+        // workspace lands before the delete, never after it.
+        const result = await withKeyStoreLock(() => Storage.removeWorkspaceData(id, { idb }));
         delete all[id];
         await Storage.set(WORKSPACES_KEY, all);
         return result;

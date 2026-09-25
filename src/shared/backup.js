@@ -48,6 +48,7 @@
 //     merging it would install a colleague's signing keys.
 
 import { WORKSPACE_DATABASES } from './identity-profiles.js';
+import { withKeyStoreLock } from './local-key-manager.js';
 import { WORKSPACE_CONTENT_KEYS, activeWorkspaceId, workspaceDbName } from './workspace-keys.js';
 import { LLM_KEY_STORAGE } from './llm-prompts.js';
 import { isLlmJobKey } from './llm-jobs.js';
@@ -587,7 +588,11 @@ export async function applyBackup(backup, { warn = () => {} } = {}) {
             + 'Use "Import & merge" to bring its content in.');
     }
     await assertBackupNotNewer(backup);
-    await applyStorage(backup.storage, warn);
+    // Under the keystore lock: this replaces `local_keys` wholesale, and
+    // a key write in flight on another page (which read the store before
+    // this) would otherwise land after it and put the old keys back
+    // (JOURNAL 2026-09-24). Nothing inside calls a keystore writer.
+    await withKeyStoreLock(() => applyStorage(backup.storage, warn));
     for (const [name, dump] of Object.entries(backup.databases || {})) {
         if (!WORKSPACE_DATABASES.includes(name)) {
             warn(`backup restore: database ${name} not covered — skipped`);
