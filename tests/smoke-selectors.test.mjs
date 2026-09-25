@@ -132,6 +132,16 @@ test('guard: every SMOKE_ANCHORS value is set somewhere in src/', () => {
         'src/shared/smoke-anchors.js lists anchors that no renderer or shell sets: ' + missing.join(', '));
 });
 
+// Two keys sharing a value would pass the guard above while a scenario
+// drove whichever element came first — the table grew from one anchor to
+// ten on 2026-09-25, so this is no longer hypothetical.
+test('guard: SMOKE_ANCHORS values are unique', () => {
+    const values = Object.values(SMOKE_ANCHORS);
+    assert.ok(values.length >= 2, 'sanity: the table has fewer than two anchors — uniqueness is vacuous');
+    const dupes = values.filter((v, i) => values.indexOf(v) !== i);
+    assert.deepEqual(dupes, [], 'SMOKE_ANCHORS has keys sharing a value: ' + dupes.join(', '));
+});
+
 test('guard: every data-xr selector a scenario spells resolves — literals exist in src/, table keys exist in the table', () => {
     const { literal, tableRefs, other } = scanScenarios();
     const defs = definedValues();

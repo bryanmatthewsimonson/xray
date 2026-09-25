@@ -11,6 +11,10 @@
     "watch": "node esbuild.config.mjs --watch",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "lint": "web-ext lint --source-dir . --self-hosted",
+    "lint:js": "node scripts/eslint-ratchet.mjs",
+    "check:version": "node scripts/check-version-lockstep.mjs",
+    "check:package": "node scripts/check-package.mjs",
+    "check:budget": "node scripts/check-bundle-budget.mjs",
     "test": "node --test tests/*.test.mjs",
     "smoke": "node tools/smoke/run.mjs",
     "version:set": "node scripts/set-version.mjs",
@@ -27,7 +31,9 @@
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",
     "esbuild": "^0.28.2",
+    "eslint": "^9.39.4",
     "fake-indexeddb": "^6.2.5",
+    "globals": "^17.8.0",
     "playwright": "1.63.0",
     "web-ext": "^10.6.0"
   },
@@ -42,7 +48,12 @@
     "ignoreFiles": [
       "companion",
       "companion/**",
-      "dist/_smoke-*"
+      "dist/_smoke-*",
+      "tools/smoke/out",
+      "tools/smoke/out/**",
+      "_metadata",
+      "_metadata/**",
+      "eslint.config.mjs"
     ]
   }
 }

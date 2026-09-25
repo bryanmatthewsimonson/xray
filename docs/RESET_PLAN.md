@@ -488,8 +488,38 @@ looking where the bugs are.
       silently; a smoke failure on a Dependabot `chore(deps-dev)` PR is
       a browser-roll finding (the playwright pin carries the Chromium
       revision), not a flake; the automator kill rule (two false
-      alarms, no true positive) governs after that.
-- [ ] **ESLint minimal** (`no-undef`, `no-unused-vars`, a `console`
+      alarms, no true positive) governs after that. *Preconditions met
+      2026-09-25 on `toolchain/ma6-preconditions` (PR #395; JOURNAL
+      entry of that date): zero fixed sleeps remain in the walk. Every
+      wait is a bounded condition that names what never happened.
+      Every control it drives is found by a `SMOKE_ANCHORS` anchor
+      (nine new ones), with copy only asserted. Verified by 10/10 green
+      full `npm run smoke` runs (`ma6` 2.9–4.1 s, down from about 15 s),
+      8/8 more after rebasing onto #390, 3/3 under CPU contention and
+      8/8 after the review fix, plus six negative controls and a
+      slow-Accept positive control. The box stays open: the flip is
+      the maintainer's, on 2026-10-05.*
+- [x] **ESLint minimal** *Built 2026-09-25 on `toolchain/ci-net` (PR
+      #396; JOURNAL entry of that date): four `ci.yml` build-job
+      steps in the §8 order. `npm run lint:js` runs `eslint.config.mjs`
+      (only `no-undef` and `no-unused-vars`, globals per context)
+      against a SHRINK-ONLY per-file baseline, 21 + 55 hits today; a
+      breach and an unlowered stale entry are both red, and none of the
+      21 `no-undef` hits is a real bug. The console ratchet is not
+      duplicated, because structure-guards Rule 6 already is that
+      ratchet (200 + the 5 exempt = 205). `check:version` puts the
+      package.json == manifest.json lockstep in CI. `check:package`
+      holds the zip to a closed world: it must contain every file the
+      shipped manifest, the esbuild configs, the HTML shells and the
+      `getURL` literals name, plus pdf.js's cmaps, standard_fonts, wasm
+      and iccs mirrored file-for-file. Today's leaks (B7) are pinned
+      shrink-only, and anything unlisted is red. The three new leaks it
+      caught (this slice's `eslint.config.mjs`, plus the smoke output
+      and Chrome's `_metadata/` in a local build) joined
+      `webExt.ignoreFiles`. `check:budget` sets
+      per-bundle (+5%) and total (+3%) ceilings. Verified by 11 negative
+      controls on the JOURNAL record, plus 47 unit cases.* Original
+      scope: ESLint minimal (`no-undef`, `no-unused-vars`, a `console`
       ratchet starting at 205) + version lockstep moved into `ci.yml` +
       a packaged-contents assertion + a bundle-size budget. (S each;
       VERI-07; T4's lockstep and packaged-contents checkboxes, open.)

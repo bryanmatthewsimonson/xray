@@ -1,0 +1,140 @@
+{
+  "//": "SHRINK-ONLY per-file, per-rule ESLint counts (scripts/eslint-ratchet.mjs). Never raise an entry; after a fix run `npm run lint:js -- --update` to lower it.",
+  "files": {
+    "esbuild.config.mjs": {
+      "no-unused-vars": 1
+    },
+    "src/background/index.js": {
+      "no-undef": 7
+    },
+    "src/content/nip07-client.js": {
+      "no-unused-vars": 2
+    },
+    "src/content/ui.js": {
+      "no-unused-vars": 2
+    },
+    "src/portal/case-view.js": {
+      "no-unused-vars": 1
+    },
+    "src/portal/entity-dossier-view.js": {
+      "no-unused-vars": 1
+    },
+    "src/portal/index.js": {
+      "no-unused-vars": 1
+    },
+    "src/portal/links-block.js": {
+      "no-unused-vars": 1
+    },
+    "src/reader/claim-extractor.js": {
+      "no-unused-vars": 1
+    },
+    "src/reader/index.js": {
+      "no-unused-vars": 1
+    },
+    "src/reader/llm-review.js": {
+      "no-unused-vars": 1
+    },
+    "src/shared/article-pass.js": {
+      "no-unused-vars": 1
+    },
+    "src/shared/assess-modal.js": {
+      "no-unused-vars": 1
+    },
+    "src/shared/audit/assemble.js": {
+      "no-unused-vars": 1
+    },
+    "src/shared/case-graph.js": {
+      "no-unused-vars": 1
+    },
+    "src/shared/diarized-transcript.js": {
+      "no-unused-vars": 1
+    },
+    "src/shared/entity-dossier.js": {
+      "no-unused-vars": 1
+    },
+    "src/shared/entity-model.js": {
+      "no-unused-vars": 1
+    },
+    "src/shared/event-builder.js": {
+      "no-unused-vars": 2
+    },
+    "src/shared/forensic-modal.js": {
+      "no-unused-vars": 1
+    },
+    "src/shared/llm-client.js": {
+      "no-unused-vars": 2
+    },
+    "src/shared/llm-proposals.js": {
+      "no-unused-vars": 1
+    },
+    "src/shared/nostr-client.js": {
+      "no-unused-vars": 2
+    },
+    "src/shared/platforms/youtube.js": {
+      "no-unused-vars": 1
+    },
+    "src/shared/truth-builders.js": {
+      "no-unused-vars": 1
+    },
+    "src/sidepanel/index.js": {
+      "no-unused-vars": 1
+    },
+    "tests/assessment-publish.test.mjs": {
+      "no-unused-vars": 1
+    },
+    "tests/audit-model.test.mjs": {
+      "no-unused-vars": 2
+    },
+    "tests/backup-merge.test.mjs": {
+      "no-unused-vars": 1
+    },
+    "tests/branch-hygiene.test.mjs": {
+      "no-unused-vars": 1
+    },
+    "tests/case-dossier.test.mjs": {
+      "no-unused-vars": 1
+    },
+    "tests/cross-workspace-graph.test.mjs": {
+      "no-undef": 2
+    },
+    "tests/diagnostics.test.mjs": {
+      "no-unused-vars": 3
+    },
+    "tests/direct-transcribe-deepgram.test.mjs": {
+      "no-unused-vars": 1
+    },
+    "tests/entity-dossier.test.mjs": {
+      "no-unused-vars": 1
+    },
+    "tests/event-journal-migration.test.mjs": {
+      "no-undef": 1
+    },
+    "tests/event-journal.test.mjs": {
+      "no-unused-vars": 1
+    },
+    "tests/evidence-linker.test.mjs": {
+      "no-unused-vars": 1
+    },
+    "tests/hypothesis-model.test.mjs": {
+      "no-unused-vars": 1
+    },
+    "tests/incorporation.test.mjs": {
+      "no-unused-vars": 2
+    },
+    "tests/local-key-store.test.mjs": {
+      "no-undef": 8
+    },
+    "tests/pdf-layout.test.mjs": {
+      "no-unused-vars": 2
+    },
+    "tests/tools/gen-backup-fixtures.mjs": {
+      "no-undef": 3
+    },
+    "tests/transcriber-client.test.mjs": {
+      "no-unused-vars": 5
+    },
+    "tests/transcript-attach.test.mjs": {
+      "no-unused-vars": 1
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "//": "Bundle-size budget (scripts/check-bundle-budget.mjs). Ceilings = size measured 2026-09-25 at a65d4ef + 5% per bundle, rounded up to the next KiB; total = measured sum + 3%. Raising a ceiling is a deliberate act: do it in the PR that needs it and say why in the PR body.",
+  "bundles": {
+    "dist/api-interceptor.bundle.js": { "measured": 5104, "ceiling": 6144 },
+    "dist/background.bundle.js": { "measured": 768096, "ceiling": 806912 },
+    "dist/content.bundle.js": { "measured": 429499, "ceiling": 451584 },
+    "dist/network.bundle.js": { "measured": 505064, "ceiling": 530432 },
+    "dist/options.bundle.js": { "measured": 550092, "ceiling": 578560 },
+    "dist/pdf-engine.bundle.js": { "measured": 858083, "ceiling": 901120 },
+    "dist/pdf.worker.bundle.js": { "measured": 2340935, "ceiling": 2458624 },
+    "dist/portal.bundle.js": { "measured": 1409378, "ceiling": 1480704 },
+    "dist/reader.bundle.js": { "measured": 1415271, "ceiling": 1486848 },
+    "dist/sidepanel.bundle.js": { "measured": 698689, "ceiling": 734208 }
+  },
+  "total": { "measured": 8980211, "ceiling": 9249792 }
+}
