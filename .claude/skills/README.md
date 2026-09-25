@@ -27,9 +27,9 @@ of its standards graduates to a guard test or CI check by the
 explicit clause in that standard. Advisory-not-gating is the Art. 8.6
 posture applied to process.
 
-**Reading them together.** `docs/discipline-standards.html` renders all
-eight on one browsable page — every standard, the seam map, and the
-preflight ordering — generated from these files by
+**Reading them together.** `docs/discipline-standards.html` renders the
+original eight on one browsable page — every standard, the seam map,
+and the preflight ordering — generated from these files by
 `npm run docs:disciplines`. It is committed but GENERATED: edit the
 SKILL.md, then regenerate. `tests/discipline-docs.test.mjs` fails when
 a source changes without a regen, so the page cannot silently diverge
@@ -75,15 +75,16 @@ which is exactly how `ROADMAP.md` went stale. That one is a human read.
 | Friction recurs, or a pain class appears twice in `JOURNAL` | `continuous-improvement` |
 | A diff touches `docs/CONSTITUTION.md`, `PHILOSOPHY.md`, `DISCIPLINES.md`, `TRUTH_SYSTEMS.md`, or any normative doc section | `governance` |
 | An amendment is drafted, or a change needs its Art. 13 tier and ceremony | `governance` |
-| `tests/constitution-guards.test.mjs` or `tests/disciplines.test.mjs` goes red | `governance` (bug or unratified amendment) + `architect` (structural verdict) |
-| A proposal needs a license check — Art. 5 estimation or aggregation, a capability without a design doc, a kill or resurrection | `governance` |
-| Two governance documents appear to conflict | `governance` — frames the divergence as a question for the maintainer; no skill arbitrates |
-| Before a `v*` tag | all eight, in the order below |
+| `tests/constitution-guards.test.mjs`, `tests/disciplines.test.mjs`, or a family guard (e.g. `tests/lens-guards.test.mjs`) goes red | `governance` (bug or unratified amendment) + `architect` (structural verdict) |
+| A proposal needs a license check — Art. 5 estimation or aggregation, a capability without a design doc, a kill or resurrection, anything near a red line | `governance` |
+| Two governance documents appear to conflict, or someone asks which one governs | `governance` — frames the divergence as a question for the maintainer; no skill arbitrates |
+| Before a `v*` tag | the original eight, in the order below |
 
 ## Release preflight — the shared ordering
 
-Seven of the eight self-invoke before a `v*` tag. Without an ordering
-they duplicate each other's checks and nobody closes. The sequence:
+Seven of the original eight self-invoke before a `v*` tag. Without an
+ordering they duplicate each other's checks and nobody closes. The
+sequence:
 
 **A. Mechanical preflight — `automator`.** Version lockstep,
 `CHANGELOG.md` section for the exact target version, clean tree,
@@ -157,7 +158,8 @@ that restates a neighbor's rule instead of citing it is a defect.
   wire semantics. `governance` says only what the corpus permits,
   forbids, or requires, and brings doc-vs-doc divergences to the
   maintainer as framed questions with a marked recommendation, never
-  as rulings.
+  as rulings. (`governance` is not among the eight skills
+  `docs/discipline-standards.html` renders; read its SKILL.md.)
 
 **Never restated anywhere:** the reserved and retired kind numbers.
 Cite the kind table in `docs/CONSTITUTION.md` Art. 10 (the wire

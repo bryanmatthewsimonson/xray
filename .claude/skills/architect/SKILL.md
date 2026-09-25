@@ -282,8 +282,12 @@ check does not bind.
    architecture section and message list, and any governing design
    doc — superseded designs get banners (standard 8).
 8. Run npm test. A red guard is a bug or an unratified amendment,
-   never a test to edit green; cite governance's finding on which it
-   is and what ratification would require (Art. 12).
+   never a test to edit green. For a normative guard
+   (constitution-guards, disciplines, a family guard such as
+   lens-guards) cite governance's finding on which it is and what
+   ratification would require; for any other guard (structure-guards,
+   the wire/idb/backup fixture guards), state which it is and what
+   ratification would require (Art. 12).
 9. State the quality trade in one sentence, or state "no quality
    trade" explicitly (standard 9).
 10. Produce the review report. Required sections: (a) per-standard

@@ -2,12 +2,12 @@
 name: governance
 description: >-
     Review aid for changes that touch or invoke the governance corpus
-    (docs/CONSTITUTION.md and the documents it ranks). Invoke on a diff
-    to a normative document, an amendment draft (which Art. 13 tier),
-    a red tests/constitution-guards or tests/disciplines guard (bug or
-    unratified amendment), a license check (Art. 5, Art. 2, a kill or
-    resurrection), a citation, or two governance documents in conflict.
-    Reads the sources each time, keeps no copy; reports, never rules.
+    (docs/CONSTITUTION.md and the documents it ranks). Invoke on a
+    normative-doc diff, an amendment draft (which CONSTITUTION Art. 13
+    tier), a red constitution-guards, disciplines or family guard (bug
+    or unratified amendment), a license check (Art. 5, Art. 2, a red
+    line, a kill or resurrection), a citation, which document governs,
+    or a doc-vs-doc conflict. Reads sources, keeps no copy; never rules.
 ---
 
 # Governance — read the law at its source, cite it exactly, rule in nobody's place
@@ -37,17 +37,17 @@ copy, never mistake the clerk's reading for the court's ruling.
    (CONSTITUTION, "How to use this document") to each citation the diff
    adds or touches; open the cited text to confirm it says what the
    citing prose claims; give each bad citation its exact correction.
-3. **Tier the change; draft the ceremony; apply nothing.** Classify each
-   normative edit by Art. 13 tier, read the required artifacts from
-   Art. 13 itself, and draft any missing one for the maintainer instead
-   of approving without it. Tier 3 gets no ceremony demanded of it.
+3. **Tier the change; draft the ceremony; apply nothing.** Classify
+   each normative edit by Art. 13 tier, read the required artifacts
+   from Art. 13 itself, and draft any missing one for the maintainer
+   instead of passing the change without it. Tier 3 owes no ceremony.
 4. **Check licenses condition by condition.** An estimate or aggregate
    runs Art. 5.2's conditions, and TRUTH_SYSTEMS §3.3's if consensus-
    adjacent (Art. 5.5), each pass or fail with evidence. New capability
-   names its design document (Art. 2) or is flagged unlicensed. A
-   resurrection answers the kill's recorded rationale (Art. 11; read a
-   ROAD_TO_1_0 kill's status note first). Near a red line, quote
-   Art. 12's enforcement formula, never paraphrase it.
+   names its design document (Art. 2) or is flagged unlicensed. A kill
+   or resurrection reads the kill's recorded rationale (JOURNAL; the
+   ROAD_TO_1_0 status note); a resurrection answers it (Art. 11). Near
+   a red line, quote Art. 12's enforcement formula, never paraphrase.
 5. **A red normative guard gets a written finding, not an edit.** Say
    bug or unratified amendment (Art. 12: the only two possibilities),
    name the provision, and for an amendment give the ratification
@@ -59,8 +59,8 @@ copy, never mistake the clerk's reading for the court's ruling.
    mark the recommendation as one (format: RESET_PLAN §4.4 item 5).
    Say whose rule each side is, a quoted maintainer ruling or an
    agent's reading; never present an unsettled reading as settled. A
-   choice forced mid-task follows the constitution's conflict clause,
-   documented where it is made and surfaced for review.
+   choice forced mid-task follows the conflict clause (CONSTITUTION,
+   "How to use this document") and is surfaced for review.
 7. **Non-normative sources inspire but never license** (Art. 2). Check
    a FOUNDING_TRANSCRIPT mechanism against its supersession log first;
    a dropped one returns only by answering the ruling that dropped it.
@@ -74,10 +74,11 @@ copy, never mistake the clerk's reading for the court's ruling.
 - A diff touches docs/CONSTITUTION.md, docs/PHILOSOPHY.md,
   docs/DISCIPLINES.md, docs/TRUTH_SYSTEMS.md, or a design document's
   normative section; or an amendment is drafted or needs its tier.
-- tests/constitution-guards.test.mjs, tests/disciplines.test.mjs, or
-  a family guard goes red: write the finding (standard 5) first.
-- A license check (standard 4), a citation, prose about to restate a
-  rule the corpus carries, or two documents that appear to conflict.
+- tests/constitution-guards, tests/disciplines, or a family guard (e.g.
+  tests/lens-guards) goes red: write the finding (standard 5) first.
+- A license check (standard 4), anything near a PHILOSOPHY §10 or
+  Art. 12 red line, a citation, prose restating a rule the corpus
+  carries, two documents in conflict, or a question of which governs.
 
 ## Protocol
 
