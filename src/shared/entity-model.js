@@ -31,7 +31,8 @@
 import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
 import { Utils } from './utils.js';
-import { LocalKeyManager, withStoreLock, lockedReadModifyWrite, STORE_LOCKS, StoreRefusedError } from './local-key-manager.js';
+import { LocalKeyManager, withStoreLock, lockedReadModifyWrite, STORE_LOCKS } from './local-key-manager.js';
+import { StoreRefusedError } from './workspace-keys.js';
 import { isValidSuggestedBy } from './assessment-taxonomy.js';
 // Authored-field validation (Phase 19 §4) reads the field registry;
 // entity-field-schemas.js is dependency-free, so no cycle.
@@ -442,7 +443,7 @@ export const EntityModel = {
             let dirty = false;
             for (const id of toStamp) {
                 if (fresh[id] && !fresh[id].derived_from) {
-                    fresh[id] = { ...fresh[id], derived_from: primaryPubkey };
+                    fresh[id].derived_from = primaryPubkey;
                     dirty = true;
                 }
             }
@@ -678,7 +679,8 @@ export const EntityModel = {
         unlinkedAliases = 0;
         for (const [otherId, other] of Object.entries(all)) {
             if (other.canonical_id === id) {
-                all[otherId] = { ...other, canonical_id: null, updated: Math.floor(Date.now() / 1000) };
+                other.canonical_id = null;
+                other.updated = Math.floor(Date.now() / 1000);
                 unlinkedAliases++;
             }
         }
@@ -784,7 +786,9 @@ export const EntityModel = {
             cursor = next;
         }
         // cursor is now the deepest canonical we can reach. Point alias at it.
-        all[aliasId] = { ...alias, canonical_id: cursor.id, updated: Math.floor(Date.now() / 1000) };
+        alias.canonical_id = cursor.id;
+        alias.updated = Math.floor(Date.now() / 1000);
+        all[aliasId] = alias;
         return { write: true };
         });
         return await EntityModel.get(aliasId);
@@ -810,7 +814,7 @@ export const EntityModel = {
      */
     markPublished: async (id, eventId) => {
         const found = await mutateRegistry((all) => {
-        const record = all[id] && { ...all[id] };
+        const record = all[id];
         if (!record) return { write: false, result: false };
         record.publishedAt = Math.floor(Date.now() / 1000);
         if (eventId) record.publishedEventId = eventId;
@@ -831,7 +835,7 @@ export const EntityModel = {
      */
     markProfilePublished: async (id, { profileEventId = null, profileHash = null } = {}) => {
         const found = await mutateRegistry((all) => {
-        const record = all[id] && { ...all[id] };
+        const record = all[id];
         if (!record) return { write: false, result: false };
         record.profilePublishedAt = Math.floor(Date.now() / 1000);
         if (profileEventId)   record.publishedProfileEventId = profileEventId;

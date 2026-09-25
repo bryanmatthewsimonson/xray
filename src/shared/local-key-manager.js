@@ -51,6 +51,7 @@
 import { Storage } from './storage.js';
 import { Utils } from './utils.js';
 import { Crypto } from './crypto.js';
+import { StoreRefusedError } from './workspace-keys.js';
 
 const STORE_KEY = 'local_keys';
 // Deliberately NOT `xray:…`: that prefix is the message-bus namespace,
@@ -66,12 +67,6 @@ const HEX64 = /^[0-9a-f]{64}$/;
 let refreshWanted = false;  // a refresh was requested since the loop's last read began
 let refreshLoop = null;     // the running refresh loop, if any
 let watching = false;       // one change listener per module instance
-
-/** A STORE-level refusal (nothing written): a caller importing many rows stops
- *  on it by `name` instead of skipping each; row-level errors stay plain. */
-export class StoreRefusedError extends Error {
-    constructor(message) { super(message); this.name = 'StoreRefusedError'; }
-}
 
 // Rule 3. No location at all (Node's test runner) passes; any location
 // that is not an extension page or worker is refused before a lock is
@@ -228,13 +223,12 @@ function watchStorage() {
 // refusal is a StoreRefusedError.
 //
 // The read is STRICT: an unreadable store aborts the write instead of
-// being read as empty (rule 1) — and so does an unreadable pointer.
+// being read as empty (rule 1) — and so does an unreadable pointer,
+// which is re-read here, never taken from the page's cache.
 //
-// Storage maps the key per call, so a workspace switch landing between
-// the read and the write would carry one workspace's keys into the
-// other. The pointer is re-checked right before the write (no event can
-// run between that check and the write's own mapping) and the whole
-// read-modify-write is redone if it moved.
+// The write names the workspace the read resolved, so it can never
+// carry one workspace's keys into another; and if the pointer moved
+// meanwhile the whole read-modify-write is redone in the new one.
 export async function lockedReadModifyWrite({ key, label, what, apply }) {
     if (!Object.hasOwn(STORE_LOCKS, key)) throw new Error(`lockedReadModifyWrite: no lock is fixed for ${key}`);
     return withStoreLock(STORE_LOCKS[key], async () => {
@@ -243,7 +237,7 @@ export async function lockedReadModifyWrite({ key, label, what, apply }) {
             let ws, raw, moved;
             try {
                 ws = await Storage.activeWorkspaceId({ strict: true });
-                raw = await Storage.getStrict(key, {});
+                raw = await Storage.getStrict(key, {}, { workspace: ws });
             } catch (err) {
                 throw refuse(`reading ${key} failed`, err);
             }
@@ -256,7 +250,7 @@ export async function lockedReadModifyWrite({ key, label, what, apply }) {
                 throw refuse('the workspace kept changing during a write');
             }
             if (write) {
-                const ok = await Storage.set(key, stored, { strictRead: true });
+                const ok = await Storage.set(key, stored, { workspace: ws });
                 if (ok === false) throw refuse(`writing ${key} failed`);
             }
             return out;

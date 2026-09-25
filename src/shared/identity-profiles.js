@@ -212,8 +212,9 @@ export const IdentityProfiles = {
 export async function workspaceBackup() {
     const snapshot = { format: 'xray-workspace-backup', exported_at: new Date().toISOString(), data: {} };
     const keys = [...WORKSPACE_CLEAR_KEYS, 'preferences', 'local_primary_identity', 'identity_profiles'];
+    const workspace = await Storage.activeWorkspaceId({ strict: true });   // one workspace for every key
     for (const key of keys) {
-        snapshot.data[key] = await Storage.getStrict(key, null);
+        snapshot.data[key] = await Storage.getStrict(key, null, { workspace });
     }
     return snapshot;
 }
@@ -227,8 +228,7 @@ export async function workspaceBackup() {
  */
 export async function resetWorkspace({ idb } = {}) {
     // The pointer first, strictly: a failed read cleared the DEFAULT workspace (JOURNAL 2026-09-25).
-    const ws = await Storage.activeWorkspaceId({ strict: true }).catch((err) => {
-        throw new Error(`resetWorkspace: reading the workspace pointer failed — nothing written (${(err && err.message) || err})`); });
+    const ws = await Storage.activeWorkspaceId({ strict: true });
     const cleared = [];
     // The content keys include `local_keys`: clear them under the
     // keystore lock, so a key write in flight on another page cannot
@@ -241,7 +241,7 @@ export async function resetWorkspace({ idb } = {}) {
             if (await Storage.activeWorkspaceId({ strict: true }).then((now) => now !== ws, () => true)) {
                 throw new Error(`resetWorkspace: the workspace changed or became unreadable — ${cleared.length ? `stopped after ${cleared.length} stores` : 'nothing written'}`);
             }
-            if (await Storage.delete(key, { strictRead: true }) === false) {
+            if (await Storage.delete(key, { workspace: ws }) === false) {
                 throw new Error(`resetWorkspace: clearing ${key} failed after ${cleared.length} of ${WORKSPACE_CLEAR_KEYS.length} stores`);
             }
             cleared.push(key);

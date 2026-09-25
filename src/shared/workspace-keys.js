@@ -75,6 +75,12 @@ export function storageLastError() {
     } catch (_) { return null; }
 }
 
+/** A STORE-level refusal (nothing written): a caller importing many rows stops
+ *  on it by `name` instead of skipping each; row-level errors stay plain. */
+export class StoreRefusedError extends Error {
+    constructor(message) { super(message); this.name = 'StoreRefusedError'; }
+}
+
 /**
  * The active workspace id, read straight from extension storage —
  * call-time only, no import-time chrome dependency, so the
@@ -82,8 +88,8 @@ export function storageLastError() {
  * (no chrome stub) fall back to 'default' = the bare DB names they
  * have always used. storage.js keeps its own CACHED copy for hot
  * key-mapping; DB opens are rare enough to read fresh. A failed read
- * is 'default' unless `strict` (a caller about to WRITE), which rejects
- * (JOURNAL 2026-09-25).
+ * is 'default'; `strict` — every strict path, storage.js's included —
+ * rejects with a StoreRefusedError instead (JOURNAL 2026-09-25).
  */
 export async function activeWorkspaceId({ strict = false } = {}) {
     try {
@@ -92,15 +98,17 @@ export async function activeWorkspaceId({ strict = false } = {}) {
             : (typeof chrome !== 'undefined' && chrome.storage ? chrome.storage.local : null);
         if (!area) return 'default';
         const raw = await new Promise((resolve, reject) => area.get(['active_workspace'], (res) => {
-            const err = storageLastError();
-            if (err || !res) reject(new Error('reading the workspace pointer failed: ' + ((err && err.message) || 'no result')));
-            else resolve(res.active_workspace);
+            const err = strict && (storageLastError() || (!res && new Error('no result')));
+            if (err) reject(err); else resolve(res ? res.active_workspace : undefined);
         }));
         if (typeof raw === 'string') {
             try { return String(JSON.parse(raw) || 'default'); } catch (_) { return raw || 'default'; }
         }
         return 'default';
-    } catch (err) { if (strict) throw err; return 'default'; }
+    } catch (err) {   // a throw included
+        if (strict) throw new StoreRefusedError(`reading the workspace pointer failed — nothing written (${(err && err.message) || err})`);
+        return 'default';
+    }
 }
 
 /** `workspaceDbName(base)` under the ACTIVE workspace. */

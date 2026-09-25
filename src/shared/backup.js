@@ -50,7 +50,7 @@
 import { WORKSPACE_DATABASES } from './identity-profiles.js';
 import { withKeyStoreLock } from './local-key-manager.js';
 import { withEntityStoreLock } from './entity-model.js';
-import { WORKSPACE_CONTENT_KEYS, activeWorkspaceId, workspaceDbName, storageLastError } from './workspace-keys.js';
+import { WORKSPACE_CONTENT_KEYS, activeWorkspaceId, workspaceDbName, storageLastError, StoreRefusedError } from './workspace-keys.js';
 import { LLM_KEY_STORAGE } from './llm-prompts.js';
 import { isLlmJobKey } from './llm-jobs.js';
 import {
@@ -330,8 +330,8 @@ function areaGetAll(area) {
 }
 
 // A restore / merge writes against a strictly-read workspace + storage.
-const writeScope = (area) => Promise.all([activeWorkspaceId({ strict: true }), areaGetAll(area)]).then(
-    ([ws, current]) => ({ ws, current }), (err) => { throw new Error(`backup: ${(err && err.message) || err} — nothing written`); });
+const writeScope = (area) => Promise.all([activeWorkspaceId({ strict: true }), areaGetAll(area).catch((err) => {
+    throw new StoreRefusedError(`backup: ${err.message} — nothing written`); })]).then(([ws, current]) => ({ ws, current }));
 
 function areaRemove(area, keys) {
     return new Promise((resolve) => area.remove(keys, () => resolve()));

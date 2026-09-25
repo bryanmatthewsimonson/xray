@@ -141,14 +141,18 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   to run outside an extension origin, and content scripts hold no
   keystore. **The entity registry (JOURNAL 2026-09-25)** follows the
   same contract: every `entities` write goes through `entity-model.js`
-  under the lock `xray.entities`. The wholesale writers (backup
-  restore/merge, workspace reset/removal) take `withEntityStoreLock`,
-  nested inside the keystore lock and never the reverse. A failed
-  workspace-pointer read fails any write
-  (`activeWorkspaceId({ strict: true })`); a plain `Storage.get` of a
-  content key under it reads nothing (never another workspace's data),
-  and a plain `set`/`delete` of that key then refuses until a plain read
-  of it succeeds (writes built on a strict read pass `strictRead`).
+  under the lock `xray.entities`. Backup restore, workspace reset and
+  workspace removal nest `withEntityStoreLock` inside the keystore lock
+  (never the reverse); backup merge takes only the registry lock (it
+  never merges `local_keys`). **The workspace pointer:** plain paths
+  (`Storage.get`/`set`/`delete`/`keys`, `activeWorkspaceId()`, the
+  IndexedDB names, the LLM-job scope) read a failed pointer as
+  `'default'`, as before, and `storage.js` caches that fallback, so a
+  page's plain reads and writes agree. Strict paths (`getStrict` and
+  the locked writes on it, backup restore/merge/export, reset and its
+  safety backup, removal) re-read the pointer, never use that cache,
+  fail closed with `StoreRefusedError`, and write the workspace their
+  read resolved.
 - **`signer.js`** — unified signing façade over Local / NIP-07 /
   NSecBunker, dispatched on `preferences.signing_method`. NIP-07 only works
   where a `nip07Client` is injected (`Signer.configure({ nip07Client })`),

@@ -11,7 +11,8 @@ import { CONFIG } from './config.js';
 import { Utils } from './utils.js';
 import { Crypto } from './crypto.js';
 import {
-  WORKSPACE_CONTENT_KEYS, WORKSPACE_DATABASES, DERIVED_CACHE_DATABASES, workspaceDbName, storageLastError
+  WORKSPACE_CONTENT_KEYS, WORKSPACE_DATABASES, DERIVED_CACHE_DATABASES, workspaceDbName,
+  activeWorkspaceId as readPointer, storageLastError
 } from './workspace-keys.js';
 
 export const Storage = (() => {
@@ -29,11 +30,12 @@ export const Storage = (() => {
   // switches.
   const ACTIVE_WS_KEY = 'active_workspace';
   const CONTENT_KEYS = new Set(WORKSPACE_CONTENT_KEYS);
-  let activeWs;   // undefined = not yet read successfully this lifetime
-  // ABSENT is 'default'; UNREADABLE rejects and caches nothing — it used
-  // to cache 'default' and route the page's writes there (JOURNAL 2026-09-25).
+  let activeWs;   // undefined = not yet read this lifetime
   const readActiveWs = async () => {
-    const raw = await rawGetStrict(ACTIVE_WS_KEY).catch((e) => { throw new Error('reading the workspace pointer failed: ' + e.message); });
+    const raw = await new Promise((resolve) => {
+      try { area.get([ACTIVE_WS_KEY], (res) => resolve(res ? res[ACTIVE_WS_KEY] : undefined)); }
+      catch (_) { resolve(undefined); }
+    });
     let id = 'default';
     if (typeof raw === 'string') {
       try { id = JSON.parse(raw) || 'default'; } catch (_) { id = raw || 'default'; }
@@ -42,26 +44,19 @@ export const Storage = (() => {
     return activeWs;
   };
   const ensureWs = async () => (activeWs === undefined ? readActiveWs() : activeWs);
-  // A plain read that cannot resolve the pointer reads NOTHING, never another
-  // workspace's data, and marks the key: its plain set/delete then refuses
-  // until a plain read of it succeeds (JOURNAL 2026-09-25). Writes built on a
-  // strict read pass `{ strictRead: true }`.
-  const unverified = new Set();
-  const ensureWsForRead = () => ensureWs().catch(() => null);
+  // A failed read caches 'default', so a page's plain reads and writes agree.
+  // STRICT paths never use the cache: they re-read the pointer and fail closed
+  // (StoreRefusedError), and a strict write names the workspace its read
+  // resolved (JOURNAL 2026-09-25).
+  const strictWs = () => readPointer({ strict: true });
   try {
     area.onChanged.addListener((changes) => {
       if (ACTIVE_WS_KEY in changes) activeWs = undefined;   // lazy re-read
     });
   } catch (_) { /* older shims — per-lifetime lazy read still applies */ }
-  // Global keys never depend on the pointer. null = unresolvable (reads only).
-  const mapKey = async (key, { forRead = false } = {}) => {
-    if (!CONTENT_KEYS.has(key)) return key;
-    const ws = await (forRead ? ensureWsForRead() : ensureWs());
-    if (forRead) { if (ws === null) { unverified.add(key); return null; } unverified.delete(key); }
-    return ws !== 'default' ? `ws:${ws}:${key}` : key;
-  };
-  const refuseUnverified = (key, strictRead) => {
-    if (!strictRead && unverified.has(key)) throw new Error(`the last read of ${key} could not resolve the workspace — nothing written`);
+  const mapKey = async (key, ws) => {
+    ws = ws || await ensureWs();
+    return (ws !== 'default' && CONTENT_KEYS.has(key)) ? `ws:${ws}:${key}` : key;
   };
 
   // The callback API reports a failure ONLY through runtime.lastError,
@@ -123,8 +118,7 @@ export const Storage = (() => {
   const Store = {
     get: async (key, defaultValue = null) => {
       try {
-        const k = await mapKey(key, { forRead: true });
-        return k === null ? defaultValue : decode(await rawGet(k), defaultValue);
+        return decode(await rawGet(await mapKey(key)), defaultValue);
       } catch (e) {
         Utils.error('Storage get error:', e);
         return defaultValue;
@@ -134,16 +128,19 @@ export const Storage = (() => {
      *  default — get() cannot tell "absent" from "unreadable", and a
      *  read-modify-write that trusted it would write back only its own
      *  change and erase the rest (LocalKeyManager; JOURNAL 2026-09-24).
-     *  Absent still resolves to `defaultValue`. */
-    getStrict: async (key, defaultValue = null) => decode(await rawGetStrict(await mapKey(key)), defaultValue),
-    set:    async (key, value, { strictRead } = {}) => { try { refuseUnverified(key, strictRead); return await rawSet(await mapKey(key), JSON.stringify(value)); } catch (e) { Utils.error('Storage set error:', e); return false; } },
-    delete: async (key, { strictRead } = {})        => { try { refuseUnverified(key, strictRead); return await rawDelete(await mapKey(key)); }                    catch (e) { Utils.error('Storage delete error:', e); return false; } },
+     *  Absent still resolves to `defaultValue`. A content key maps under
+     *  `workspace`, else a strict pointer read — never the page's cache. */
+    getStrict: async (key, defaultValue = null, { workspace } = {}) => decode(await rawGetStrict(
+      await mapKey(key, workspace || (CONTENT_KEYS.has(key) ? await strictWs() : 'default'))), defaultValue),
+    // `workspace`: the one a strict read resolved (else the page's cache).
+    set:    async (key, value, { workspace } = {}) => { try { return await rawSet(await mapKey(key, workspace), JSON.stringify(value)); } catch (e) { Utils.error('Storage set error:', e); return false; } },
+    delete: async (key, { workspace } = {})        => { try { return await rawDelete(await mapKey(key, workspace)); }                    catch (e) { Utils.error('Storage delete error:', e); return false; } },
     // The LOGICAL key view for the active workspace: content keys of
     // OTHER workspaces are invisible; the active workspace's prefixed
     // keys come back bare. Global keys always show.
     keys: async () => {
       try {
-        const ws = await ensureWsForRead();   // null: no content key of an unknown workspace shows
+        const ws = await ensureWs();
         const all = await rawKeys();
         const prefix = `ws:${ws}:`;
         const out = [];
@@ -159,8 +156,8 @@ export const Storage = (() => {
     },
 
     // ---- workspace plumbing (Phase 28.1) ---------------------------
-    /** The active workspace id ('default' when none was ever set, or, for display, unreadable; `strict` rejects). */
-    activeWorkspaceId: async ({ strict = false } = {}) => (strict ? ensureWs() : ((await ensureWsForRead()) || 'default')),
+    /** The active workspace id ('default' when none was ever set). */
+    activeWorkspaceId: async ({ strict = false } = {}) => (strict ? strictWs() : ensureWs()),
     /** Point the namespace at another workspace. Callers own the
      *  lifecycle rules (registry, identity binding, page reloads) —
      *  this only moves the pointer, atomically, outside the namespace. */
@@ -171,7 +168,7 @@ export const Storage = (() => {
       return clean;
     },
     /** The on-disk IndexedDB name for `base` under the ACTIVE workspace. */
-    workspaceDbName: async (base) => workspaceDbName(base, await ensureWsForRead()),   // null → the bare name
+    workspaceDbName: async (base) => workspaceDbName(base, await ensureWs()),
     /** Destroy workspace `id`'s namespaced keys + databases. Refuses
      *  'default' (its content keys ARE the bare install data) and the
      *  active workspace (switch away first). Lifecycle rules — typed
@@ -179,7 +176,7 @@ export const Storage = (() => {
     removeWorkspaceData: async (id, { idb } = {}) => {
       const clean = String(id || '');
       if (!clean || clean === 'default') throw new Error('removeWorkspaceData: the default workspace cannot be deleted');
-      if (clean === await ensureWs()) throw new Error('removeWorkspaceData: switch away from the active workspace first');
+      if (clean === await strictWs()) throw new Error('removeWorkspaceData: switch away from the active workspace first');
       const prefix = `ws:${clean}:`;
       for (const k of await rawKeys()) {
         if (k.startsWith(prefix)) await rawDelete(k);
