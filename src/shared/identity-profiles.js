@@ -238,9 +238,7 @@ export async function resetWorkspace({ idb, workspace } = {}) {   // `workspace`
     // 2026-09-24), `entities` likewise; nothing inside calls either's writer.
     await withKeyStoreLock(() => withEntityStoreLock(async () => {
         for (const key of WORKSPACE_CLEAR_KEYS) {
-            if (await Storage.verifiedWorkspaceId('resetWorkspace').then((now) => now !== ws, () => true)) {
-                throw new Error(`resetWorkspace: the workspace changed or became unreadable — ${cleared.length ? `stopped after ${cleared.length} stores` : 'nothing written'}`);
-            }
+            if (await Storage.verifiedWorkspaceId('resetWorkspace').then((now) => now !== ws, () => true)) throw new Error(`resetWorkspace: the workspace changed or became unreadable — ${cleared.length ? `stopped after ${cleared.length} stores` : 'nothing written'}`);
             if (await Storage.delete(key) === false) throw new Error(`resetWorkspace: clearing ${key} failed after ${cleared.length} of ${WORKSPACE_CLEAR_KEYS.length} stores`);
             cleared.push(key);
         }

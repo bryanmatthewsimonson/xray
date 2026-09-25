@@ -325,20 +325,14 @@ function storageArea() {
 function areaGetAll(area) {
     return new Promise((resolve, reject) => area.get(null, (all) => {
         const err = Storage.lastError();
-        if (err || !all) reject(new Error('reading extension storage failed: ' + ((err && err.message) || 'no result')));
+        if (err || !all) reject(new StoreRefusedError('reading extension storage failed — nothing written (' + ((err && err.message) || 'no result') + ')'));
         else resolve(all);
     }));
 }
 
-// Before each database: still the verified `ws` (its opener resolves the cache in this same microtask chain).
+// Under the locks, and before each database (its opener resolves the cache in this same microtask chain): still the verified `ws`.
 async function stillOn(ws, label) {
-    if (await Storage.verifiedWorkspaceId(label).catch(() => null) !== ws) throw new StoreRefusedError(`${label}: the workspace changed or became unreadable mid-operation — stopped`);
-}
-
-// Under the locks: still the verified `ws`, current storage read strictly — else refused.
-async function writeScope(ws, label) {
-    if (await Storage.verifiedWorkspaceId(label) !== ws) throw new StoreRefusedError(`${label}: the workspace changed — nothing written`);
-    return areaGetAll(storageArea()).catch((err) => { throw new StoreRefusedError(`${label}: ${err.message} — nothing written`); });
+    if (await Storage.verifiedWorkspaceId(label).catch(() => null) !== ws) throw new StoreRefusedError(`${label}: the workspace changed or became unreadable — stopped, nothing written past this point`);
 }
 
 // A failed remove or write rejects: ignored, a restore could empty the workspace and report success.
@@ -378,9 +372,10 @@ async function collectStorage(ws) {
 }
 
 async function applyStorage(entries, ws, warn = () => {}) {
-    const current = await writeScope(ws, 'backup restore');
+    await stillOn(ws, 'backup restore');
     const prefix = `ws:${ws}:`;
     const area = storageArea();
+    const current = await areaGetAll(area);
     const mapK = (k) => (ws !== 'default' && WORKSPACE_CONTENT.has(k)) ? prefix + k : k;
     // Scope guard (T1 review, 2026-08-10): a file that carries no
     // signing identity — the delete-workspace snapshot, or a key-free
@@ -697,9 +692,10 @@ export function mergeStorageValue(localRaw, incomingRaw) {
 }
 
 async function mergeStorage(entries, ws) {
-    const current = await writeScope(ws, 'backup merge');
+    await stillOn(ws, 'backup merge');
     const prefix = `ws:${ws}:`;
     const area = storageArea();
+    const current = await areaGetAll(area);
     const mapK = (k) => (ws !== 'default' && WORKSPACE_CONTENT.has(k)) ? prefix + k : k;
     const stats = { keysAdded: 0, keysMerged: 0, idsAdded: 0, keysUnchanged: 0, keysSkippedNonContent: 0 };
     const writes = {};

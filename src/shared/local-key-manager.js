@@ -323,13 +323,13 @@ export const LocalKeyManager = {
      * different key occupies the name — never silently overwrite key
      * material.
      */
-    importKey: async (name, privateKeyHex, metadata = {}) => {
+    importKey: async (name, privateKeyHex, metadata = {}, { workspace } = {}) => {
         if (!HEX64.test(String(privateKeyHex || ''))) {
             throw new Error('importKey: privateKey must be 64 hex chars');
         }
         assertName(name);
         const keyData = buildKeyData(name, privateKeyHex, { ...metadata, imported: true });
-        return addIfAbsent(name, keyData, 'Imported local key:');
+        return addIfAbsent(name, keyData, 'Imported local key:', workspace);
     },
 
     /**
@@ -393,6 +393,7 @@ export const LocalKeyManager = {
         const key = LocalKeyManager.getKey(keyName);
         if (!key) throw new Error('Key not found: ' + keyName);
         if (!key.privateKey) throw new Error('Key has no private key material: ' + keyName);
+        if (event.pubkey && event.pubkey !== key.pubkey) throw new Error(`Key mismatch: ${keyName} does not hold the event's pubkey`);   // a record read before a switch
 
         // If the caller hasn't set pubkey on the event, fill it from the
         // stored key. This matches the behavior of NIP-07 signers.

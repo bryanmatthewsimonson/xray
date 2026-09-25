@@ -220,10 +220,10 @@ const ORIGIN_WHAT = 'EntityModel: the entity registry';
 export const withEntityStoreLock = (fn) => withStoreLock(STORE_LOCKS.entities, fn, ORIGIN_WHAT);
 const mutateRegistry = (apply, workspace) => lockedReadModifyWrite({ key: 'entities', label: 'EntityModel', what: ORIGIN_WHAT, apply, workspace });
 
-async function readRegistryStrict() {
+async function readRegistryStrict(key = 'entities') {   // `local_keys`: judge "is a key installed?" from storage, never the Map
     let all;
-    try { all = await Storage.getStrict('entities', {}); } catch (err) { throw storeRefusal('EntityModel', 'reading entities failed', err); }
-    if (!all || typeof all !== 'object' || Array.isArray(all)) throw storeRefusal('EntityModel', 'stored entities is not an object');
+    try { all = await Storage.getStrict(key, {}); } catch (err) { throw storeRefusal('EntityModel', `reading ${key} failed`, err); }
+    if (!all || typeof all !== 'object' || Array.isArray(all)) throw storeRefusal('EntityModel', `stored ${key} is not an object`);
     return all;
 }
 
@@ -462,7 +462,7 @@ export const EntityModel = {
      * ones are written whole. Keypair installation is the caller's job
      * (LocalKeyManager.importKey) — this only writes the record.
      */
-    importRecord: async (row) => {
+    importRecord: async (row, { workspace } = {}) => {
         if (!row || typeof row.id !== 'string' || !/^entity_[0-9a-f]{16}$/.test(row.id)) {
             throw new Error('importRecord: row.id must be an entity id');
         }
@@ -472,6 +472,7 @@ export const EntityModel = {
         // from the row. A caller-supplied keyName could bind the record
         // to the reserved `xray:user` primary-identity slot.
         const derivedKeyName = `entity:${row.id}`;
+        const ws = workspace ?? await Storage.activeWorkspaceId(), keys = await readRegistryStrict('local_keys');   // ONE workspace
 
         await mutateRegistry((all) => {
         const existing = all[row.id];
@@ -485,7 +486,7 @@ export const EntityModel = {
             && /^[0-9a-f]{64}$/i.test(row.foreign_pubkey))
             ? row.foreign_pubkey.toLowerCase() : null;
         const existingForeign = (existing && !existing.keyName && existing.foreign_pubkey) || null;
-        const foreignPubkey = !LocalKeyManager.getKey(derivedKeyName)
+        const foreignPubkey = !keys[derivedKeyName]
             ? (rowForeign || existingForeign) : null;
         const keyName = foreignPubkey ? null : derivedKeyName;
         const now = Math.floor(Date.now() / 1000);
@@ -516,7 +517,7 @@ export const EntityModel = {
             };
         }
         return { write: true };
-        });
+        }, ws);
         return await EntityModel.get(row.id);
     },
 
@@ -580,11 +581,12 @@ export const EntityModel = {
         const pk = pubkey.toLowerCase();
         const hash = await Crypto.sha256('foreign:' + pk);
         const id = `entity_${hash.slice(0, 16)}`;
+        const ws = await Storage.activeWorkspaceId(), keys = await readRegistryStrict('local_keys');   // ONE workspace
 
         const keyedId = await mutateRegistry((all) => {
         for (const record of Object.values(all)) {
             if (!record.keyName) continue;
-            const key = LocalKeyManager.getKey(record.keyName);
+            const key = keys[record.keyName];
             if (key && key.pubkey === pk) return { write: false, result: record.id };
         }
 
@@ -613,7 +615,7 @@ export const EntityModel = {
             updated:      now
         };
         return { write: true, result: null };
-        });
+        }, ws);
         if (keyedId) return await EntityModel.get(keyedId);
         Utils.log('Adopted foreign entity:', id, cleanName, type, pk.slice(0, 8) + '…');
         return await EntityModel.get(id);

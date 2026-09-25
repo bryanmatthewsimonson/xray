@@ -23,15 +23,21 @@
 // follow-up). The keystore Map answers only while the pointer names the
 // workspace it was loaded under, so a Map kept across a switch (a failed
 // or unfinished refresh) serves no key. A step of an operation planned in
-// one workspace (create, delete, the pull, restoreDerivedKeys) is refused
-// rather than redone in another. The destructive wholesale operations —
-// reset, workspace removal, replace-all restore, merge-import, export,
-// the reset's safety file — first re-read the pointer strictly and refuse
-// unless it agrees with the cache, and re-verify before each database or
-// key they touch. Earlier cuts of this branch mixed a strict per-call
-// pointer into ordinary paths, and each review found a new straddle
-// between the two (the verifiers' probes S1–S3, erase2/race, P1–P6 and the
-// join test below are the permanent observers).
+// one workspace (create, delete, importRecord / importForeign, the
+// case-bundle import, the pull, restoreDerivedKeys) is refused rather than
+// redone in another. What a page holds across a switch is refused, not
+// re-paired: signEvent refuses a key that does not hold the event's
+// pubkey, and the case bundle produces no file if the pointer moved. The
+// destructive wholesale operations — reset, workspace removal,
+// replace-all restore, merge-import, export, the reset's safety file —
+// first re-read the pointer strictly and refuse unless it agrees with the
+// cache, and re-verify before each later step that resolves the
+// workspace through the cache (not the version pre-checks, not the
+// removal's deletes — follow-ups). Earlier cuts of this branch mixed a
+// strict per-call pointer into ordinary paths, and each review found a
+// new straddle between the two (the verifiers' probes S1–S3, erase2/race,
+// P1–P6, T4, T6–T8, the case-bundle probe and the join test below are the
+// permanent observers).
 //
 // Each test models extension PAGES as module instances of
 // entity-model.js (`?page=B` gives a second instance) over one
@@ -44,8 +50,9 @@
 // (one-shot) runs `fn` after the n-th registry read took its snapshot and
 // before the reader sees it — so another actor can land "between a
 // write's read and its write" — and `_registryWriteHook` runs right after
-// a registry write lands. An IndexedDB transaction hook lands a switch in
-// the middle of one database (section 3).
+// a registry write lands; `onRawWrite` / `onKeyRead` do the same after a
+// raw write or read of any named key. An IndexedDB transaction hook lands
+// a switch in the middle of one database (section 3).
 //
 // Key material: only the BIP-340 vector keys TV1/TV2/TV3
 // (tests/tools/fixture-keys.mjs) plus keys derived at test time.
@@ -853,6 +860,128 @@ test('a pull that another page\'s switch interrupts after its plan installs no k
     assert.ok(readJson('local_keys')[kn].privateKey === TV2.privateKey && readJson('entities')[E1].updated === FIXED_TIME_S,
         'and the default workspace, where it planned, is untouched too');
     assert.ok(out.failed === 1 && out.updated === 0 && out.added === 0, 'the pull reports the refusal as a failure');
+});
+
+// RECORDS AND PLANS HELD ACROSS A SWITCH (the verifiers' probes T4, T6–T8 and
+// the case-bundle probe). A record read before another page's switch, a
+// bundle collected across one, an import whose key and record straddle one,
+// and an import judging "is a key installed?" from a Map that has not caught
+// up: each is refused (or judged from storage) — never paired with another
+// workspace's key.
+/** One-shot: `fn` runs after the first raw write of `key` landed, before its callback. */
+function onRawWrite(key, fn) {
+    const orig = localArea.set;
+    localArea.set = function (obj, cb) {
+        if (!(key in obj)) return orig.call(this, obj, cb);
+        localArea.set = orig;
+        const r = orig.call(this, obj, cb);
+        fn();
+        return r;
+    };
+    return () => { const fired = localArea.set === orig; localArea.set = orig; return fired; };
+}
+/** One-shot: `fn` runs after the first read of a key matching `pred` took its snapshot, before the reader sees it. */
+function onKeyRead(pred, fn) {
+    const orig = localArea.get;
+    localArea.get = function (keys, cb) {
+        if (keys === null || ![].concat(keys).some(pred)) return orig.call(this, keys, cb);
+        localArea.get = orig;
+        return orig.call(this, keys, (res) => { Promise.resolve().then(fn).then(() => cb(res)); });
+    };
+    return () => { const fired = localArea.get === orig; localArea.get = orig; return fired; };
+}
+
+test('T7: a record read before a switch is never signed with the key the new workspace holds under the same name — signEvent refuses a key that does not hold the event\'s pubkey', async () => {
+    await reset();
+    const kn = sameEntityInTwoWorkspaces();
+    await otherPageSwitchesTo('wsb');
+    await LocalKeyManager.refresh();
+    const entity = await A.get(E1);                    // wsb's record with wsb's key (TV3)
+    const unsigned = { ...unsignedProfile(), pubkey: entity.keypair.pubkey };   // as buildProfileEvent sets it
+    await otherPageSwitchesTo('default');              // lands during the publish's own awaits
+    await LocalKeyManager.refresh();
+    assert.equal(LocalKeyManager.getKey(kn).pubkey, TV2.pubkey, 'sanity: the Map now serves the default workspace\'s key under that name');
+    const err = await attempt(() => LocalKeyManager.signEvent(unsigned, kn));
+    assert.equal(unsigned.sig, undefined, 'nothing was signed');
+    assert.match(String(err && err.message), /Key mismatch: entity:\S+ does not hold the event's pubkey/);
+    const ok = await LocalKeyManager.signEvent({ ...unsignedProfile(), pubkey: TV2.pubkey }, kn);
+    assert.ok(ok.pubkey === TV2.pubkey && await Crypto.verifySignature(ok), 'an event whose pubkey the key holds still signs');
+});
+
+test('T4: a case-bundle import that another page\'s switch interrupts between a row\'s key and its record writes the record nowhere — never beside the other workspace\'s different key', async () => {
+    await reset();
+    await otherPageSwitchesTo('wsb');
+    const kn2 = `entity:${E2}`;
+    seed('entities', { [E2]: row(E2, 'Default E2', { description: 'DEFAULT E2' }) });
+    seed('local_keys', { [kn2]: keyRecord(kn2, TV3) });   // a DIFFERENT key — the conflict the import would refuse
+    const defaultBefore = [_store.get('entities'), _store.get('local_keys')];
+    const bundle = { format: CASE_BUNDLE_FORMAT, version: 1, case_id: E2,
+        entities: [{ ...row(E2, 'Bundle E2', { description: 'BUNDLE E2' }), privkey: TV2.privateKey }] };
+    const unhook = onRawWrite('ws:wsb:local_keys', () => switchNow('default'));
+    let out, err;
+    try { err = await attempt(async () => { out = await importCaseBundle(bundle); }); } finally { assert.ok(unhook(), 'sanity: the switch landed right after the key write'); }
+    await settle();
+    assert.deepEqual([_store.get('entities'), _store.get('local_keys')], defaultBefore, 'the default workspace is untouched: no bundle record beside its different key');
+    assert.equal(readJson('ws:wsb:entities')[E2], undefined, 'and no record in wsb either — the step was refused, not redone');
+    assert.equal(out, undefined, 'no import summary');
+    assert.equal(err && err.name, 'StoreRefusedError');
+});
+
+// Default holds the case and E1 (TV2); wsb holds E1 with TV3. Each switch
+// point lands another page's switch to wsb mid-collection.
+const EC = 'entity_000000000000cafe';
+function seedCaseInTwoWorkspaces() {
+    const kn = sameEntityInTwoWorkspaces();
+    const all = readJson('entities');
+    seed('entities', { ...all, [EC]: row(EC, 'The Case', { type: 'case', keyName: null }) });
+    seed('article_claims', { claim_1: { ...claim('claim_1', 'about the case'), about: [EC, E1] } });
+    return kn;
+}
+for (const [where, arm] of [
+    ['the orbit\'s claims read', () => onKeyRead((k) => k === 'article_claims', () => otherPageSwitchesTo('wsb'))],
+    ['the orbit\'s claims read, there and back', () => onKeyRead((k) => k === 'article_claims', async () => { await otherPageSwitchesTo('wsb'); await otherPageSwitchesTo('default'); })],
+    ['the first registry read', () => { onRegistryRead(1, () => otherPageSwitchesTo('wsb')); return () => _registryHook === null; }],
+    ['the second registry read', () => { onRegistryRead(2, () => otherPageSwitchesTo('wsb')); return () => _registryHook === null; }]
+]) {
+    test(`T6: a case bundle that another page's switch interrupts (${where}) produces no file — never one workspace's records or keys beside another's`, async () => {
+        await reset();
+        seedCaseInTwoWorkspaces();
+        await LocalKeyManager.refresh();
+        const unhook = arm();
+        let out, err;
+        try { err = await attempt(async () => { out = await collectCaseBundle(EC); }); } finally { const fired = unhook(); _registryHook = null; assert.ok(fired, 'sanity: the switch landed mid-bundle'); }
+        assert.equal(out, undefined, 'no bundle (it ships private keys)');
+        assert.equal(err && err.name, 'StoreRefusedError');
+        assert.match(err.message, /workspace changed mid-bundle — no file/);
+    });
+}
+
+test('T6 control: with no switch the case bundle ships each record with its own workspace\'s key', async () => {
+    await reset();
+    seedCaseInTwoWorkspaces();
+    await LocalKeyManager.refresh();
+    const bundle = await collectCaseBundle(EC);
+    assert.equal(bundle.case_id, EC);
+    const e1 = bundle.entities.find((e) => e.id === E1);
+    assert.ok(e1.description === 'DEFAULT workspace text' && e1.privkey === TV2.privateKey, 'the default record with its own key (value not printed)');
+});
+
+test('T8: an import judging "is a key installed?" while the Map has not caught up with a switch never downgrades a keyed entity to foreign, nor adopts a shadow of it', async () => {
+    await reset();
+    const kn = sameEntityInTwoWorkspaces();
+    await LocalKeyManager.refresh();
+    const errs = captureErrors();
+    failReads('keystore', 'lastError', { times: 1 });   // the refresh the switch triggers
+    try { await otherPageSwitchesTo('wsb'); } finally { fail.keystore = null; errs.restore(); }
+    assert.equal(LocalKeyManager.getKey(kn), null, 'sanity: the Map (the default workspace\'s) serves nothing in wsb');
+    const imported = await A.importRecord({ id: E1, name: 'Shared Name', type: 'person', foreign_pubkey: TV1.pubkey });
+    const adopted = await B.importForeign({ name: 'Somebody', type: 'person', pubkey: TV3.pubkey });
+    const w = readJson('ws:wsb:entities');
+    assert.ok(w[E1].keyName === kn && !w[E1].foreign_pubkey, 'wsb\'s E1 keeps its key binding — not downgraded to foreign');
+    assert.equal(imported.id, E1);
+    assert.deepEqual(Object.keys(w), [E1], 'no foreign shadow of wsb\'s own keyed entity was adopted');
+    assert.equal(adopted.id, E1, 'importForeign returns the local keyed entity');
+    assert.ok(readJson('ws:wsb:local_keys')[kn].privateKey === TV3.privateKey, 'wsb\'s key is still stored (value not printed)');
 });
 
 test('a destructive check on a cold cache adopts the pointer it verified — no fallback read is cached behind it', async () => {

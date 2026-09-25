@@ -161,19 +161,35 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   loads) — resolves the workspace through `storage.js`'s cached
   pointer, which reads a failed pointer read as `'default'` and caches
   it until the pointer next changes; callers that find the cache empty
-  share ONE read. So a fault misroutes a page consistently. The
-  keystore Map serves a key only while the pointer names the workspace
-  the Map was loaded under, and a step of an operation planned in one
-  workspace (entity create / delete, the sync pull, key restore) is
-  refused, never redone in another. The destructive wholesale
-  operations (reset, workspace removal, backup restore / merge /
-  export, the reset's safety backup) first re-read the pointer strictly
-  (`Storage.verifiedWorkspaceId`) and refuse with a `StoreRefusedError`
-  — nothing written or downloaded — when that read fails or disagrees
-  with the cache; all but the removal then re-verify before each
-  database or key they touch, and a reset handed its safety file's
-  `workspace` (Options passes it) refuses any other. Never add a
-  second pointer read to an ordinary path.
+  share ONE read. So a fault misroutes a page consistently (as on
+  main; this and the other residuals are named follow-ups in JOURNAL
+  2026-09-25). The keystore Map serves a key only while the pointer
+  names the workspace the Map was loaded under, so WITHIN ONE
+  `get`/`getAll` call a record is paired only with its own workspace's
+  key. A record held ACROSS a switch gets a refused signature, not a
+  wrong one (`signEvent` refuses a key that does not hold the event's
+  `pubkey`), and the case bundle joins from one `getAll` snapshot and
+  produces no file if the pointer moved at any point. A step of an
+  operation planned in one workspace (entity create / delete,
+  `importRecord` / `importForeign` — which judge "is a key installed?"
+  from a strict `local_keys` read, never the Map — the case-bundle
+  import, the sync pull, key restore) is refused, never redone in
+  another; single-step edits (`update`, `linkAlias`, the publish
+  stamps) still land in whichever workspace is current. The
+  destructive wholesale operations (reset, workspace removal, backup
+  restore / merge / export, the reset's safety backup) first re-read
+  the pointer strictly (`Storage.verifiedWorkspaceId`) and refuse with
+  a `StoreRefusedError` — nothing written or downloaded — when that
+  read fails or disagrees with the cache; then each later step that
+  resolves the workspace through the cache re-verifies first (each
+  database a restore, merge or export fills or dumps, each key the
+  safety backup reads or the reset clears, the storage phase under
+  the locks), except the version pre-checks (`collectDbVersions`,
+  `assertBackupNotNewer`), which open each database through the cache
+  unverified; the removal does not re-check between its deletes; and
+  a reset handed its safety file's `workspace` (Options passes it)
+  refuses any other. Never add a second pointer read to an ordinary
+  path.
 - **`signer.js`** — unified signing façade over Local / NIP-07 /
   NSecBunker, dispatched on `preferences.signing_method`. NIP-07 only works
   where a `nip07Client` is injected (`Signer.configure({ nip07Client })`),

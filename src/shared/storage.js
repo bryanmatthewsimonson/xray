@@ -178,6 +178,7 @@ export const Storage = (() => {
     activeWorkspaceId: async () => ensureWs(),
     verifiedWorkspaceId: verifiedWs,   // destructive wholesale operations only
     cachedWorkspaceId: () => activeWs,   // synchronously; undefined while unread
+    workspaceEpoch: () => wsEpoch,   // moves with every pointer change: "one workspace across these reads?"
     lastError,   // runtime.lastError of either namespace, for raw area calls (backup.js)
     /** Point the namespace at another workspace. Callers own the
      *  lifecycle rules (registry, identity binding, page reloads) —
