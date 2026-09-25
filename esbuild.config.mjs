@@ -13,6 +13,10 @@
 //   dist/pdf-engine.bundle.js       — pdf.js extractor (ESM, lazily imported by the reader)
 //   dist/pdf.worker.bundle.js       — pdf.js worker (IIFE)
 //
+// Each bundle gets a `.map` beside it. The build also copies pdf.js's
+// runtime assets from node_modules/pdfjs-dist into dist/cmaps/,
+// dist/standard_fonts/, dist/wasm/ and dist/iccs/ (copyPdfAssets below).
+//
 // `configs` is exported: tools/smoke/lib/browser.mjs reads it to know
 // which bundles must exist, and tests/smoke-bundles.test.mjs pins that
 // list to what manifest.json and the HTML shells actually load. The
@@ -101,10 +105,11 @@ export const configs = [
     })),
 
     // --- MAIN-world api-interceptor (Phase 8a) ---
-    // Injected on demand by platform handlers via
-    // chrome.scripting.executeScript({ world: 'MAIN', files: [...] }).
-    // Standalone IIFE because it runs in the page's globals — no
-    // shared imports allowed; the file's IIFE is the entire module.
+    // Loaded by manifest.json as a `world: "MAIN"` content script at
+    // document_start on Instagram / Facebook / YouTube (see the
+    // file's header). Standalone IIFE because it runs in the page's
+    // globals — no shared imports allowed; the file's IIFE is the
+    // entire module.
     {
         ...shared,
         entryPoints: [resolve(root, 'src/page/api-interceptor.js')],

@@ -16,8 +16,9 @@ has already said about it.*
 
 ## Status
 
-**v0.7.0** (tagged 2026-07-16), with every phase through 28 landed
-since, plus a post-28 workflow wave (corpus-level audits, Entity Pages).
+**v0.8.0** (tagged 2026-07-20): every phase through 28, plus a post-28
+workflow wave (corpus-level audits, Entity Pages). Work merged since
+the tag is listed under `[Unreleased]` in [`CHANGELOG.md`](CHANGELOG.md).
 Parity with the v4.2 userscript is long past; the project now spans the
 full **capture → structure → judge → publish** arc, plus a case
 workspace, a follow-based network layer, and corpus-intake automation.
@@ -211,7 +212,8 @@ build it. Pick whichever path fits you.
 
 ### Option A — the packaged `.zip` (no toolchain)
 
-1. Download `xray-<version>.zip` from the
+1. Download `x-ray_nostr_url_metadata_article_capture-<version>.zip`
+   from the
    [latest release](https://github.com/bryanmatthewsimonson/xray/releases)
    and unzip it. The zip is built by CI and already contains `dist/`.
 2. Chrome / Chromium / Brave / Edge: open `chrome://extensions`, enable
@@ -223,7 +225,7 @@ build it. Pick whichever path fits you.
 
 ### Option B — from source (needed to develop, or to run the transcriber)
 
-Requires [Node.js](https://nodejs.org/) 20 or newer.
+Requires [Node.js](https://nodejs.org/) 22 or newer.
 
 ```sh
 git clone https://github.com/bryanmatthewsimonson/xray.git
@@ -355,7 +357,7 @@ runtime assets (cmaps / standard fonts / wasm) into `dist/`.
 │   │                              corpus, case dashboards, imports
 │   ├── network/                   the Network client (Feed / Queue /
 │   │                              Follows), flag-gated
-│   └── shared/                    ~100 pure-ish modules imported by the
+│   └── shared/                    the pure-ish modules imported by the
 │       │                          bundles above. Highlights:
 │       ├── crypto.js              secp256k1 / BIP-340 / bech32 / NIP-44 v2
 │       ├── signer.js              unified Local / NIP-07 / NSecBunker
@@ -378,7 +380,7 @@ runtime assets (cmaps / standard fonts / wasm) into `dist/`.
 │       └── platforms/             substack, youtube (+ comments), twitter,
 │                                  facebook, instagram, tiktok, arxiv, pmc,
 │                                  scholar-meta, comment-extractor, …
-└── tests/                         node --test suite (2100 passing)
+└── tests/                         node --test suite
 ```
 
 ## Permissions
@@ -387,7 +389,8 @@ runtime assets (cmaps / standard fonts / wasm) into `dist/`.
   identity.
 - `notifications` — surface publish results as native notifications.
 - `scripting`, `activeTab` — forward action / context-menu commands to
-  the content script; inject the api-interceptor on FB / IG / YouTube.
+  the content script; run the YouTube transcript fetch in the page's
+  main world.
 - `contextMenus` — shortcuts on the toolbar icon's right-click menu.
 - `sidePanel` — entity-browser side panel.
 - `declarativeNetRequest` — strip CSP for the YouTube transcript fetch.
@@ -403,8 +406,9 @@ runtime assets (cmaps / standard fonts / wasm) into `dist/`.
 - **Build:** `npm install`, then `npm run build` to produce
   `dist/*.bundle.js` and `dist/*.bundle.js.map`. esbuild handles all
   bundling; no transpile step. `npm run watch` for incremental.
-- **Tests:** `npm test` runs `node --test tests/*.test.mjs`. **2100
-  tests** across 165 files today, covering crypto, event-builder, every
+- **Tests:** `npm test` runs `node --test tests/*.test.mjs` — more
+  than 3,000 tests in more than 200 files (it prints the exact count),
+  covering crypto, event-builder, every
   platform handler, entity sync/identity, claim model, archive cache, the
   Signer façade, the URL normalizer, and the assessment / audit /
   forensic / truth-adjudication / moral-lens / case / network model and
