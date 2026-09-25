@@ -31,6 +31,8 @@ import { createJobStub, jobSendMessage } from './helpers/llm-job-stub.mjs';
 
 await import('fake-indexeddb/auto');
 const { body } = installDomStub();
+// Both installed on globalThis above (the DOM stub; fake-indexeddb).
+const { document, IDBObjectStore } = globalThis;
 // One chrome stub for the file; the short status wait keeps a poll on a
 // never-settling pass from parking for the real 15 s.
 const H = installChromeStub({ runner: { statusWaitMaxMs: 20 } });
