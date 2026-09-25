@@ -50,7 +50,7 @@
 import { WORKSPACE_DATABASES } from './identity-profiles.js';
 import { withKeyStoreLock } from './local-key-manager.js';
 import { withEntityStoreLock } from './entity-model.js';
-import { WORKSPACE_CONTENT_KEYS, activeWorkspaceId, workspaceDbName } from './workspace-keys.js';
+import { WORKSPACE_CONTENT_KEYS, activeWorkspaceId, workspaceDbName, storageLastError } from './workspace-keys.js';
 import { LLM_KEY_STORAGE } from './llm-prompts.js';
 import { isLlmJobKey } from './llm-jobs.js';
 import {
@@ -320,24 +320,18 @@ function storageArea() {
     throw new Error('extension storage unavailable');
 }
 
-// A failed read REJECTS (JOURNAL 2026-09-25): read as `{}`, a merge wrote
-// the file's values over the local ones and an export came out empty.
+// A failed read REJECTS: read as `{}`, a merge wrote the file over local (JOURNAL 2026-09-25).
 function areaGetAll(area) {
     return new Promise((resolve, reject) => area.get(null, (all) => {
-        const err = ((globalThis.chrome || globalThis.browser || {}).runtime || {}).lastError;
+        const err = storageLastError();
         if (err || !all) reject(new Error('reading extension storage failed: ' + ((err && err.message) || 'no result')));
         else resolve(all);
     }));
 }
 
 // A restore / merge writes against a strictly-read workspace + storage.
-async function writeScope(area) {
-    try {
-        return { ws: await activeWorkspaceId({ strict: true }), current: await areaGetAll(area) };
-    } catch (err) {
-        throw new Error(`backup: ${(err && err.message) || err} — nothing written`);
-    }
-}
+const writeScope = (area) => Promise.all([activeWorkspaceId({ strict: true }), areaGetAll(area)]).then(
+    ([ws, current]) => ({ ws, current }), (err) => { throw new Error(`backup: ${(err && err.message) || err} — nothing written`); });
 
 function areaRemove(area, keys) {
     return new Promise((resolve) => area.remove(keys, () => resolve()));

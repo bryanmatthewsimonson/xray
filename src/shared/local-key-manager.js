@@ -44,10 +44,9 @@
 //      requests a refresh, so a page's Map converges on storage after
 //      other pages' writes, raw restores, resets and workspace switches.
 // A page's Map is replaced in place (clear/set) — callers and tests
-// hold references to LocalKeyManager.keys. Rules 1–3 are exported
-// (withStoreLock / lockedReadModifyWrite) for the entity registry, lock
-// `xray.entities` (JOURNAL 2026-09-25); the only nesting of the two locks
-// is keystore → registry, in the wholesale writers.
+// hold references to LocalKeyManager.keys. Rules 1–3 also serve the entity
+// registry (JOURNAL 2026-09-25): each store's ONE lock is fixed in STORE_LOCKS,
+// and the only nesting is keystore → registry, in the wholesale writers.
 
 import { Storage } from './storage.js';
 import { Utils } from './utils.js';
@@ -60,12 +59,19 @@ const STORE_KEY = 'local_keys';
 // storage key. It is shared by everything running in the REQUESTING
 // document's origin — which is why rule 3 above exists.
 const LOCK_NAME = 'xray.local_keys';
+export const STORE_LOCKS = Object.freeze({ [STORE_KEY]: LOCK_NAME, entities: 'xray.entities' });
 const EXTENSION_PROTOCOLS = new Set(['chrome-extension:', 'moz-extension:']);
 const HEX64 = /^[0-9a-f]{64}$/;
 
 let refreshWanted = false;  // a refresh was requested since the loop's last read began
 let refreshLoop = null;     // the running refresh loop, if any
 let watching = false;       // one change listener per module instance
+
+/** A STORE-level refusal (nothing written): a caller importing many rows stops
+ *  on it by `name` instead of skipping each; row-level errors stay plain. */
+export class StoreRefusedError extends Error {
+    constructor(message) { super(message); this.name = 'StoreRefusedError'; }
+}
 
 // Rule 3. No location at all (Node's test runner) passes; any location
 // that is not an extension page or worker is refused before a lock is
@@ -75,15 +81,14 @@ function assertExtensionOrigin(what) {
     if (loc === undefined || loc === null) return;
     const protocol = String(loc.protocol || '');
     if (!EXTENSION_PROTOCOLS.has(protocol)) {
-        throw new Error(`${what} is written only from extension pages — refused under a ${protocol || 'non-extension'} origin`);
+        throw new StoreRefusedError(`${what} is written only from extension pages — refused under a ${protocol || 'non-extension'} origin`);
     }
 }
 
-// Rules 2–3 for lock `name`. Fallback slot for contexts without
-// navigator.locks (Node's test runner): on globalThis, not in module
-// scope, so two module instances in one realm — the tests' "two pages"
-// — share it.
+// Rules 2–3. Without navigator.locks (Node's tests) the fallback slot is on
+// globalThis, so two module instances — the tests' "two pages" — share it.
 export async function withStoreLock(name, fn, what = 'LocalKeyManager: the keystore') {
+    if (!Object.values(STORE_LOCKS).includes(name)) throw new Error(`withStoreLock: ${name} is not a store lock`);
     assertExtensionOrigin(what);
     const locks = (typeof navigator !== 'undefined' && navigator && navigator.locks
         && typeof navigator.locks.request === 'function') ? navigator.locks : null;
@@ -219,8 +224,8 @@ function watchStorage() {
 // this write produced, because an unlocked change (another page's
 // workspace switch, say) can land between the write and that install.
 // `apply` must be synchronous and must not call back into this module
-// (the lock is not re-entrant). Generic over `key`/`lock`: `mutate` is
-// the keystore's use, EntityModel's registry writes the other.
+// (the lock is not re-entrant). Serves every STORE_LOCKS key; every
+// refusal is a StoreRefusedError.
 //
 // The read is STRICT: an unreadable store aborts the write instead of
 // being read as empty (rule 1) — and so does an unreadable pointer.
@@ -230,28 +235,29 @@ function watchStorage() {
 // other. The pointer is re-checked right before the write (no event can
 // run between that check and the write's own mapping) and the whole
 // read-modify-write is redone if it moved.
-export function lockedReadModifyWrite({ lock, key, label, what, apply }) {
-    return withStoreLock(lock, async () => {
+export async function lockedReadModifyWrite({ key, label, what, apply }) {
+    if (!Object.hasOwn(STORE_LOCKS, key)) throw new Error(`lockedReadModifyWrite: no lock is fixed for ${key}`);
+    return withStoreLock(STORE_LOCKS[key], async () => {
+        const refuse = (why, err) => new StoreRefusedError(`${label}: ${why} — nothing written${err ? ` (${(err && err.message) || err})` : ''}`);
         for (let attempt = 1; ; attempt++) {
-            let ws, raw;
+            let ws, raw, moved;
             try {
                 ws = await Storage.activeWorkspaceId({ strict: true });
                 raw = await Storage.getStrict(key, {});
             } catch (err) {
-                throw new Error(`${label}: reading ${key} failed — nothing written (${(err && err.message) || err})`);
+                throw refuse(`reading ${key} failed`, err);
             }
-            if (!isPlainObject(raw)) {
-                throw new Error(`${label}: stored ${key} is not an object — refusing to overwrite it`);
-            }
+            if (!isPlainObject(raw)) throw refuse(`stored ${key} is not an object — refusing to overwrite it`);
             const stored = { ...raw };
             const { write, result: out } = apply(stored);
-            if (await Storage.activeWorkspaceId({ strict: true }) !== ws) {
+            try { moved = await Storage.activeWorkspaceId({ strict: true }) !== ws; } catch (err) { throw refuse('re-reading the workspace pointer failed', err); }
+            if (moved) {
                 if (attempt < 3) continue;
-                throw new Error(`${label}: the workspace kept changing during a write — nothing written`);
+                throw refuse('the workspace kept changing during a write');
             }
             if (write) {
-                const ok = await Storage.set(key, stored);
-                if (ok === false) throw new Error(`${label}: writing ${key} failed`);
+                const ok = await Storage.set(key, stored, { strictRead: true });
+                if (ok === false) throw refuse(`writing ${key} failed`);
             }
             return out;
         }
@@ -259,7 +265,7 @@ export function lockedReadModifyWrite({ lock, key, label, what, apply }) {
 }
 
 async function mutate(apply) {
-    const result = await lockedReadModifyWrite({ lock: LOCK_NAME, key: STORE_KEY, label: 'LocalKeyManager', apply });
+    const result = await lockedReadModifyWrite({ key: STORE_KEY, label: 'LocalKeyManager', apply });
     await refresh();
     return result;
 }

@@ -31,7 +31,7 @@
 import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
 import { Utils } from './utils.js';
-import { LocalKeyManager, withStoreLock, lockedReadModifyWrite } from './local-key-manager.js';
+import { LocalKeyManager, withStoreLock, lockedReadModifyWrite, STORE_LOCKS, StoreRefusedError } from './local-key-manager.js';
 import { isValidSuggestedBy } from './assessment-taxonomy.js';
 // Authored-field validation (Phase 19 §4) reads the field registry;
 // entity-field-schemas.js is dependency-free, so no cycle.
@@ -214,23 +214,20 @@ function synthesizeForeignKeypair(record) {
     return { pubkey: record.foreign_pubkey, privateKey: null, npub, nsec: null };
 }
 
-// ONE REGISTRY, MANY PAGES (JOURNAL 2026-09-25): every write is a
-// read-modify-write of a FRESH strict read under the Web Lock
-// `xray.entities` (a failed read used to become `{}` and the write erased
-// every other record); reads that PLAN a write are strict too, display
-// reads stay plain. Async work runs BEFORE the lock. Wholesale writers
-// elsewhere take it via withEntityStoreLock, never calling a writer here.
-const LOCK_NAME = 'xray.entities';   // not `xray:…` (the message bus; structure-guard rule 4)
+// ONE REGISTRY, MANY PAGES (JOURNAL 2026-09-25): every write is a locked
+// read-modify-write of a FRESH strict read (lock `xray.entities`); reads that
+// PLAN a write are strict, display reads plain; async work runs BEFORE the
+// lock. Wholesale writers elsewhere take withEntityStoreLock, never calling a writer here.
 const ORIGIN_WHAT = 'EntityModel: the entity registry';
-export const withEntityStoreLock = (fn) => withStoreLock(LOCK_NAME, fn, ORIGIN_WHAT);
-const mutateRegistry = (apply) => lockedReadModifyWrite({ lock: LOCK_NAME, key: 'entities', label: 'EntityModel', what: ORIGIN_WHAT, apply });
+export const withEntityStoreLock = (fn) => withStoreLock(STORE_LOCKS.entities, fn, ORIGIN_WHAT);
+const mutateRegistry = (apply) => lockedReadModifyWrite({ key: 'entities', label: 'EntityModel', what: ORIGIN_WHAT, apply });
 
 async function readRegistryStrict() {
     let all;
     try { all = await Storage.getStrict('entities', {}); } catch (err) {
-        throw new Error(`EntityModel: reading entities failed — nothing written (${(err && err.message) || err})`);
+        throw new StoreRefusedError(`EntityModel: reading entities failed — nothing written (${(err && err.message) || err})`);
     }
-    if (!all || typeof all !== 'object' || Array.isArray(all)) throw new Error('EntityModel: stored entities is not an object — nothing written');
+    if (!all || typeof all !== 'object' || Array.isArray(all)) throw new StoreRefusedError('EntityModel: stored entities is not an object — nothing written');
     return all;
 }
 
@@ -277,8 +274,7 @@ export const EntityModel = {
         return out;
     },
 
-    /** The stored records, no keypair merge, read STRICTLY — for a
-     *  caller that plans a write from them (the entity-sync pull). */
+    /** The stored records (no keypair merge), read STRICTLY — to plan a write. */
     readRecordsStrict: () => readRegistryStrict(),
 
     /**
@@ -366,10 +362,8 @@ export const EntityModel = {
             updated: now
         };
 
-        // Into a FRESH read under the registry lock: the key install
-        // above waited on the keystore's lock, and other pages may have
-        // written since (JOURNAL 2026-09-24/25). The same entity created
-        // meanwhile by another page is kept as it is.
+        // Into a FRESH locked read — other pages may have written while the key
+        // install waited; the same entity made meanwhile is kept as it is.
         await mutateRegistry((fresh) => {
             const other = fresh[id];
             if (other && other.type === type && normalizeName(other.name) === normalizeName(name)) return { write: false };
@@ -399,7 +393,7 @@ export const EntityModel = {
      * restore is guarded.
      *
      * @returns {Promise<{restored: Array<{id,name,keyName,pubkey,verified}>,
-     *                    skipped:  Array<{id,name,derived_from}>}>}
+     *                    skipped:  Array<{id,name,derived_from}>, stampFailed: boolean}>}
      */
     restoreDerivedKeys: async () => {
         const primary = await Storage.primaryIdentity.get();
@@ -440,11 +434,10 @@ export const EntityModel = {
             if (!record.derived_from) toStamp.push(record.id);
             restored.push({ id: record.id, name: record.name, keyName: record.keyName, pubkey: installed.pubkey, verified });
         }
+        let stampFailed = false;
         if (toStamp.length > 0) {
-            // Stamp onto a FRESH read under the lock — the snapshot above
-            // predates the derivations, and other pages may have written
-            // since. The keys are restored either way: a failed stamp is
-            // reported, not thrown (the records stay unstamped, as before).
+            // Stamp onto a FRESH read — the snapshot above predates the
+            // derivations, and other pages may have written since.
             await mutateRegistry((fresh) => {
             let dirty = false;
             for (const id of toStamp) {
@@ -454,10 +447,10 @@ export const EntityModel = {
                 }
             }
             return { write: dirty };
-            }).catch((err) => Utils.error('restoreDerivedKeys: keys restored, but recording their origin failed:', err));
+            }).catch((err) => { stampFailed = true; Utils.error('restoreDerivedKeys: keys restored, but recording their origin failed:', err); });
         }
         Utils.log('restoreDerivedKeys:', restored.length, 'restored,', skipped.length, 'skipped (different primary)');
-        return { restored, skipped };
+        return { restored, skipped, stampFailed };
     },
 
     /**
@@ -849,17 +842,13 @@ export const EntityModel = {
         return found ? await EntityModel.get(id) : null;
     },
 
-    /**
-     * The entity-sync pull's record write: a row replaces the stored
-     * record only when FRESHER by `updated`, judged against a fresh read
-     * under the lock — a record another page made at least as fresh
-     * meanwhile stays. Returns { added, updated, unchanged }.
-     */
-    mergePulledRows: (rows) => mutateRegistry((all) => {
+    /** The pull's record write: each `{ row, updated }` (the PULLED stamp, 0 if
+     *  none) replaces only a staler record in a fresh locked read. → counts. */
+    mergePulledRows: (entries) => mutateRegistry((all) => {
         const counts = { added: 0, updated: 0, unchanged: 0 };
-        for (const row of rows) {
+        for (const { row, updated } of entries) {
             const local = all[row.id];
-            if (local && (local.updated || 0) >= (row.updated || 0)) { counts.unchanged++; continue; }
+            if (local && (local.updated || 0) >= (updated || 0)) { counts.unchanged++; continue; }
             all[row.id] = row;
             if (local) counts.updated++;
             else       counts.added++;

@@ -14,6 +14,14 @@
 // pages writing the registry at once lost one page's write — the
 // lost-update #392 fixed for `local_keys`.
 //
+// The pointer fix's first cut split reads from writes: a plain read under
+// an unreadable pointer read the DEFAULT workspace (uncached) while the
+// write after it re-read the pointer and landed in the ACTIVE one — so
+// any plain read-then-write (ClaimModel, platform accounts, …) erased the
+// active workspace's records and copied the default's into it. Section 2
+// pins the rule that replaced it: such a read reads NOTHING, and a plain
+// write of that key refuses until a plain read of it succeeds.
+//
 // Each test models extension PAGES as module instances of
 // entity-model.js (`?page=B` gives a second instance) over one
 // chrome.storage stub. They share storage.js and local-key-manager.js,
@@ -48,7 +56,8 @@ const later = (fn) => setImmediate(fn);
 const isRegistryKey = (k) => k === 'entities'
     || (typeof k === 'string' && k.startsWith('ws:') && k.endsWith(':entities'));
 // fail.<kind> = null | { mode: 'lastError' | 'throw', skip, times }
-const fail = { registry: null, pointer: null, all: null };
+// (`write`: a write of the registry key fails by runtime.lastError).
+const fail = { registry: null, pointer: null, all: null, write: null };
 let _registryHook = null;     // { n, fn }: one-shot, fires on the n-th registry read after arming
 
 function withLastError(message, fn) {
@@ -104,6 +113,10 @@ const localArea = {
         later(() => cb(out));
     },
     set(obj, cb) {
+        if (Object.keys(obj).some(isRegistryKey) && takeFailure('write')) {
+            later(() => withLastError('stub: write failed', () => cb && cb()));
+            return;
+        }
         const changes = {};
         for (const [k, v] of Object.entries(obj)) {
             changes[k] = { oldValue: _store.get(k), newValue: v };
@@ -133,13 +146,16 @@ globalThis.chrome = {
 const { Storage } = await import('../src/shared/storage.js');
 const { Crypto } = await import('../src/shared/crypto.js');
 const { Utils } = await import('../src/shared/utils.js');
-const { LocalKeyManager } = await import('../src/shared/local-key-manager.js');
-const { EntityModel: A } = await import('../src/shared/entity-model.js');
+const { LocalKeyManager, lockedReadModifyWrite, withStoreLock } = await import('../src/shared/local-key-manager.js');
+const { EntityModel: A, withEntityStoreLock } = await import('../src/shared/entity-model.js');
 const { EntityModel: B } = await import('../src/shared/entity-model.js?page=B');
 const { pullEntities, serializeEntityForSync } = await import('../src/shared/entity-sync.js');
 const { NostrClient } = await import('../src/shared/nostr-client.js');
 const { applyBackup, mergeBackup, BACKUP_FORMAT } = await import('../src/shared/backup.js');
 const { resetWorkspace, workspaceBackup } = await import('../src/shared/identity-profiles.js');
+const { ClaimModel } = await import('../src/shared/claim-model.js');
+const { importCaseBundle, CASE_BUNDLE_FORMAT } = await import('../src/shared/case-bundle.js');
+const { activeWorkspaceId: wsKeysActiveWorkspaceId, WORKSPACE_CONTENT_KEYS } = await import('../src/shared/workspace-keys.js');
 const { TV1, TV2, TV3, FIXED_TIME_S } = await import('./tools/fixture-keys.mjs');
 
 // ---- helpers ---------------------------------------------------------------
@@ -205,13 +221,16 @@ function withTimeout(p, ms, label) {
 }
 
 async function reset() {
-    fail.registry = fail.pointer = fail.all = null;
+    fail.registry = fail.pointer = fail.all = fail.write = null;
     _registryHook = null;
     await settle();
     await Storage.setActiveWorkspaceId('default');
     await settle();
     _store.clear();
     await LocalKeyManager.init();
+    // A plain read that fell back in an earlier test leaves its key's plain
+    // writes refused until a plain read of it succeeds — do that here.
+    for (const k of WORKSPACE_CONTENT_KEYS) await Storage.get(k);
 }
 /** Point storage at `ws` the way another page does it (a raw write + a change event). */
 async function otherPageSwitchesTo(ws) {
@@ -350,6 +369,81 @@ test('entity-sync pull: only the WRITE-phase read fails — the pull refuses and
     assertRefused(err, 'pull');
 });
 
+test('entity-sync pull: a pulled record with no `updated` never replaces a record another page made between the plan and the write', async () => {
+    await reset();
+    // An older sender's payload: no `updated` stamp (the userscript era).
+    const convKey = await Crypto.nip44GetConversationKey(TV1.privateKey, TV1.pubkey);
+    const payload = JSON.stringify({ schemaVersion: 1, id: PULL_ID, name: 'Pulled Person', type: 'person', created: FIXED_TIME_S,
+        keypair: { privateKey: TV3.privateKey, pubkey: TV3.pubkey } });
+    const ev = { id: 'ev-unstamped', kind: 30078, pubkey: TV1.pubkey, created_at: FIXED_TIME_S, tags: [], content: await Crypto.nip44Encrypt(payload, convKey) };
+    // Registry read 1 is the pull's plan: the record appears right after it.
+    onRegistryRead(1, async () => { await rawSet({ entities: JSON.stringify({ [PULL_ID]: row(PULL_ID, 'Made Meanwhile') }) }); });
+    const out = await pullWith([ev]);
+    assert.equal(readJson('entities')[PULL_ID].name, 'Made Meanwhile', 'the stored record stays — an unstamped pull never wins against it');
+    assert.equal(out.unchanged, 1);
+});
+
+// Store-level refusals (unreadable, corrupt, unwritable, the workspace
+// moving) are TYPED, so a caller importing many rows stops instead of
+// skipping each one as "malformed" behind a success toast.
+test('every store-level refusal is a StoreRefusedError that says nothing was written', async () => {
+    await reset();
+    seed('entities', [row(E1, 'Array Shape')]);   // corrupt: not an object
+    const corrupt = await attempt(() => A.importRecord({ id: EX, name: 'Imported', type: 'person' }));
+    assert.ok(Array.isArray(readJson('entities')), 'the corrupt value was not overwritten');
+    seed('entities', { [E1]: row(E1, 'One') });
+    const before = _store.get('entities');
+    failReads('write', 'lastError');
+    const unwritable = await attempt(() => A.update(E1, { description: 'x' }));
+    fail.write = null;
+    failReads('registry', 'lastError');
+    const unreadable = await attempt(() => A.update(E1, { description: 'x' }));
+    fail.registry = null;
+    assert.ok(_store.get('entities') === before, 'the registry is unchanged');
+    for (const [label, err] of Object.entries({ corrupt, unwritable, unreadable })) {
+        assertRefused(err, label);
+        assert.equal(err.name, 'StoreRefusedError', `${label}: typed`);
+    }
+    const rowError = await attempt(() => A.update(EX, { description: 'x' }));
+    assert.ok(rowError && rowError.name !== 'StoreRefusedError', 'a row-level error ("not found") is not a store refusal');
+});
+
+test('a case-bundle import over an unreadable registry refuses before installing any key — never "skipped malformed entries"', async () => {
+    await reset();
+    seed('entities', { [E1]: row(E1, 'One') });
+    failReads('registry', 'lastError');
+    const bundle = { format: CASE_BUNDLE_FORMAT, version: 1, case_id: EX, entities: [{ ...row(EX, 'Bundled'), privkey: TV2.privateKey }] };
+    let err, out;
+    try { err = await attempt(async () => { out = await importCaseBundle(bundle); }); } finally { fail.registry = null; }
+    assert.deepEqual(ids(), [E1], 'the registry is intact');
+    assert.deepEqual(Object.keys(readJson('local_keys')), [], 'no key was installed for a row that could not be written');
+    assert.equal(out, undefined, 'no import summary (with the row filed under "malformed") was produced');
+    assertRefused(err, 'importCaseBundle');
+
+    // Readable at the start, unreadable at the row's write: the import stops
+    // there with the refusal (its key, installed first, stays — harmless;
+    // a re-import is idempotent) instead of filing the row as malformed.
+    failReads('registry', 'lastError', { skip: 1 });
+    out = undefined;
+    try { err = await attempt(async () => { out = await importCaseBundle(bundle); }); } finally { fail.registry = null; }
+    assert.deepEqual(ids(), [E1], 'the registry is intact');
+    assert.equal(out, undefined, 'no summary filing a storage failure under "malformed"');
+    assertRefused(err, 'importCaseBundle (mid-loop)');
+});
+
+test('restoreDerivedKeys: the keys come back but recording their origin fails — the result says so', async () => {
+    await reset();
+    await Storage.primaryIdentity.set(TV1.privateKey);
+    seed('entities', { [E1]: row(E1, 'Lost Key') });
+    failReads('registry', 'lastError', { skip: 1, times: 1 });   // read 1 plans; read 2 is the stamp's
+    const errs = captureErrors();
+    let out;
+    try { out = await A.restoreDerivedKeys(); } finally { fail.registry = null; errs.restore(); }
+    assert.deepEqual(out.restored.map((r) => r.id), [E1], 'the key was restored');
+    assert.equal(readJson('entities')[E1].derived_from, undefined, 'the origin stamp was not written');
+    assert.equal(out.stampFailed, true, 'and the caller is told, so Options can say so');
+});
+
 // ---- 2. the workspace pointer: absent is 'default', unreadable is not ------
 
 for (const mode of ['lastError', 'throw']) {
@@ -372,7 +466,16 @@ for (const mode of ['lastError', 'throw']) {
     });
 }
 
-test('plain reads under a failed pointer read work as before (default view), uncached; global keys never depend on the pointer', async () => {
+// A plain read that cannot tell which workspace it is in reads NOTHING
+// (the caller's default — how Storage.get already presents a failed
+// content read), never another workspace's data; and the plain write or
+// delete of that key that follows it refuses until a plain read of the
+// key resolves the pointer again. Both halves are needed: reading the
+// default workspace's value and writing it into the active one erased
+// the active workspace's records and copied the default's into it (the
+// verifiers' probe below); reading nothing and writing that back erased
+// them too.
+test('plain reads under a failed pointer read return the caller\'s default — never another workspace\'s data — uncached; global keys never depend on the pointer', async () => {
     await reset();
     await Storage.preferences.set({ debug: false, marker: 'prefs' });
     seed('entities', { [E1]: row(E1, 'Default One') });
@@ -380,16 +483,121 @@ test('plain reads under a failed pointer read work as before (default view), unc
     const errs = captureErrors();
     failReads('pointer', 'lastError');
     await otherPageSwitchesTo('wsb');
-    let during, prefs;
+    let during, prefs, keyView;
     try {
         during = await Storage.get('entities', {});
+        keyView = await Storage.keys();
         prefs = await Storage.preferences.get();
     } finally { fail.pointer = null; errs.restore(); }
-    assert.deepEqual(Object.keys(during), [E1], 'a plain content read falls back to the default workspace, as it always did');
+    assert.deepEqual(during, {}, 'a plain content read reads nothing — not the default workspace\'s records');
+    assert.ok(!keyView.includes('entities'), 'and the key view shows no content key of an unknown workspace');
     assert.equal(prefs.marker, 'prefs', 'a global key reads normally');
     assert.deepEqual(Object.keys(await Storage.get('entities', {})), [E2],
-        'the fallback was not cached: the next read follows the real pointer');
+        'the failure was not cached: the next read follows the real pointer');
     assert.equal(await Storage.activeWorkspaceId(), 'wsb');
+});
+
+test('a failed pointer read inside another registry\'s plain read-then-write (ClaimModel.create) erases nothing and copies nothing across workspaces', async () => {
+    await reset();
+    const claim = (id, text) => ({ id, text, about: [], source: null, is_key: false, source_url: 'https://example.com/a', created: 1, updated: 1 });
+    seed('article_claims', { claim_d1: claim('claim_d1', 'DEFAULT workspace claim') });
+    seed('ws:wsb:article_claims', { claim_w1: claim('claim_w1', 'wsb claim 1'), claim_w2: claim('claim_w2', 'wsb claim 2') });
+    const errs = captureErrors();
+    failReads('pointer', 'lastError');   // through the switch: this page's keystore refresh cannot re-resolve it either
+    await otherPageSwitchesTo('wsb');
+    failReads('pointer', 'lastError', { times: 1 });   // then exactly ONE more failure — the create's read
+    try {
+        await attempt(() => ClaimModel.create({ text: 'A new claim made in wsb', source_url: 'https://example.com/b' }));
+    } finally { fail.pointer = null; errs.restore(); }
+    assert.deepEqual(ids('ws:wsb:article_claims'), ['claim_w1', 'claim_w2'], 'wsb keeps its own claims and gains none of the default workspace\'s');
+    assert.deepEqual(ids('article_claims'), ['claim_d1'], 'and nothing was routed into the default workspace');
+    assert.ok(errs.calls.some((c) => /nothing written/.test(c)), 'the refused write was reported');
+
+    const made = await ClaimModel.create({ text: 'A new claim made in wsb', source_url: 'https://example.com/b' });
+    assert.deepEqual(ids('ws:wsb:article_claims'), ['claim_w1', 'claim_w2', made.id].sort(), 'with the pointer readable, the claim lands in wsb beside its claims');
+});
+
+test('the refusal is per key, cleared by a successful plain re-read, and never blocks a strict locked write', async () => {
+    await reset();
+    seed('entities', { [E1]: row(E1, 'Default One') });
+    seed('ws:wsb:entities', { [E2]: row(E2, 'B One') });
+    seed('ws:wsb:claim_assessments', { a1: { id: 'a1' } });
+    seed('ws:wsb:url_aliases', { u1: 'https://example.com/u1' });
+    const errs = captureErrors();
+    failReads('pointer', 'lastError');
+    await otherPageSwitchesTo('wsb');
+    failReads('pointer', 'lastError', { times: 2 });   // the next two plain reads
+    try {
+        const assessments = await Storage.get('claim_assessments', {});
+        await Storage.get('entities', {});
+        assert.deepEqual(assessments, {}, 'sanity: the read fell back to nothing');
+        assert.equal(await Storage.set('claim_assessments', { ...assessments, a2: { id: 'a2' } }), false, 'the write built on it refuses');
+        assert.equal(await Storage.delete('claim_assessments'), false, 'and so does a delete');
+        assert.deepEqual(ids('ws:wsb:claim_assessments'), ['a1'], 'wsb\'s assessments are intact');
+        assert.equal(_store.has('claim_assessments'), false, 'and nothing reached the default workspace');
+
+        const aliases = await Storage.get('url_aliases', {});
+        assert.equal(await Storage.set('url_aliases', { ...aliases, u2: 'https://example.com/u2' }), true, 'a key whose own read succeeded writes');
+        assert.deepEqual(ids('ws:wsb:url_aliases'), ['u1', 'u2']);
+
+        await A.update(E2, { description: 'strict write' });
+        assert.equal(readJson('ws:wsb:entities')[E2].description, 'strict write', 'a locked write built on a strict read is not blocked by a plain read\'s fallback');
+
+        const again = await Storage.get('claim_assessments', {});
+        assert.deepEqual(Object.keys(again), ['a1'], 'a successful re-read sees wsb');
+        assert.equal(await Storage.set('claim_assessments', { ...again, a2: { id: 'a2' } }), true, 'and clears the refusal');
+        assert.deepEqual(ids('ws:wsb:claim_assessments'), ['a1', 'a2']);
+    } finally { fail.pointer = null; errs.restore(); }
+});
+
+test('a reset after a plain read fell back still clears the whole workspace — its deletes rest on a strict pointer read', async () => {
+    await reset();
+    seed('ws:wsb:entities', { [E2]: row(E2, 'B One') });
+    seed('ws:wsb:article_claims', { c1: { id: 'c1' } });
+    const errs = captureErrors();
+    failReads('pointer', 'lastError');
+    await otherPageSwitchesTo('wsb');
+    failReads('pointer', 'lastError', { times: 1 });
+    try {
+        assert.deepEqual(await Storage.get('article_claims', {}), {}, 'sanity: this page\'s plain read fell back');
+        await resetWorkspace({ idb: NO_IDB });
+    } finally { fail.pointer = null; errs.restore(); }
+    assert.equal(_store.has('ws:wsb:article_claims'), false, 'the key whose plain read fell back was cleared too');
+    assert.equal(_store.has('ws:wsb:entities'), false, 'and the rest of wsb');
+});
+
+test('a workspace reset whose workspace is switched while it waits for the locks clears nothing', async () => {
+    await reset();
+    seed('entities', { [E1]: row(E1, 'Default One') });
+    seed('ws:wsb:entities', { [E2]: row(E2, 'B One') });
+    const deleted = [];
+    const idb = { deleteDatabase(name) { deleted.push(name); } };
+    let release;
+    const holding = withEntityStoreLock(() => new Promise((r) => { release = r; }));
+    const resetting = resetWorkspace({ idb });   // reads the pointer ('default'), then waits on the registry lock
+    await settle();
+    await otherPageSwitchesTo('wsb');
+    release();
+    await holding;
+    const err = await attempt(() => resetting);
+    assert.deepEqual(ids('ws:wsb:entities'), [E2], 'the workspace switched to was not cleared');
+    assert.deepEqual(ids('entities'), [E1], 'nor the one the reset started in');
+    assert.deepEqual(deleted, [], 'and no database was deleted');
+    assertRefused(err, 'resetWorkspace');
+});
+
+test('a Firefox-style failure (browser.runtime.lastError) is a failed pointer read too', async () => {
+    const pointerArea = {
+        get(keys, cb) {
+            globalThis.browser.runtime.lastError = { message: 'stub: IO error' };
+            try { cb({}); } finally { delete globalThis.browser.runtime.lastError; }
+        }
+    };
+    globalThis.browser = { runtime: {}, storage: { local: pointerArea } };
+    try {
+        await assert.rejects(() => wsKeysActiveWorkspaceId({ strict: true }), /workspace pointer/);
+        assert.equal(await wsKeysActiveWorkspaceId(), 'default', 'a plain caller still gets the default');
+    } finally { delete globalThis.browser; }
 });
 
 test('a workspace reset under a failed pointer read clears nothing — least of all the default workspace', async () => {
@@ -617,6 +825,15 @@ test('entity writers serialize on the Web Lock "xray.entities" and never nest an
     for (const id of [E1, E2, E3, PULL_ID]) assert.ok(ents[id], `${id} survived`);
     assert.equal(ents[EX], undefined, 'the delete held');
     assert.equal(ents[E3].derived_from, TV1.pubkey, 'the restore stamped the record it re-keyed');
+});
+
+test('each locked store has ONE fixed lock: no other key or lock name can be taken', async () => {
+    await reset();
+    seed('article_claims', { c1: { id: 'c1' } });
+    const before = _store.get('article_claims');
+    await assert.rejects(() => lockedReadModifyWrite({ key: 'article_claims', label: 'Probe', apply: () => ({ write: true }) }), /no lock is fixed/);
+    await assert.rejects(() => withStoreLock('xray.something_else', async () => {}), /not a store lock/);
+    assert.ok(_store.get('article_claims') === before, 'nothing was written');
 });
 
 test('entity writers refuse to run outside an extension origin', async () => {

@@ -317,10 +317,8 @@ export async function pullEntities({ userPrivkey, relays, timeoutMs = 8000 }) {
     // key name each installs. That name is ALWAYS `entity:<the pulled
     // record's own id>`: a stored record whose keyName says anything
     // else (the reserved `xray:user` sync slot, another entity's slot)
-    // is refused — a pull never overwrites a key it does not own. The
-    // read is STRICT: taken for empty, a failed read made every pulled
-    // record a winner and let a STALER key replace a local one
-    // (JOURNAL 2026-09-25) — so a failure rejects before any write.
+    // is refused — a pull never overwrites a key it does not own. STRICT: a
+    // failed read taken for empty let a STALER key replace (JOURNAL 2026-09-25).
     const planned = { ...(await EntityModel.readRecordsStrict()) };
     const winners = [];
     for (const record of records) {
@@ -378,7 +376,7 @@ export async function pullEntities({ userPrivkey, relays, timeoutMs = 8000 }) {
     // nothing written). A record another page made at least as fresh
     // meanwhile stays; its key was already replaced above, which for a
     // derived key is the same key.
-    const merged = await EntityModel.mergePulledRows(winners.map(({ row }) => row));
+    const merged = await EntityModel.mergePulledRows(winners.map(({ record, row }) => ({ row, updated: record.updated || 0 })));
     out.added += merged.added;
     out.updated += merged.updated;
     out.unchanged += merged.unchanged;

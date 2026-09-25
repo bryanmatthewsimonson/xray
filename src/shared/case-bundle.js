@@ -157,7 +157,9 @@ export async function importCaseBundle(parsed) {
         throw new Error(`Bundle version ${parsed.version} is newer than this X-Ray understands (${CASE_BUNDLE_VERSION})`);
     }
 
-    const existingAll = await Storage.get('entities', {});
+    // Strict, before any key; a StoreRefusedError mid-loop stops the import —
+    // neither is a "malformed entry" (JOURNAL 2026-09-25).
+    const existingAll = await EntityModel.readRecordsStrict();
     let added = 0, updated = 0, keysInstalled = 0;
     const conflicts = [];   // a DIFFERENT key already installed under this id
     const invalid = [];     // malformed/unimportable rows (bad type, bad key)
@@ -193,6 +195,7 @@ export async function importCaseBundle(parsed) {
                 });
                 if (!before) keysInstalled++;
             } catch (err) {
+                if (err && err.name === 'StoreRefusedError') throw err;
                 const msg = String(err && err.message || err);
                 // Distinguish a genuine same-id-different-key conflict
                 // (kept your key) from a malformed key in the bundle.
@@ -208,6 +211,7 @@ export async function importCaseBundle(parsed) {
             await EntityModel.importRecord(row);   // importRecord re-derives keyName
             if (existed) updated++; else added++;
         } catch (err) {
+            if (err && err.name === 'StoreRefusedError') throw err;
             invalid.push(`${row.name}: ${err.message || err}`);
         }
     }

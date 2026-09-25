@@ -145,8 +145,10 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   restore/merge, workspace reset/removal) take `withEntityStoreLock`,
   nested inside the keystore lock and never the reverse. A failed
   workspace-pointer read fails any write
-  (`activeWorkspaceId({ strict: true })`); plain reads still fall back
-  to the default view.
+  (`activeWorkspaceId({ strict: true })`); a plain `Storage.get` of a
+  content key under it reads nothing (never another workspace's data),
+  and a plain `set`/`delete` of that key then refuses until a plain read
+  of it succeeds (writes built on a strict read pass `strictRead`).
 - **`signer.js`** — unified signing façade over Local / NIP-07 /
   NSecBunker, dispatched on `preferences.signing_method`. NIP-07 only works
   where a `nip07Client` is injected (`Signer.configure({ nip07Client })`),

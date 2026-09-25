@@ -227,19 +227,21 @@ export async function workspaceBackup() {
  */
 export async function resetWorkspace({ idb } = {}) {
     // The pointer first, strictly: a failed read cleared the DEFAULT workspace (JOURNAL 2026-09-25).
-    let ws;
-    try { ws = await Storage.activeWorkspaceId({ strict: true }); } catch (err) {
-        throw new Error(`resetWorkspace: reading the workspace pointer failed — nothing written (${(err && err.message) || err})`);
-    }
+    const ws = await Storage.activeWorkspaceId({ strict: true }).catch((err) => {
+        throw new Error(`resetWorkspace: reading the workspace pointer failed — nothing written (${(err && err.message) || err})`); });
     const cleared = [];
     // The content keys include `local_keys`: clear them under the
     // keystore lock, so a key write in flight on another page cannot
     // land after the reset and put the old keys back (JOURNAL
-    // 2026-09-24) — and `entities` under the registry lock (2026-09-25).
-    // Nothing inside calls a keystore or registry writer.
+    // 2026-09-24) — and `entities` under the registry lock (2026-09-25). Nothing
+    // inside calls a keystore or registry writer. The pointer is re-checked before
+    // EVERY delete: a switch while this waited cleared one workspace's keys and another's DBs.
     await withKeyStoreLock(() => withEntityStoreLock(async () => {
         for (const key of WORKSPACE_CLEAR_KEYS) {
-            if (await Storage.delete(key) === false) {
+            if (await Storage.activeWorkspaceId({ strict: true }).then((now) => now !== ws, () => true)) {
+                throw new Error(`resetWorkspace: the workspace changed or became unreadable — ${cleared.length ? `stopped after ${cleared.length} stores` : 'nothing written'}`);
+            }
+            if (await Storage.delete(key, { strictRead: true }) === false) {
                 throw new Error(`resetWorkspace: clearing ${key} failed after ${cleared.length} of ${WORKSPACE_CLEAR_KEYS.length} stores`);
             }
             cleared.push(key);

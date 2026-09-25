@@ -66,6 +66,15 @@ export function workspaceDbName(base, wsId) {
     return (!wsId || wsId === 'default') ? base : `${base}::${wsId}`;
 }
 
+/** `runtime.lastError` of either namespace (Firefox sets it per namespace). */
+export function storageLastError() {
+    try {
+        return (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError)
+            || (typeof browser !== 'undefined' && browser.runtime && browser.runtime.lastError)
+            || null;
+    } catch (_) { return null; }
+}
+
 /**
  * The active workspace id, read straight from extension storage —
  * call-time only, no import-time chrome dependency, so the
@@ -83,7 +92,7 @@ export async function activeWorkspaceId({ strict = false } = {}) {
             : (typeof chrome !== 'undefined' && chrome.storage ? chrome.storage.local : null);
         if (!area) return 'default';
         const raw = await new Promise((resolve, reject) => area.get(['active_workspace'], (res) => {
-            const err = ((globalThis.chrome || globalThis.browser || {}).runtime || {}).lastError;
+            const err = storageLastError();
             if (err || !res) reject(new Error('reading the workspace pointer failed: ' + ((err && err.message) || 'no result')));
             else resolve(res.active_workspace);
         }));
@@ -91,10 +100,7 @@ export async function activeWorkspaceId({ strict = false } = {}) {
             try { return String(JSON.parse(raw) || 'default'); } catch (_) { return raw || 'default'; }
         }
         return 'default';
-    } catch (err) {
-        if (strict) throw err;
-        return 'default';
-    }
+    } catch (err) { if (strict) throw err; return 'default'; }
 }
 
 /** `workspaceDbName(base)` under the ACTIVE workspace. */
