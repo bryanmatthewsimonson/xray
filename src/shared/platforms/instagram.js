@@ -60,6 +60,7 @@ export function isInstagramPostPage() {
  *   /p/<shortcode>/                  — image / carousel post
  *   /reel/<shortcode>/                — reel
  *   /tv/<shortcode>/                  — IGTV (legacy, mostly redirects)
+ *   /reels/<shortcode>/               — reel, in the Reels viewer (2026-09-25)
  *   /<username>/p/<shortcode>/        — user-prefixed post
  *   /<username>/reel/<shortcode>/     — user-prefixed reel
  *
@@ -75,6 +76,7 @@ export function shortcodeFromUrl(url = window.location.href) {
             /^\/p\/([A-Za-z0-9_-]+)/,
             /^\/reel\/([A-Za-z0-9_-]+)/,
             /^\/tv\/([A-Za-z0-9_-]+)/,
+            /^\/reels\/([A-Za-z0-9_-]+)\/?$/,   // end-anchored: not /reels/audio/<id>/
             /^\/[^/]+\/p\/([A-Za-z0-9_-]+)/,
             /^\/[^/]+\/reel\/([A-Za-z0-9_-]+)/
         ];
@@ -90,9 +92,9 @@ function shortcodeFromLocation() {
     return shortcodeFromUrl(window.location.href);
 }
 
-function postKindFromLocation() {
-    const path = window.location.pathname;
-    if (/\/reel\//.test(path)) return 'reel';
+/** Pure — the post kind a path names; /reels/<code>/ is a reel. */
+export function postKindFromPath(path = window.location.pathname) {
+    if (/\/reels?\//.test(path)) return 'reel';
     if (/\/tv\//.test(path))   return 'igtv';
     return 'post';
 }
@@ -793,8 +795,13 @@ export async function synthesizeArticle() {
     if (!isInstagramPostPage()) return null;
 
     const shortcode = shortcodeFromLocation();
-    const postKind  = postKindFromLocation();   // 'post' | 'reel' | 'igtv'
-    const meta      = extractMetaFields();
+    const postKind  = postKindFromPath();       // 'post' | 'reel' | 'igtv'
+    // A head whose og:url names another page was rendered for THAT page
+    // and never updated across an in-app navigation: every og field
+    // (author, caption, image, video, counts) describes it, not this
+    // capture. Withhold the whole head — absent beats wrong.
+    const head      = extractMetaFields();
+    const meta      = headMatchesLocation(head.url, shortcode) ? head : { engagement: {} };
     const desc      = parseOgDescription(meta.description);
 
     // Pull media + author off any buffered GraphQL/REST response or
@@ -880,6 +887,7 @@ export async function synthesizeArticle() {
     // could seed the handle fallback chain.
     console.log('[X-Ray Instagram] capture diagnostic:', {
         shortcode,
+        staleHead: meta !== head,     // og:url named another page — head withheld
         evidenceTarget: evidenceTarget ? evidenceTarget.tagName : null,
         scrapedImageCount: scrapedImages.length,
         graphqlMatched: !!fromApi,
@@ -1089,6 +1097,16 @@ export function canonicalPostUrl({ metaUrl, postKind, shortcode }) {
     } catch (_) {
         return null;
     }
+}
+
+/**
+ * Does the page head speak for the post at window.location? True when
+ * there is no og:url to contradict it, or when og:url names the same
+ * shortcode; false for a profile grid, another post, or a foreign host.
+ * Pure — exported so the stale-head rule is unit-pinned (2026-09-25).
+ */
+export function headMatchesLocation(metaUrl, shortcode) {
+    return !metaUrl || shortcodeFromUrl(metaUrl) === shortcode;
 }
 
 function composeTitle(author, handle, caption, postKind) {
