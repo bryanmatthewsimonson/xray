@@ -483,6 +483,10 @@ without the other is the design's named long-term risk.
   lenses. **Consult it before starting 1.0 work** — it carries the
   `file:line` evidence and says which track a change belongs to. Kills
   need maintainer ratification (Art. 11) before anything is removed.
+- **`docs/STATUS.md`** — the one-page status (hand-maintained until
+  RESET_PLAN R6 generates it): the 1.0 blockers with their evidence,
+  every default-off flag with its check date and last casework
+  evidence, the parked shelf, and the open-PR cap.
 - **`docs/JOURNAL.md`** — the GENERATED index (newest first) of the
   engineering journal: bugs, design decisions, and external-platform
   changes. The entries live in **`docs/journal/YYYY-MM.md`**, one file
