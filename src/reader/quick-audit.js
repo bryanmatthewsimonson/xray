@@ -36,6 +36,9 @@ export const INGEST_FAILED = 'failed';
  */
 export async function runQuickAuditJob({ request, localHash }, { sendMessage, ingest, onFailure, onElapsed = null }) {
     const startedAt = Date.now();
+    // No prompt-version part (the audit has none): a reused audit carries
+    // its own per-module versions, which import records and the panel's
+    // staleness check reads — it cannot pass for the current methodology.
     const resp = await runLlmJob({
         sendMessage, pass: 'audit-run', request,
         scopeKey: llmJobScopeKey(localHash, await llmJobRequestHash(request)),

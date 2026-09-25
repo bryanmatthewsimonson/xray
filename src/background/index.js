@@ -796,10 +796,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // call. Every pass keeps its own gates (flags + key) and returns RAW
     // output — the page validates, grounds, and human-Accepts; nothing
     // is saved or published here.
-    if (message.type === 'xray:llm:job:start') return respondLlmJob('start', message, sendResponse);
-    if (message.type === 'xray:llm:job:status') return respondLlmJob('status', message, sendResponse);
-    if (message.type === 'xray:llm:job:find') return respondLlmJob('find', message, sendResponse);
-    if (message.type === 'xray:llm:job:ack') return respondLlmJob('ack', message, sendResponse);
+    if (message.type === 'xray:llm:job:start') return respondLlmJob('start', message, sendResponse, sender);
+    if (message.type === 'xray:llm:job:status') return respondLlmJob('status', message, sendResponse, sender);
+    if (message.type === 'xray:llm:job:find') return respondLlmJob('find', message, sendResponse, sender);
+    if (message.type === 'xray:llm:job:ack') return respondLlmJob('ack', message, sendResponse, sender);
     if (message.type === 'xray:llm:corpus-config') {
         getCorpusConfig().then(
             (cfg) => sendResponse({ ok: true, ...cfg }),

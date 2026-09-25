@@ -111,14 +111,16 @@ held-open message** — the transcribe and LLM-job families are the precedents.
 Every single-call LLM pass is a **job** on `xray:llm:job:*`
 (`shared/llm-jobs.js`: start answers at once, the raw result is persisted
 under the job id before any response hop, the page long-polls and acks
-only after its own persist; a held-open message dies at MV3's 5-minute
-request kill and takes the paid result with it — JOURNAL 2026-09-05). The
-pass table in `background/llm-jobs.js` is the allowlist: corpus map /
-reduce, entity page, hypothesis edges, claim links, the forensic corpus
-pass, the entity audit, and the reader's Quick audit (`audit-run`,
-formerly `xray:audit:run`). A new LLM pass is a pass-table line plus its
-caller; `tests/llm-jobs.test.mjs` names the four per-unit passes still
-held open.
+only once it holds the result — persisted, or shown on a visible review
+surface; a held-open message dies at MV3's 5-minute request kill and
+takes the paid result with it — JOURNAL 2026-09-05). The pass table in
+`background/llm-jobs.js` is the allowlist: corpus map / reduce, entity
+page, hypothesis edges, claim links, the forensic corpus pass, the entity
+audit, and the reader's Quick audit (`audit-run`, formerly
+`xray:audit:run`). The job ops answer extension pages only, and the
+worker refuses a request-scoped pass whose scope key does not end in its
+request's hash. A new LLM pass is a pass-table line plus its caller;
+`tests/llm-jobs.test.mjs` names the four per-unit passes still held open.
 
 ### Shared layer (`src/shared/`)
 

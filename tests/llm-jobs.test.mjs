@@ -28,7 +28,7 @@ import { join } from 'node:path';
 
 import {
     createLlmJobRunner, runLlmJob, ackLlmJob, findLlmJob, llmJobScopeKey, llmJobRequestHash,
-    isLlmJobKey, jobStorageKey, LLM_JOB_LOST_ERROR, LLM_JOB_PASSES, LLM_JOB_TTL_MS,
+    isLlmJobKey, jobStorageKey, LLM_JOB_LOST_ERROR, LLM_JOB_PASSES, LLM_JOB_REQUEST_SCOPED, LLM_JOB_TTL_MS,
     LLM_JOB_STATUS_WAIT_MAX_MS, LLM_JOB_KEY_PREFIX, jobElapsedSeconds, jobFailureNote
 } from '../src/shared/llm-jobs.js';
 import { memoryArea, createJobStub } from './helpers/llm-job-stub.mjs';
@@ -275,10 +275,23 @@ test('validation: the pass allowlist, the request shape, scope keys, job ids, an
     }
 });
 
-test('llmJobScopeKey clamps each part to the key alphabet and joins with ":"', () => {
+test('llmJobScopeKey clamps each part to the key alphabet, joins with ":", and over the cap shortens the LEADING parts — never the content hash', () => {
     assert.equal(llmJobScopeKey('case 1/x', 'a'.repeat(64)), `case_1_x:${'a'.repeat(64)}`);
     assert.equal(llmJobScopeKey(null, undefined), ':');
     assert.ok(llmJobScopeKey('x'.repeat(500)).length <= 200);
+    const h1 = 'c'.repeat(64);
+    assert.equal(llmJobScopeKey('a', 'v1', h1), `a:v1:${h1}`, 'under the cap nothing moves');
+    // An id that arrived by backup merge is not shape-checked. A plain cut
+    // at 200 dropped the hash off the end, so two different requests
+    // shared one key and one's kept result answered the other.
+    const longId = `entity_${'x'.repeat(300)}`;
+    const k1 = llmJobScopeKey(longId, 'claim-links-v1', h1);
+    const k2 = llmJobScopeKey(longId, 'claim-links-v1', 'd'.repeat(64));
+    assert.equal(k1.length, 200);
+    assert.ok(k1.endsWith(`:${h1}`), k1);
+    assert.notEqual(k1, k2, 'different requests, different keys, whatever the id length');
+    assert.match(k1, /^[A-Za-z0-9:._-]{1,200}$/, 'still inside the runner\'s scope grammar');
+    assert.equal(llmJobScopeKey('a', 'z'.repeat(300)), 'z'.repeat(200), 'a last part over the cap alone is clamped, never thrown on');
 });
 
 test('llmJobRequestHash: SHA-256 hex of the exact request — any changed byte is a different job; the widest key fits the grammar', async () => {
@@ -300,6 +313,56 @@ test('llmJobRequestHash: SHA-256 hex of the exact request — any changed byte i
     assert.equal(started.ok, true);
     assert.equal(started.jobId, `audit-run:${scope}`);
     assert.equal((await runner.status({ jobId: started.jobId, waitMs: 50 })).ok, true, 'the job id is inside JOB_ID_RE');
+});
+
+test('RECEIVER-VERIFIED SCOPE: a request-scoped pass refuses a key that does not end in the hash of the request it carries', async () => {
+    // The reuse criterion is the key, so the worker checks it rather than
+    // trusting it: a kept result is only ever served for the request it
+    // answered — never for another request presented under its key.
+    assert.deepEqual([...LLM_JOB_REQUEST_SCOPED],
+        ['hypothesis-edges', 'corpus-links', 'forensic-corpus', 'entity-audit', 'audit-run'],
+        'the 2026-09-25 passes scope by request hash; #374\'s three by fingerprints the worker cannot rebuild');
+    for (const p of LLM_JOB_REQUEST_SCOPED) assert.ok(LLM_JOB_PASSES.includes(p), `${p} is not allowlisted`);
+
+    const area = memoryArea();
+    const calls = [];
+    const passes = Object.fromEntries(LLM_JOB_PASSES.map((p) => [p, async (req) => {
+        calls.push([p, req.n]);
+        return { ok: true, answered: req.n };
+    }]));
+    const runner = runnerOver(area, passes);
+    const reqA = { n: 'A' };
+    const reqB = { n: 'B' };
+    const hA = await llmJobRequestHash(reqA);
+    const hB = await llmJobRequestHash(reqB);
+    const MISMATCH = { ok: false, error: 'LLM job scope key does not match its request' };
+
+    for (const pass of LLM_JOB_REQUEST_SCOPED) {
+        const keyA = llmJobScopeKey('case', 'v1', hA);
+        const a = await runner.start({ pass, request: reqA, scopeKey: keyA });
+        assert.equal(a.ok, true, `${pass}: a key ending in its own request's hash starts`);
+        await runner.status({ jobId: a.jobId, waitMs: 50 });
+        const before = calls.length;
+        for (const scopeKey of [keyA, 'case', hB, `case:${hB}x`, `case:${hB.slice(0, 63)}`, `case:x${hB}`]) {
+            assert.deepEqual(await runner.start({ pass, request: reqB, scopeKey }), MISMATCH,
+                `${pass} took ${scopeKey} for another request`);
+        }
+        assert.equal(calls.length, before, 'no pass ran for a refused start');
+        const b = await runner.start({ pass, request: reqB, scopeKey: llmJobScopeKey('case', 'v1', hB) });
+        assert.equal(b.ok, true);
+        assert.equal(b.reused, false, 'B is its own job');
+        const b2 = await runner.status({ jobId: b.jobId, waitMs: 50 });
+        assert.equal(b2.result.answered, 'B', 'B is answered by a pass that saw B');
+        const again = await runner.start({ pass, request: reqA, scopeKey: keyA });
+        assert.equal(again.reused, true, 'A\'s kept result still serves A');
+    }
+    // #374's passes keep page-derived keys (content fingerprints the
+    // worker cannot rebuild), and a scope-less start is a one-off job
+    // that is never reused — neither carries a request hash.
+    for (const pass of LLM_JOB_PASSES.filter((p) => !LLM_JOB_REQUEST_SCOPED.includes(p))) {
+        assert.equal((await runner.start({ pass, request: reqB, scopeKey: 'fingerprint:abc' })).ok, true, pass);
+    }
+    assert.equal((await runner.start({ pass: 'corpus-links', request: reqB })).ok, true);
 });
 
 test('jobFailureNote: a LOST job names the re-bill; a lost CHANNEL names the free pickup; anything else adds nothing', () => {
@@ -587,8 +650,10 @@ test('GUARD: no job pass rides a held-open message in the service worker', () =>
     }
     for (const op of ['start', 'status', 'find', 'ack']) {
         assert.ok(bg.includes(`message.type === 'xray:llm:job:${op}'`), `xray:llm:job:${op} handler missing`);
-        assert.ok(bg.includes(`return respondLlmJob('${op}', message, sendResponse)`),
-            `xray:llm:job:${op} does not delegate to background/llm-jobs.js`);
+        // With its sender: respondLlmJob refuses any sender that is not an
+        // extension page (behavior pinned in llm-job-consumers.test.mjs).
+        assert.ok(bg.includes(`return respondLlmJob('${op}', message, sendResponse, sender)`),
+            `xray:llm:job:${op} does not delegate, with its sender, to background/llm-jobs.js`);
     }
     assert.match(jobs, /createLlmJobRunner\(\{/);
     assert.ok(!bg.includes('createLlmJobRunner'), 'the runner is built in background/llm-jobs.js, never in index.js');
@@ -625,10 +690,17 @@ const JOB_CONSUMERS = Object.freeze({
 });
 // The 2026-09-25 consumers: content-derived scopes and a record-anchored
 // elapsed counter, like the reduce (#374's two surfaces pin the latter below).
-const ADDENDUM_CONSUMERS = Object.freeze([
-    'src/portal/links-block.js', 'src/portal/hypothesis-block.js', 'src/portal/forensic-corpus-block.js',
-    'src/sidepanel/entity-audit.js', 'src/reader/quick-audit.js'
-]);
+// The 2026-09-25 consumers → the prompt-version constant their scope
+// carries, so a prompt revision never serves a result the old prompt
+// produced (null: the Quick audit's result carries its own per-module
+// versions, which the audit panel's staleness check reads).
+const ADDENDUM_CONSUMERS = Object.freeze({
+    'src/portal/links-block.js': 'CLAIM_LINKS_PROMPT_VERSION',
+    'src/portal/hypothesis-block.js': 'HYPOTHESIS_EDGE_PROMPT_VERSION',
+    'src/portal/forensic-corpus-block.js': 'FORENSIC_CORPUS_PROMPT_VERSION',
+    'src/sidepanel/entity-audit.js': 'ENTITY_AUDIT_PROMPT_VERSION',
+    'src/reader/quick-audit.js': null
+});
 
 test('GUARD: no page sends a retired single-message type — not as a send, not as any string literal', () => {
     const offenders = [];
@@ -661,17 +733,22 @@ test('GUARD: every job consumer uses the job client, names an allowlisted pass, 
     assert.deepEqual([...driven].sort(), [...LLM_JOB_PASSES].sort(), 'an allowlisted pass has no page-side consumer');
 });
 
-test('GUARD: the 2026-09-25 consumers scope by CONTENT (id + request hash) and time from the record', () => {
-    for (const rel of ADDENDUM_CONSUMERS) {
+test('GUARD: the 2026-09-25 consumers scope by CONTENT (id + prompt version + request hash) and time from the record', () => {
+    assert.equal(Object.keys(ADDENDUM_CONSUMERS).length, LLM_JOB_REQUEST_SCOPED.length, 'one consumer per request-scoped pass');
+    for (const [rel, version] of Object.entries(ADDENDUM_CONSUMERS)) {
         const src = strip(read(rel));
-        assert.match(src, /scopeKey:\s*llmJobScopeKey\([^;]*await llmJobRequestHash\(request\)\)/,
-            `${rel}: the scope must end in the hash of the request it sends — an id-only scope would serve a stale result`);
+        const scope = src.match(/scopeKey:\s*llmJobScopeKey\(([^;]*?)await llmJobRequestHash\(request\)\)/);
+        assert.ok(scope, `${rel}: the scope must end in the hash of the request it sends — the worker refuses any other key`);
+        if (version) {
+            assert.ok(new RegExp(`\\b${version}\\b`).test(scope[1]),
+                `${rel}: the scope does not carry ${version} — a revised prompt would be served the old prompt's result`);
+        }
         assert.match(src, /jobElapsedSeconds\(st,/, `${rel} times the job from a page-local clock`);
         assert.match(src, /jobFailureNote\(/, `${rel} fails without saying what a retry costs`);
     }
 });
 
-test('GUARD: the reader never reads ingestAuditResult as a boolean — it is tri-state, and \'failed\' is truthy', () => {
+test('GUARD: the reader never reads ingestAuditResult as a boolean (it is tri-state, and \'failed\' is truthy), and only the import decides it', () => {
     // A truthiness read on the Thorough path would clear the resumable
     // module draft after a FAILED import — paid modules, gone.
     const src = strip(read('src/reader/index.js'));
@@ -681,6 +758,13 @@ test('GUARD: the reader never reads ingestAuditResult as a boolean — it is tri
         assert.ok(/\)\) === INGEST_IMPORTED\b/.test(l) || /\bingest: \(audit, model\) => ingestAuditResult\(/.test(l),
             `a boolean read of ingestAuditResult: ${l.trim()}`);
     }
+    // And the outcome is the IMPORT's alone: a panel repaint that throws
+    // after a successful import must not report it failed — the kept job
+    // record would be imported a second time on the next Quick audit.
+    const fn = src.slice(src.indexOf('async function ingestAuditResult('));
+    const classified = fn.slice(fn.indexOf('try {'), fn.indexOf('} catch (err) {'));
+    assert.ok(classified.includes('importAuditJson('), 'sanity: the import is the classified call');
+    assert.ok(!classified.includes('refreshAuditStatus('), 'the audit-panel repaint sits inside the import classification');
 });
 
 test('GUARD: #374\'s long-poll surfaces time the job from the record', () => {

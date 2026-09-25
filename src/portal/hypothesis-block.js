@@ -22,6 +22,7 @@ import {
     validateHypothesisEdges, groundEdgeQuotes, filterEdgeProposals, unopposedHypotheses
 } from '../shared/hypothesis-suggest.js';
 import { digestDossier, DIGEST_CLAIM_CAP } from '../shared/case-synthesis.js';
+import { HYPOTHESIS_EDGE_PROMPT_VERSION } from '../shared/corpus-prompts.js';
 import { VERDICT_STATE_LABELS, PROPOSITION_CLASS_LABELS } from '../shared/truth-taxonomy.js';
 import {
     runLlmJob, ackLlmJob, llmJobScopeKey, llmJobRequestHash, jobElapsedSeconds, jobFailureNote
@@ -330,9 +331,9 @@ function mountSuggestPanel(panelHost, { data, dossier, onChanged, onSettled, mod
             })));
 
         // A JOB, never a held-open message (JOURNAL 2026-09-05): scoped
-        // to this case + this exact request, so a pass that finished
-        // after this panel went away is picked up by the next identical
-        // Suggest instead of billed again.
+        // to this case, the prompt version, and this exact request, so a
+        // pass that finished after this panel went away is picked up by
+        // the next identical Suggest instead of billed again.
         const request = {
             dossierDigest: digestDossier(dossier, { claims: orbitClaims }),
             hypotheses: rows,
@@ -342,7 +343,7 @@ function mountSuggestPanel(panelHost, { data, dossier, onChanged, onSettled, mod
         const startedAt = Date.now();
         const res = await runLlmJob({
             sendMessage, pass: 'hypothesis-edges', request,
-            scopeKey: llmJobScopeKey(data.case.id, await llmJobRequestHash(request)),
+            scopeKey: llmJobScopeKey(data.case.id, HYPOTHESIS_EDGE_PROMPT_VERSION, await llmJobRequestHash(request)),
             onTick: (st) => {
                 if (st.status === 'running') status.textContent = suggestProgressLine(jobElapsedSeconds(st, startedAt));
             }

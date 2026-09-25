@@ -60,20 +60,40 @@ const OPS = Object.freeze({
     ack: [(message) => llmJobs.ack(message), 'LLM job ack failed']
 });
 
+/** A sender is an extension page when its URL is on this extension's
+ *  own origin — the test the capture handoff uses (index.js). A content
+ *  script's sender carries the web page's URL. */
+function fromExtensionPage(sender) {
+    try {
+        return !!(sender && typeof sender.url === 'string'
+            && sender.url.startsWith(chrome.runtime.getURL('')));
+    } catch (_) { return false; }
+}
+
 /**
- * Answer one xray:llm:job:<op> message. Always returns true so the
- * caller holds the channel for the async sendResponse — which resolves
- * as soon as the record is written (start), within
- * LLM_JOB_STATUS_WAIT_MAX_MS (status), or at once (find / ack); never
- * across a model call.
+ * Answer one xray:llm:job:<op> message. Returns true so the caller holds
+ * the channel for the async sendResponse — which resolves as soon as the
+ * record is written (start), within LLM_JOB_STATUS_WAIT_MAX_MS (status),
+ * or at once (find / ack); never across a model call.
+ *
+ * Extension pages only (the portal, the side panel, the reader): a
+ * content script runs in every web page's isolated world and never
+ * drives a job, so it is refused before the runner — it could otherwise
+ * start paid calls, read results by id, or release a paid record. (A
+ * renderer compromised through it keeps direct storage access: gap G10.)
  *
  * @param {'start'|'status'|'find'|'ack'} op
  * @param {object} message   the raw runtime message (validated by the runner)
  * @param {function} sendResponse
- * @returns {true}
+ * @param {object} sender    the runtime.MessageSender
+ * @returns {boolean} false when refused (answered synchronously)
  */
-export function respondLlmJob(op, message, sendResponse) {
+export function respondLlmJob(op, message, sendResponse, sender) {
     if (!Object.hasOwn(OPS, op)) throw new Error(`respondLlmJob: unknown op ${String(op)}`);
+    if (!fromExtensionPage(sender)) {
+        sendResponse({ ok: false, error: 'LLM jobs answer extension pages only' });
+        return false;
+    }
     const [run, failed] = OPS[op];
     run(message).then(
         (result) => sendResponse(result),

@@ -4460,8 +4460,9 @@ function auditRequestMeta() {
  * firewall refused it), or INGEST_FAILED (anything else) — never throws.
  */
 async function ingestAuditResult(audit, localHash, how, model) {
+    let summary;
     try {
-        const summary = await importAuditJson(audit, {
+        summary = await importAuditJson(audit, {
             localArticleHash: localHash,
             source: 'background',
             // Truncated-capture runs key to the slice hash; carry the
@@ -4470,20 +4471,22 @@ async function ingestAuditResult(audit, localHash, how, model) {
             captureArticleHash: (state.articleHash && state.articleHash !== localHash)
                 ? state.articleHash : null
         });
-        const bits = [`${summary.modulesValid} module${summary.modulesValid === 1 ? '' : 's'} valid`];
-        if (summary.modulesFailed) bits.push(`${summary.modulesFailed} failed validation`);
-        if (summary.predictionsImported) bits.push(`${summary.predictionsImported} prediction${summary.predictionsImported === 1 ? '' : 's'}`);
-        if (summary.predictionsSkipped) bits.push(`${summary.predictionsSkipped} skipped`);
-        toast(`Audit complete (${how}, ${model || 'unknown model'}) — ${bits.join(', ')}`,
-            summary.modulesFailed ? 'warning' : 'success', 6000);
-        await refreshAuditStatus();
-        return INGEST_IMPORTED;
     } catch (err) {
         // importAuditJson is the firewall — surface its reason verbatim.
         console.error('[xray] audit import failed', err, audit);
         toast('Audit import failed: ' + ((err && err.message) || 'unknown error'), 'error', 7000);
         return err && err.auditImport ? INGEST_REJECTED : INGEST_FAILED;
     }
+    const bits = [`${summary.modulesValid} module${summary.modulesValid === 1 ? '' : 's'} valid`];
+    if (summary.modulesFailed) bits.push(`${summary.modulesFailed} failed validation`);
+    if (summary.predictionsImported) bits.push(`${summary.predictionsImported} prediction${summary.predictionsImported === 1 ? '' : 's'}`);
+    if (summary.predictionsSkipped) bits.push(`${summary.predictionsSkipped} skipped`);
+    toast(`Audit complete (${how}, ${model || 'unknown model'}) — ${bits.join(', ')}`,
+        summary.modulesFailed ? 'warning' : 'success', 6000);
+    // Imported is decided by the import alone: a panel repaint that throws
+    // must not read as a failed import (the kept job would import twice).
+    await refreshAuditStatus().catch((err) => Utils.error('audit panel repaint failed', err));
+    return INGEST_IMPORTED;
 }
 
 /** Quick: one single-shot pass, run as the `audit-run` LLM job

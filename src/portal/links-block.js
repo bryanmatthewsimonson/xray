@@ -141,9 +141,10 @@ export function renderLinksBlock(host, { data, dossier, callbacks = {} }) {
 
                 // A JOB, never a held-open message (JOURNAL 2026-09-05):
                 // the worker persists the raw proposals before any response
-                // hop, scoped to this case + this exact request, so a run
-                // that finished after this tab went away is picked up by
-                // the next identical Suggest instead of billed again.
+                // hop, scoped to this case, the prompt version, and this exact
+                // request, so a run that finished after this tab went away
+                // is picked up by the next identical Suggest instead of
+                // billed again.
                 const request = {
                     claims, existing: existingLines,
                     caseName: data.case.name || '',
@@ -152,7 +153,7 @@ export function renderLinksBlock(host, { data, dossier, callbacks = {} }) {
                 const startedAt = Date.now();
                 const resp = await runLlmJob({
                     sendMessage, pass: 'corpus-links', request,
-                    scopeKey: llmJobScopeKey(caseId, await llmJobRequestHash(request)),
+                    scopeKey: llmJobScopeKey(caseId, CLAIM_LINKS_PROMPT_VERSION, await llmJobRequestHash(request)),
                     onTick: (st) => {
                         if (st.status !== 'running') return;
                         // Anchored to the record's start (survives a reload).

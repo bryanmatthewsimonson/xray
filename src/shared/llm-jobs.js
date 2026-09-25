@@ -60,6 +60,15 @@ export const LLM_JOB_PASSES = Object.freeze([
     'hypothesis-edges', 'corpus-links', 'forensic-corpus', 'entity-audit', 'audit-run'
 ]);
 
+/** Passes whose scope key must END in `llmJobRequestHash(request)`. The
+ *  receiver recomputes the hash and refuses a start whose key does not
+ *  carry it, so a kept result is only ever served for the request it
+ *  answered — the key is checked, not trusted. (#374's three passes
+ *  scope by fingerprints the worker cannot rebuild: page-derived.) */
+export const LLM_JOB_REQUEST_SCOPED = Object.freeze([
+    'hypothesis-edges', 'corpus-links', 'forensic-corpus', 'entity-audit', 'audit-run'
+]);
+
 /** Un-acked records older than this are swept (once per worker boot). A
  *  paid result should not evaporate in an hour; a week is generous. */
 export const LLM_JOB_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -105,10 +114,19 @@ export function isLlmJobKey(key) {
  * Build a scope key from id/hash parts. Parts are joined with `:` after
  * clamping each to the key alphabet, so an id with an unexpected
  * character degrades to a still-unique key instead of a refused start.
+ * Over the 200-character cap the LEADING parts are shortened, never the
+ * last: the last part is the content half (a request or input hash)
+ * that makes the key unique, and cutting it would pair unrelated
+ * requests under one key (ids arriving by backup merge are not
+ * shape-checked, so a long one is possible).
  */
 export function llmJobScopeKey(...parts) {
-    return parts.map((p) => String(p == null ? '' : p).replace(/[^A-Za-z0-9._-]/g, '_'))
-        .join(':').slice(0, 200);
+    const clean = parts.map((p) => String(p == null ? '' : p).replace(/[^A-Za-z0-9._-]/g, '_'));
+    const joined = clean.join(':');
+    if (joined.length <= 200 || clean.length < 2) return joined.slice(0, 200);
+    const tail = clean[clean.length - 1].slice(0, 200);
+    const room = 200 - tail.length - 1;
+    return room > 0 ? `${clean.slice(0, -1).join(':').slice(0, room)}:${tail}` : tail;
 }
 
 /**
@@ -363,6 +381,12 @@ export function createLlmJobRunner({
                     return { ok: false, error: 'LLM job scope key is malformed' };
                 }
                 scopeKey = m.scopeKey;
+            }
+            // The reuse criterion is the key, so a request-scoped key is
+            // verified against the request it arrived with.
+            if (scopeKey && LLM_JOB_REQUEST_SCOPED.includes(pass)
+                && !scopeKey.endsWith(`:${await llmJobRequestHash(m.request)}`)) {
+                return { ok: false, error: 'LLM job scope key does not match its request' };
             }
             await sweep();
 

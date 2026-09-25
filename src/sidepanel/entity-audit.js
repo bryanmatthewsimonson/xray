@@ -10,7 +10,7 @@
 // review renderer and the op → model mapping stay in index.js with the
 // health view.
 
-import { buildRegistryDigest, validateEntityOps } from '../shared/llm-entity-audit.js';
+import { buildRegistryDigest, validateEntityOps, ENTITY_AUDIT_PROMPT_VERSION } from '../shared/llm-entity-audit.js';
 import {
     runLlmJob, ackLlmJob, llmJobScopeKey, llmJobRequestHash, jobElapsedSeconds, jobFailureNote
 } from '../shared/llm-jobs.js';
@@ -50,12 +50,12 @@ function paintLine(host, text) {
  * new class of data). Raw ops go through the validateEntityOps
  * firewall; every mutation is a human Accept in the review.
  *
- * The call is the `entity-audit` job, scoped to this exact registry
- * digest: a result this panel never received (closed mid-call, a
- * worker restart between polls) is picked up by the next identical
- * audit instead of billed again. The record is released once the
- * review renders on a live host, or when the result is unusable; a
- * host that is gone keeps it for that pickup.
+ * The call is the `entity-audit` job, scoped to the prompt version and
+ * this exact registry digest: a result this panel never received
+ * (closed mid-call, a worker restart between polls) is picked up by the
+ * next identical audit instead of billed again. The record is released
+ * once the review renders on a live host, or when the result is
+ * unusable; a host that is gone keeps it for that pickup.
  *
  * @param {object} args  { entities, archiveRecords }
  * @param {object} deps
@@ -92,7 +92,7 @@ export async function runEntityAudit({ entities, archiveRecords }, {
     const startedAt = Date.now();
     const resp = await runLlmJob({
         sendMessage, pass: 'entity-audit', request,
-        scopeKey: llmJobScopeKey('registry', await llmJobRequestHash(request)),
+        scopeKey: llmJobScopeKey('registry', ENTITY_AUDIT_PROMPT_VERSION, await llmJobRequestHash(request)),
         onTick: (st) => {
             // Anchored to the record's own start (survives a reopen).
             if (st.status === 'running') paint(`Auditing the registry… ${jobElapsedSeconds(st, startedAt)}s`);

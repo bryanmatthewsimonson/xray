@@ -14,7 +14,7 @@ import { Utils } from '../shared/utils.js';
 import { ForensicModel } from '../shared/forensic-model.js';
 import {
     buildSubjectBundle, validateForensicProposals, forensicSubjectRollup,
-    MAX_FINDINGS_PER_SUBJECT
+    MAX_FINDINGS_PER_SUBJECT, FORENSIC_CORPUS_PROMPT_VERSION
 } from '../shared/forensic-corpus.js';
 import {
     runLlmJob, ackLlmJob, llmJobScopeKey, llmJobRequestHash, jobElapsedSeconds, jobFailureNote
@@ -97,7 +97,7 @@ export function renderForensicCorpusBlock(host, { data, callbacks = {} }) {
             const subject = entities[sel.value];
             if (!subject) return;
             runBtn.disabled = true;
-            // Released once the proposals are in a LIVE review (the review
+            // Released once the proposals are SHOWN in a review (the review
             // is their only sink — each Accept files one finding), or at
             // once when this code throws on them: a reuse would throw again.
             let jobId = null;
@@ -121,15 +121,16 @@ export function renderForensicCorpusBlock(host, { data, callbacks = {} }) {
                 }
                 status.textContent = `Analyzing ${subject.name}…`;
                 // A JOB, never a held-open message (JOURNAL 2026-09-05):
-                // scoped to this case + subject + this exact bundle, so a
-                // pass that finished after this tab went away is picked up
-                // by the next identical Analyze instead of billed again.
+                // scoped to this case + subject, the prompt version, and this
+                // exact bundle, so a pass that finished after this tab went
+                // away is picked up by the next identical Analyze instead of
+                // billed again.
                 const request = { bundle, subjectName: subject.name };
                 const startedAt = Date.now();
                 const resp = await runLlmJob({
                     sendMessage, pass: 'forensic-corpus', request,
                     scopeKey: llmJobScopeKey((data.case && data.case.id) || '', subject.id,
-                        await llmJobRequestHash(request)),
+                        FORENSIC_CORPUS_PROMPT_VERSION, await llmJobRequestHash(request)),
                     onTick: (st) => {
                         if (st.status !== 'running') return;
                         status.textContent = `Analyzing ${subject.name}… ${jobElapsedSeconds(st, startedAt)}s`;

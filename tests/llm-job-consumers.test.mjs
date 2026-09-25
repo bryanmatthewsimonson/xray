@@ -44,6 +44,9 @@ const { runQuickAuditJob, INGEST_IMPORTED, INGEST_REJECTED, INGEST_FAILED } = aw
 const { getCaseLinkRun, clear: clearAuditDb } = await import('../src/shared/audit/audit-cache.js');
 const { HypothesisModel } = await import('../src/shared/hypothesis-model.js');
 const { llmJobScopeKey, llmJobRequestHash, jobStorageKey, LLM_JOB_LOST_ERROR } = await import('../src/shared/llm-jobs.js');
+const { CLAIM_LINKS_PROMPT_VERSION, HYPOTHESIS_EDGE_PROMPT_VERSION } = await import('../src/shared/corpus-prompts.js');
+const { FORENSIC_CORPUS_PROMPT_VERSION } = await import('../src/shared/forensic-corpus.js');
+const { ENTITY_AUDIT_PROMPT_VERSION } = await import('../src/shared/llm-entity-audit.js');
 
 const CASE_ID = 'entity_00000000000000c1';
 const HASH_A = 'a'.repeat(64);
@@ -110,7 +113,7 @@ async function mountLinks() {
     return host;
 }
 
-test('links: Suggest links runs the corpus-links JOB scoped to case + request hash, saves the run, THEN releases the record', async () => {
+test('links: Suggest links runs the corpus-links JOB scoped to case + prompt version + request hash, saves the run, THEN releases the record', async () => {
     await freshTest();
     const calls = [];
     H.startWorker({ 'corpus-links': async (req) => { calls.push(req); return LINKS_OUT; } });
@@ -121,8 +124,8 @@ test('links: Suggest links runs the corpus-links JOB scoped to case + request ha
     const [start] = H.jobOps('start');
     assert.equal(start.pass, 'corpus-links');
     assert.deepEqual(calls[0], start.request, 'the pass received exactly the request the page hashed');
-    assert.equal(start.scopeKey, llmJobScopeKey(CASE_ID, await llmJobRequestHash(start.request)));
-    assert.match(start.scopeKey.split(':')[1], HEX64);
+    assert.equal(start.scopeKey, llmJobScopeKey(CASE_ID, CLAIM_LINKS_PROMPT_VERSION, await llmJobRequestHash(start.request)));
+    assert.match(start.scopeKey.split(':').at(-1), HEX64);
     assert.equal(start.request.claims.length, 2);
     assert.equal(H.sent.filter((m) => m.type === 'xray:llm:corpus-links').length, 0, 'the retired type is never sent');
 
@@ -209,7 +212,7 @@ const edgesOut = (hypId) => ({
         quote: 'Market stalls sold live animals', why: 'places animals at the market' }] }
 });
 
-test('hypothesis edges: Suggest edges runs the hypothesis-edges JOB (case + request hash), renders the proposals, releases the record', async () => {
+test('hypothesis edges: Suggest edges runs the hypothesis-edges JOB (case + prompt version + request hash), renders the proposals, releases the record', async () => {
     await freshTest();
     const hyp = await seedHypothesis();
     const calls = [];
@@ -221,7 +224,7 @@ test('hypothesis edges: Suggest edges runs the hypothesis-edges JOB (case + requ
     const [start] = H.jobOps('start');
     assert.equal(start.pass, 'hypothesis-edges');
     assert.deepEqual(calls[0], start.request);
-    assert.equal(start.scopeKey, llmJobScopeKey(CASE_ID, await llmJobRequestHash(start.request)));
+    assert.equal(start.scopeKey, llmJobScopeKey(CASE_ID, HYPOTHESIS_EDGE_PROMPT_VERSION, await llmJobRequestHash(start.request)));
     assert.ok(byText(host, 'Accept'), 'the proposal is up for a human Accept — nothing applied');
     assert.ok(await released(), 'delivered to a live panel → released');
 });
@@ -322,7 +325,7 @@ async function mountForensic() {
     return host;
 }
 
-test('forensic: Analyze subject runs the forensic-corpus JOB scoped to case + subject + bundle hash, renders the review, releases the record', async () => {
+test('forensic: Analyze subject runs the forensic-corpus JOB scoped to case + subject + prompt version + bundle hash, renders the review, releases the record', async () => {
     await freshTest();
     const calls = [];
     H.startWorker({ 'forensic-corpus': async (req) => { calls.push(req); return { ok: true, model: 'claude-test', findings: [] }; } });
@@ -333,7 +336,7 @@ test('forensic: Analyze subject runs the forensic-corpus JOB scoped to case + su
     assert.equal(start.pass, 'forensic-corpus');
     assert.deepEqual(calls[0], start.request);
     assert.equal(start.request.subjectName, 'Dr P');
-    assert.equal(start.scopeKey, llmJobScopeKey(CASE_ID, 'eP', await llmJobRequestHash(start.request)));
+    assert.equal(start.scopeKey, llmJobScopeKey(CASE_ID, 'eP', FORENSIC_CORPUS_PROMPT_VERSION, await llmJobRequestHash(start.request)));
     assert.match(textOf(host), /No proposals/);
     assert.ok(await released());
 });
@@ -403,7 +406,7 @@ function auditHarness(passes, { area } = {}) {
     return { stub, sendMessage };
 }
 
-test('entity audit: the E2 run is the entity-audit JOB scoped to the registry digest; the firewall runs; the record is released after the review renders', async () => {
+test('entity audit: the E2 run is the entity-audit JOB scoped to the prompt version + registry digest; the firewall runs; the record is released after the review renders', async () => {
     const calls = [];
     const { stub, sendMessage } = auditHarness({ 'entity-audit': async (req) => { calls.push(req); return { ok: true, model: 'claude-test', ops: [RENAME, BOGUS] }; } });
     const host = mount();
@@ -415,7 +418,7 @@ test('entity audit: the E2 run is the entity-audit JOB scoped to the registry di
     assert.deepEqual(Object.keys(calls[0]), ['digest'], 'the request is the digest alone');
     const start = stub.messages.find((m) => m.type === 'xray:llm:job:start');
     assert.equal(start.pass, 'entity-audit');
-    assert.equal(start.scopeKey, llmJobScopeKey('registry', await llmJobRequestHash(calls[0])));
+    assert.equal(start.scopeKey, llmJobScopeKey('registry', ENTITY_AUDIT_PROMPT_VERSION, await llmJobRequestHash(calls[0])));
     assert.equal(rendered.length, 1);
     assert.deepEqual(rendered[0].accepted, [RENAME], 'validateEntityOps still gates what reaches review');
     assert.equal(rendered[0].rejected.length, 1);
@@ -536,4 +539,63 @@ test('quick audit: the elapsed counter is anchored to the job record, and a lost
     send = createJobStub({ passes: { 'audit-run': lost.pass }, area: first.area }).sendMessage;   // worker restarted
     assert.equal(await p, null);
     assert.deepEqual(failures, [`Audit failed: ${LLM_JOB_LOST_ERROR}. Quick audit makes a new call, billed again.`]);
+});
+
+// ------------------------------------------------------------------
+// the worker's door: xray:llm:job:* answers extension pages only
+// ------------------------------------------------------------------
+
+test('worker: xray:llm:job:* answers extension pages only — a web page\'s content script is refused before the runner and touches nothing', async () => {
+    await freshTest();
+    // The service worker's own dispatch (the pass table + the sender
+    // check), over the stub's chrome.storage.local.
+    const { respondLlmJob } = await import('../src/background/llm-jobs.js');
+    const scopeKey = llmJobScopeKey(CASE_ID, CLAIM_LINKS_PROMPT_VERSION, 'c'.repeat(64));
+    const jobId = `corpus-links:${scopeKey}`;
+    const key = jobStorageKey(jobId);
+    const at = Date.now();
+    H.store[key] = { id: jobId, pass: 'corpus-links', scopeKey, status: 'done', result: LINKS_OUT, createdAt: at, updatedAt: at, workspace: 'default' };
+    const before = JSON.stringify(H.store);
+
+    const ask = (op, msg, sender) => {
+        const answers = [];
+        const held = respondLlmJob(op, { type: `xray:llm:job:${op}`, ...msg }, (r) => answers.push(r), sender);
+        return { held, answers };
+    };
+    const msgs = {
+        start: { pass: 'corpus-links', request: { claims: [] }, scopeKey },
+        status: { jobId, waitMs: 0 },
+        find: { pass: 'corpus-links', scopeKey },
+        ack: { jobId }
+    };
+    const strangers = [
+        { url: 'https://hostile.example/article', tab: { id: 7 }, frameId: 0 },   // a content script
+        { url: 'chrome-extension://stubby/page.html' },                           // an origin that merely starts alike
+        { tab: { id: 7 } },                                                       // no url at all
+        undefined
+    ];
+    for (const sender of strangers) {
+        for (const op of Object.keys(msgs)) {
+            const { held, answers } = ask(op, msgs[op], sender);
+            assert.equal(held, false, `${op} from ${JSON.stringify(sender)} is answered synchronously`);
+            assert.deepEqual(answers, [{ ok: false, error: 'LLM jobs answer extension pages only' }],
+                `${op} from ${JSON.stringify(sender)} is refused`);
+        }
+    }
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(JSON.stringify(H.store), before, 'a stranger started nothing, read nothing into state, released nothing');
+
+    // An extension page reaches the runner: the same find sees the kept
+    // record, the same ack releases it.
+    const page = { url: 'chrome-extension://stub/src/portal/index.html', tab: { id: 3 } };
+    const found = ask('find', msgs.find, page);
+    assert.equal(found.held, true, 'held for the async answer');
+    assert.ok(await until(() => found.answers.length === 1));
+    assert.equal(found.answers[0].ok, true);
+    assert.equal(found.answers[0].job.jobId, jobId);
+    assert.equal(found.answers[0].job.status, 'done');
+    const acked = ask('ack', msgs.ack, page);
+    assert.ok(await until(() => acked.answers.length === 1));
+    assert.deepEqual(acked.answers[0], { ok: true });
+    assert.equal(key in H.store, false, 'released by the extension page');
 });
