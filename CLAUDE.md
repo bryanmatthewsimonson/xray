@@ -565,6 +565,8 @@ without the other is the design's named long-term risk.
 `src/**/*.js`, `npm run lint:js`, `npm run build`, `npm test`, the
 normalizer parity, `npm run check:version`, `web-ext lint
 --self-hosted`, `web-ext build` + `npm run check:package`, `npm run
-check:budget`; the browser smoke is its own job. A `v*` tag triggers `release.yml`
+check:budget`; the browser smoke is its own job. `pr-body.yml` checks
+each PR's body (`scripts/pr-body-check.mjs`; advisory, re-runs on
+description edits). A `v*` tag triggers `release.yml`
 (builds, packages, creates a GitHub Release with the `.zip`). Get all of
 build + test + lint green locally before pushing.
