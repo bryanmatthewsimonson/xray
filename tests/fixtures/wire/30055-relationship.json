@@ -1,0 +1,95 @@
+{
+  "builder": {
+    "fn": "buildClaimRelationshipEvent",
+    "module": "src/shared/metadata/builders.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "Cites the same court filing.",
+    "created_at": 1700000000,
+    "id": "fdf200edfbb4231a8e6a77106f74ccccd3d91eb4d2e6a49174204ae7a73267d8",
+    "kind": 30055,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "580d0c5feb4c9db45a000b503c4c694358b66e0ff33ea797ea372bdf7872a08fcde09794750e5676bdb4c909138f6d93242cabdc571a03cd7457e05ddb4716bc",
+    "tags": [
+      [
+        "d",
+        "rel:0521407f1e6ac0e0"
+      ],
+      [
+        "a",
+        "30040:f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9:claim_9836a677b251aa14",
+        "wss://relay.example",
+        "source"
+      ],
+      [
+        "a",
+        "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_c6bfed4695f9ee16",
+        "",
+        "target"
+      ],
+      [
+        "e",
+        "f4b3da9d105e7e6b499e86cf6846efe71b7d7ee89a4ed6529a12e2394fa9983f",
+        "",
+        "source"
+      ],
+      [
+        "e",
+        "9836a677b251aa14a6c57afaea5f02d7dd622ad46022512a7174eb2e4d7c55dd",
+        "",
+        "target"
+      ],
+      [
+        "relationship",
+        "supports"
+      ],
+      [
+        "r",
+        "https://example.com/video-2?utm_source=x"
+      ],
+      [
+        "r",
+        "https://example.com/video-1"
+      ],
+      [
+        "i",
+        "https://example.com/video-2"
+      ],
+      [
+        "i",
+        "https://example.com/video-1"
+      ],
+      [
+        "k",
+        "web"
+      ],
+      [
+        "suggested-by",
+        "user"
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "note": "Cites the same court filing.",
+    "relationship": "supports",
+    "sourceCoord": "30040:f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9:claim_9836a677b251aa14",
+    "sourceEventId": "f4b3da9d105e7e6b499e86cf6846efe71b7d7ee89a4ed6529a12e2394fa9983f",
+    "sourceRelayHint": "wss://relay.example",
+    "sourceUrl": "https://example.com/video-2?utm_source=x",
+    "suggestedBy": "user",
+    "targetCoord": "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_c6bfed4695f9ee16",
+    "targetEventId": "9836a677b251aa14a6c57afaea5f02d7dd622ad46022512a7174eb2e4d7c55dd",
+    "targetRelayHint": "",
+    "targetUrl": "https://example.com/video-1"
+  },
+  "kind": 30055,
+  "notes": "Directional edge (supports) — endpoints NOT sorted; symmetric values would be.",
+  "rebuild": "exact",
+  "shape": "relationship",
+  "signer": "TV1"
+}

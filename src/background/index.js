@@ -26,7 +26,8 @@ import { NostrClient } from '../shared/nostr-client.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
-import { runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, runHypothesisEdgePass, runClaimLinksPass, getCorpusConfig, runExtractPass, runEntityAuditPass, runForensicCorpusPass, runEntityPagePass, runVisionPass, getVisionConfig } from '../shared/llm-client.js';
+import { runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runHypothesisEdgePass, runClaimLinksPass, getCorpusConfig, runExtractPass, runEntityAuditPass, runForensicCorpusPass, runVisionPass, getVisionConfig } from '../shared/llm-client.js';
+import { respondLlmJob } from './llm-jobs.js';
 import { putSessionArticle } from '../shared/session-articles.js';
 import { getSourceDocument } from '../shared/archive-cache.js';
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prompts.js';
@@ -581,7 +582,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             const record = await new Promise((r) => {
                 area.get(['xray:article:' + id], (res) => r(res && res['xray:article:' + id]));
             });
-            if (!record) return sendResponse({ ok: false, error: 'Session record missing' });
             // Only NIP-07 needs the source tab (its `window.nostr` lives in
             // the page). Local and NSecBunker resolve the pubkey right here
             // in the worker — so tabless captures (PDFs, imported EPUB
@@ -589,8 +589,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             // whether a tab id was recorded. A NIP-07 method with no source
             // tab falls through to the façade, which throws the clear
             // "needs a web page — switch to Local" error.
+            //
+            // A MISSING record reads as "no tab" for the same reason the
+            // publish path treats it that way — see handleCapturePublish.
+            const sourceTabId = record && record.sourceTabId;
             const method = await Signer.getMethod();
-            if (!Signer.methodRequiresPageContext(method) || record.sourceTabId == null) {
+            if (!Signer.methodRequiresPageContext(method) || sourceTabId == null) {
                 try {
                     return sendResponse({ ok: true, pubkey: await Signer.getPublicKey() });
                 } catch (err) {
@@ -598,7 +602,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 }
             }
             try {
-                const resp = await chrome.tabs.sendMessage(record.sourceTabId, { type: 'xray:getPubkey' });
+                const resp = await chrome.tabs.sendMessage(sourceTabId, { type: 'xray:getPubkey' });
                 if (!resp || !resp.ok) {
                     return sendResponse({ ok: false, error: (resp && resp.error) || 'Source tab refused' });
                 }
@@ -814,38 +818,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // async sendResponse
     }
 
-    // Portal → worker: case-corpus synthesis (Phase 20.4). One MAP call
-    // per member article (the portal orchestrates them with bounded
-    // concurrency, the audit-module topology), then one REDUCE. Gated
-    // by `caseSynthesis` + `llmAssist` + key inside the passes; returns
-    // RAW tool output (the portal validates, grounds, and gates every
-    // mutation behind human Accept). Nothing is saved or published here.
-    if (message.type === 'xray:llm:corpus-map') {
-        runCorpusMapPass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Corpus map call failed' })
-        );
-        return true; // async sendResponse
-    }
-    if (message.type === 'xray:llm:corpus-reduce') {
-        runCorpusReducePass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Corpus reduce call failed' })
-        );
-        return true; // async sendResponse
-    }
-    // Portal → worker: the entity-page reduce (EP.2). One reduce-shaped
-    // call over the entity digest + member extracts; same triple gate
-    // inside the pass; returns RAW tool output (the portal validates,
-    // subset-filters key claims, grounds citations, and nothing
-    // persists without the human's Save).
-    if (message.type === 'xray:llm:entity-page') {
-        runEntityPagePass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Entity page call failed' })
-        );
-        return true; // async sendResponse
-    }
+    // Page → worker: the LONG LLM passes (corpus map / corpus reduce /
+    // entity page) run as JOBS — never a held-open message (JOURNAL
+    // 2026-09-05). The runner, its pass table, and the rationale live
+    // in ./llm-jobs.js; each op answers asynchronously (return true)
+    // but never across a model call.
+    if (message.type === 'xray:llm:job:start') return respondLlmJob('start', message, sendResponse);
+    if (message.type === 'xray:llm:job:status') return respondLlmJob('status', message, sendResponse);
+    if (message.type === 'xray:llm:job:find') return respondLlmJob('find', message, sendResponse);
+    if (message.type === 'xray:llm:job:ack') return respondLlmJob('ack', message, sendResponse);
     // Portal → worker: hypothesis-edge suggestion (Phase 26 H.4). One
     // reduce-shaped call; same triple gate inside the pass; returns RAW
     // tool output (the portal validates, grounds, runs the both-sides
@@ -1763,16 +1744,26 @@ function tablessSignError(err) {
 }
 
 async function handleCapturePublish(id, unsignedEvent, { ledger = null, articleUrl = null } = {}) {
-    // 1. Pull the source-tab id from the session-storage record the FAB
-    //    click saved. That's where the content script + NIP-07 bridge live.
+    // 1. Pull the source-tab id from the session-storage record the
+    //    capture saved. That's where the content script + NIP-07 bridge
+    //    live — and it is the ONLY thing this path reads from the
+    //    record.
+    //
+    //    A MISSING record is not a refusal (field-found 2026-08-28: a
+    //    reader tab holding hours of extracted claims failed to publish
+    //    after the quota discipline evicted its record). The record is
+    //    load-bearing for NIP-07 alone, whose `window.nostr` lives in
+    //    the source page; Local and NSecBunker sign right here through
+    //    the façade, which is why PDFs, EPUB chapters, transcript
+    //    imports and portal reconstructions already publish with a null
+    //    tab id. So a gone record degrades to exactly that tabless
+    //    path, and NIP-07 still reaches its honest "needs a web page"
+    //    error two lines below instead of a baffling one here.
     const area = chrome.storage.session || chrome.storage.local;
     const record = await new Promise((resolve) => {
         area.get(['xray:article:' + id], (res) => resolve(res && res['xray:article:' + id]));
     });
-    if (!record) {
-        return { ok: false, error: 'Session record missing (reader opened without a source tab)' };
-    }
-    const sourceTabId = record.sourceTabId;
+    const sourceTabId = record && record.sourceTabId;
 
     // 2. Sign. ONLY NIP-07 needs a page: its `window.nostr` bridge lives in
     //    the source tab, so a NIP-07 sign routes through that tab. Local and

@@ -35,6 +35,7 @@ globalThis.chrome = {
     }
 };
 
+const { seedPrimary } = await import('./seed-primary.mjs');
 const P = await import('../src/shared/llm-proposals.js');
 const { resolveModel, DEFAULT_LLM_MODEL, outputBudget, modelOutputCeiling, SAFE_OUTPUT_CEILING } =
     await import('../src/shared/llm-prompts.js');
@@ -44,7 +45,9 @@ const { AssessmentModel } = await import('../src/shared/assessment-model.js');
 const { EvidenceLinker } = await import('../src/shared/evidence-linker.js');
 const { ForensicModel, ForensicBaseline } = await import('../src/shared/forensic-model.js');
 
-function reset() { _stateStore.clear(); }
+// Entity creation refuses without a local primary identity (Option C),
+// so every reset re-seeds the shared test primary after clearing.
+function reset() { _stateStore.clear(); seedPrimary(_stateStore); }
 
 const MODEL = 'claude-opus-4-8';
 const SUGGESTED_BY = `llm:${MODEL}`;

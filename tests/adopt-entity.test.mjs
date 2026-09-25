@@ -19,6 +19,7 @@ globalThis.chrome = {
 
 const { adoptForeignEntity, proposeForeignIdentity } = await import('../src/shared/adopt-entity.js');
 const { EntityModel } = await import('../src/shared/entity-model.js');
+const { seedPrimary } = await import('./seed-primary.mjs');
 
 const FOREIGN_PK = 'a1'.repeat(32);
 
@@ -35,7 +36,10 @@ function kind0Query({ name, about } = {}) {
     };
 }
 
-beforeEach(() => _stateStore.clear());
+beforeEach(() => {
+    _stateStore.clear();
+    seedPrimary(_stateStore);   // Option C: EntityModel.create needs a primary
+});
 
 test('proposeForeignIdentity: kind-0 name + X-Ray about-line type', async () => {
     const p = await proposeForeignIdentity(FOREIGN_PK, {

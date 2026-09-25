@@ -50,7 +50,7 @@ Everything else — caches, derived views, UI state — is replaceable.
 | **Malicious peer / shared file** | A collaborator's backup, case bundle, or entity-sync payload — semi-trusted at best, and at 1.0 this is a routine group workflow. |
 | **Compromised cloud provider** | Anthropic, AssemblyAI, Deepgram: sees whatever is sent, and returns text the tool will act on. |
 | **Local software** | Anything on the machine that can reach `127.0.0.1` and thus the companion. |
-| **Shoulder / screenshot** | Whatever the UI renders on screen, including into a screenshot pasted into a bug report. |
+| **Shoulder / screenshot** | Whatever the UI renders on screen, including into a screenshot pasted into a bug report — and, since 2026-09-07, whatever the `browser-smoke` CI job uploads as a public Actions artifact (screenshots of every extension page and of the seeded case dashboard, the built kind-30070 event, page-error text), readable by any logged-in GitHub user. |
 
 Explicitly **out of scope**: an attacker with the operator's unlocked
 browser profile, and a malicious NIP-07 signer extension the operator
@@ -67,14 +67,41 @@ installed. Both already hold the assets.
 | B3 | page MAIN world → content script | `xr:apihook:event` GraphQL captures | shape-checked in `shared/api-hook-buffer.js` — **see gap G1** |
 | B4 | extension page ↔ service worker | `xray:*` runtime messages | typed dispatch, one handler per type — **see gap G2** |
 | B5 | relay → extension | signed events | id-hash + BIP-340 verified at one choke point before storage or render |
-| B6 | imported file → storage | backup / case bundle / entity sync | shape validation; `local_keys` **never** accrues on merge (`MERGE_EXCLUDED_KEYS`); import verifies rather than trusts |
+| B6 | imported file → storage | backup / case bundle / entity sync | shape validation; `local_keys` **never** accrues on merge (`MERGE_EXCLUDED_KEYS`); import verifies rather than trusts. Keys enter the keystore only through writes that hold the `xray.local_keys` lock: a bundle key through `importKey` (refuses an occupied name holding different material); a pulled sync key through `upsertKeys` (replaces its own name only; pubkey/npub/nsec derived from the private key, never taken from the payload), and only under `entity:<the pulled record's own id>` — a stored record whose `keyName` names any other slot (the reserved `xray:user`, another entity's) is refused, logged and counted malformed, as is a key that is not 64 hex or that secp256k1 rejects (0, or ≥ the curve order); a replace-all backup restore rewrites `local_keys` wholesale under the same lock (`withKeyStoreLock`). The pull installs keys BEFORE it writes entity rows (a failed key write writes no rows), and the rows merge into a fresh registry read |
 | B7 | captured content → LLM prompt | article text (the one article pass; the UA.1 supplied-claim-index loop existed only for the UA.1–UA.2 bridge and retired with the standalone pass) | attacker-authored by definition; grounding rules treat model quotes as search keys, never evidence; **no model output is ever auto-applied**. Extract entity mentions are machine-grounded, per-atom `about` refs resolve only against the extract's own ref set, and every artifact still passes the human Accept |
-| B8 | LLM → extension state | proposals, briefs | every suggestion is human-accepted; nothing durable without an explicit Accept |
+| B8 | LLM → extension state | proposals, briefs | every suggestion is human-accepted; nothing durable without an explicit Accept. Since 2026-09-05 the RAW result of a corpus-map / corpus-reduce / entity-page call also rests briefly in `chrome.storage.local` as an LLM job record (`xray:llm-job:*`, `shared/llm-jobs.js`) between the worker finishing and the page persisting — the page still validates, grounds, and human-gates it exactly as before; the record never holds the request or key material, is excluded from every backup path, and is deleted by the page's ack (TTL-swept otherwise) |
 | B9 | extension → cloud provider (**via the companion**) | prompts, audio, API keys | user-initiated only; keys memory-only in the companion child process, never written to its disk or logs. **This row covers the COMPANION-MEDIATED path only** — its central control (keys held in a child process) does not exist when there is no companion; see B13. The audio may now come from any URL the companion admitted (Transcribe Anywhere), not only a YouTube video — the admission gate is B10's, not this row's |
 | B10 | extension → companion | transcription jobs, incl. the target media URL | **Companion-mediated path only** — the direct path (B13) never reaches this admission gate and ports it extension-side instead.  pinned to `127.0.0.1`/`localhost`; optional shared token on every path except `/health`. The companion accepts any user-designated public https URL, not a YouTube allowlist (Transcribe Anywhere), and shells out to yt-dlp with it. Two enforcement points, not one: SYNCHRONOUS admission (`media_url.validate_media_url`, 400 on failure, no job created) requires https-only, refuses embedded credentials, and resolves the hostname to deny any non-global address (including NAT64/IPv4-mapped decoding so a wrapped `169.254.169.254` is caught); a separate ASYNCHRONOUS probe inside the worker child (`download.download_audio`, after the `202`, once yt-dlp has resolved the URL) refuses live streams and enforces the `TRANSCRIBER_MAX_DURATION_S` cap (4h default) — a too-long or live URL is admitted, then fails the job, never a `400`. **See gap G8**: the admission check is best-effort, not a closed SSRF gate |
 | B11 | storage → screen | keys and tokens | presence-only rendering; credential inputs are `type="password"` and never repopulate a secret into a visible field |
 | B12 | companion → target host | the configured `TRANSCRIBER_COOKIES_FILE` (a full browser cookie export) | opt-in **per host** via `TRANSCRIBER_COOKIES_HOSTS` (default: the five YouTube hosts, exact-match, no subdomain wildcard) — `media_url.cookies_allowed_for`. Before Transcribe Anywhere this was unconditional, safe only because B10's admission gate was YouTube-only; a user who widens `TRANSCRIBER_COOKIES_HOSTS` is deliberately trusting those hosts with those cookies |
 | B13 | **extension → cloud provider (direct, no companion)** | a media URL and an API key | `shared/direct-transcribe.js` (AssemblyAI) and `shared/direct-transcribe-deepgram.js` (Deepgram, DC.3) — SIBLING modules, each with its own pinned origin and its own credential key, sharing ONLY the provider-neutral URL admission gate (a second copy of a security gate would drift). Both behind the SAME `directCloudTranscription` flag: one consent decision covers "may X talk to a transcription provider directly", never one per vendor. Service worker only, behind the default-off `directCloudTranscription` flag **re-checked on every call including the poll** (an MV3 worker wakes mid-job; a credentialed request must not outlive the flag that authorized it). Origin PINNED to an `https://api.assemblyai.com` literal — no base-URL preference, no request URL built from stored state or from a response body (`tests/provider-host-pin.test.mjs`). The module imports NO function from `transcriber-client.js`, only the credential key name: `companionFetch` attaches `X-Transcriber-Token` to every request, so reuse would send the companion secret to AssemblyAI. B10's admission gate is ported extension-side as `blockedDirectMediaUrl` — https-only, embedded-credential refusal, non-global-address deny with v4-mapped and NAT64 decoding — refusing before any network call. Key never leaves the SW, is scrubbed from every returned error, and pages see presence booleans only. `model_info` is CONSTRUCTED, never echoed, so a provider response cannot dictate published provenance. **See gap G9** |
+
+**Development and CI surfaces (2026-09-07).** The `browser-smoke` CI
+job (`.github/workflows/ci.yml`, `tools/smoke/`) runs the built
+extension in a headless Chromium on a GitHub-hosted runner with a
+signing identity generated per run, and uploads its outputs as a public
+artifact. Controls, all of them in the tree: egress is killed at the
+browser level — every launch proxies non-loopback traffic to a dead
+loopback port (`tools/smoke/lib/browser.mjs`), so neither the product
+nor Chromium itself can reach a relay or anything else, and the `pages`
+scenario re-verifies it every run (a navigation to a public https
+origin must fail with a proxy error or the run stops); the MA.6 walk
+additionally pins `default_relays` to `ws://127.0.0.1:1` and verifies
+the pin by read-back before anything is clickable, stopping the run if
+it did not take; the identity lives in a throwaway profile that is
+deleted on `close()`, by a synchronous exit hook on every other exit
+path, and by the runner's sweep after each scenario (the SIGKILL case),
+and is never exported; seeds are fiction, never derived from a real
+backup, bundle or capture, and no scenario screenshots a surface after
+revealing a key — screenshots are the one output the key scan does not
+read; the runner fails the run when any text output file matches an
+`nsec1…` string or a private-key field name (`tools/smoke/run.mjs`); the job holds the workflow's read-only
+`contents: read` token, uses no secrets, and is not a dependency of
+`release.yml`, so a compromised Playwright browser download (fetched
+without a checksum; `--with-deps` runs `sudo apt-get`) can lie about
+the gate but cannot reach a release artifact or a secret. Written
+invariant, checked at review: **browser-smoke never becomes a
+dependency of `release.yml`, and this workflow never gains a secret.**
 
 ---
 
@@ -91,6 +118,27 @@ installed. Both already hold the assets.
   are generated at test time.
 - **Loopback pinning.** The companion client only ever talks to
   `127.0.0.1`/`localhost`.
+- **No keystore write erases what it did not touch.** Every
+  `LocalKeyManager` write is a read-modify-write of FRESH storage under
+  the `xray.local_keys` Web Lock that applies only its own names, and a
+  read that FAILS aborts it (`Storage.getStrict`) instead of reading as
+  empty; a write never dumps a page's in-memory copy. Replacing the key
+  under an occupied name is only through `upsertKeys` (the entity-sync
+  pull and the side panel's `xray:user` reinstall). The three writers
+  that replace or clear `local_keys` wholesale — the replace-all backup
+  restore (`applyBackup`), the workspace reset (`resetWorkspace`) and
+  the workspace removal (`Workspaces.remove`) — take the same lock
+  (`withKeyStoreLock`), so a write in flight on another page cannot land
+  after them and undo them. No `src/` path writes `local_keys` outside
+  the lock (`Storage.removeWorkspaceData` takes none itself; its one
+  caller, `Workspaces.remove`, does). Every locked path refuses to run
+  under any `location` other than a `chrome-extension:` /
+  `moz-extension:` one (a context with no `location` at all, as in the
+  Node tests, passes), because a Web Lock belongs to the requesting
+  document's origin. Guard-tested in `tests/local-key-store.test.mjs`
+  for every incremental writer and for the restore and reset races.
+  Not guarded: the `Workspaces.remove` lock has no race test, and no
+  static check stops a future wholesale writer from skipping the lock.
 - **No observation of the operator.** No telemetry, no analytics, no
   usage measurement — refused, not deferred. The tool must not watch
   its user's investigations.
@@ -179,6 +227,26 @@ accepted with its consequence stated.
   own sub-line rather than only here. *Smaller than G8: the fetch is the
   provider's, from the provider's network, so there is no path to the
   operator's LAN; a service worker cannot pin DNS in any case.*
+- **G10 — NARROWED 2026-09-24: every tab's content script held the entity
+  keystore.** `src/content/index.js` ran `LocalKeyManager.init()` on
+  `<all_urls>`, loading every `local_keys` private key into the isolated
+  world of each tab, although nothing in the content bundle read that
+  Map (verified against the bundle's esbuild metafile) and the content
+  script never wrote keys. Page script cannot reach an isolated world,
+  so the exposure was a compromised renderer sharing the page's process.
+  The module carried a second exposure there: a Web Lock is scoped to
+  the requesting document's origin, which in a content script is the
+  web page's, so a hostile page could hold `xray.local_keys`. Narrowed by
+  dropping the init and its import — the content bundle no longer
+  contains `local-key-manager.js` (a metafile guard in
+  `tests/local-key-store.test.mjs`) — and every locked keystore path
+  refuses outside an extension origin in any case. Outside this gap:
+  the content script still reads `local_primary_identity` when signing
+  is Local (its signing-state probe and `Signer`'s Local path); that is
+  the primary identity, not the entity keystore. What remains open:
+  this removed the keys from each tab's in-memory copy, not the
+  content script's `chrome.storage.local` access, so a compromised
+  renderer can still read `local_keys` through the storage API.
 
 ## 6. Changes recorded here
 
@@ -193,3 +261,6 @@ accepted with its consequence stated.
 | 2026-08-15 | Direct cloud transcription (DC.1): new boundary **B13**, the extension itself sending a media URL and an API key to a third-party host with no companion in the loop — default-off `directCloudTranscription`, re-checked on the poll as well as the start; origin pinned to an `https://api.assemblyai.com` literal and guarded by `tests/provider-host-pin.test.mjs`; B10's admission gate ported extension-side (`blockedDirectMediaUrl`) since the direct path never reaches the companion's; key scrubbed from every error and never sent to a page. **B9 and B10 narrowed** to say explicitly that they cover the companion-mediated path only — B9's central control (keys held in the companion child process) does not exist without a companion. **G8's bounding claim corrected**: "the URL is always one the user personally chose" was already false for every non-known-platform capture, where `transcribeSourceUrl` prefers a `mediaHints.fileUrl` read from the page's DOM that the reader never displays. New gap **G9** for the residual on the direct path, mitigated by a confirm dialog showing the exact URL and host whenever it differs from the page URL. `host_permissions` gained `https://api.assemblyai.com/*`, which grants nothing (`<all_urls>` is already declared) and is documentary for the T5 narrowing sweep. No wire-format change (`docs/DIRECT_CLOUD_TRANSCRIBE_KICKOFF.md`). |
 | 2026-08-15 | Two receiver-side hardening fixes surfaced by the DC.1 work, both outside it. `blockedImageUrl` (`shared/vision-image.js`, the vision fetch's address filter) now strips a fully-qualified trailing root label before its host comparisons — `https://localhost./x.png` and `https://box.local./x.png` were admitted because the WHATWG parser normalizes numeric host forms but not a trailing dot on a NAMED host. And the published `transcript_lang` tag, which joins three externally-sourced components with `:`, now clamps each to `[A-Za-z0-9._-]` at the emitter (`event-builder.js` `transcriptLangValue`) so a component can no longer forge tag structure for a consumer filtering on it; `extractionMethodFor`'s local branch clamps to match its cloud branch. Byte-identical for every genuine value, so no wire-format change. |
 | 2026-08-16 | DC.2 + DC.3. **DC.2**: no boundary change — UI text, gating and one pure function's inputs; the companion-free configuration stops rendering as an error, and companion setup advice is now gated on the ROUTE rather than on an error substring (it was one careless string away from firing on the companion-free path). **DC.3**: B13 widened to a second provider, `api.deepgram.com`, in its own sibling module with its own pinned origin and credential key, behind the SAME flag — a second flag would let a user believe the capability was off while another vendor still had it. The shared piece is exactly one thing: the URL admission gate. New property worth recording rather than a new gap: Deepgram's pre-recorded call is SYNCHRONOUS and they do not store transcripts, so a service-worker teardown mid-request loses that request unrecoverably — bounded (measured 12.9s for a 48-minute episode) and mitigated by a pre-flight record that reports a possible charge and NEVER auto-retries. `host_permissions` gained `https://api.deepgram.com/*`, documentary as before (`<all_urls>` already grants it). No wire-format change. |
+| 2026-09-07 | Browser smoke in CI (RESET_PLAN R0, PR #377): new development/CI surface recorded above §4 — no product boundary changes (the one `src/` change is a `data-xr` anchor from a shared table plus a ready stamp each extension page sets as the last act of its init; no `xray:*` message, no manifest change, no new fetch target). Attacker class **Shoulder / screenshot** widened to the job's public artifacts. Controls named: browser-level egress kill, relay pin verified by read-back, per-run identity in a deleted profile, fictional seeds, artifact key scan, read-only token, no secrets, never a `release.yml` dependency. Two adversarial review rounds on the slice found, in turn, that the egress claim was an argument from the empty profile rather than a control, that the throwaway profile was never deleted, and then that the deletion covered only the clean exit and the egress kill had no observer; all four fixed before merge. |
+| 2026-09-05 | LLM jobs (JOURNAL 2026-09-05). **B4**: three message types REMOVED — `xray:llm:corpus-map`, `xray:llm:corpus-reduce`, `xray:llm:entity-page`, each a single held-open message that MV3 killed at ~5 minutes with the paid result — and four ADDED, `xray:llm:job:{start,status,find,ack}`, validated at `shared/llm-jobs.js` on receipt: `pass` against a frozen three-name allowlist (fail-closed; a pass present in the worker but not allowlisted is refused before lookup), `request` must be a plain object, `scopeKey` / `jobId` clamped to `[A-Za-z0-9:._-]` with length caps, `waitMs` clamped to 15s so no single request can approach the MV3 kill. Same senders as before (extension pages only; no `externally_connectable`), same gates inside the passes (flags + key), same page-side firewall. **B8** row extended: the raw result rests in `chrome.storage.local` under the job id until the page acks — no request, no key material, backup-excluded as a prefix class (`isExcludedStorageKey`), TTL-swept, and **workspace-scoped at the receiver** (`jobStorageKey(id, workspace)` — the workspace comes from the active-workspace pointer, never from the message; a result started in one workspace is never found, reused, or served in another, even for a case bundle imported into both with identical ids — the review's one finding, closed in the same PR). New worker property, not a gap: while a job runs the worker heartbeats its own record (an extension API call resets the idle timer), bounded by the pass's own AbortController timeout — a job can never keep the worker alive past the model call it was started for. No new network destination; no wire-format change. Guards: `tests/llm-jobs.test.mjs` (validation, restart pickup, never-reuse of lost/failed, the held-open-shape source pin) and `tests/backup-hygiene.test.mjs` (records never export/restore/merge). |
+| 2026-09-24 | Keystore write path (JOURNAL 2026-09-24). No new boundary, message or destination; asset 1's handling changed. Every `local_keys` write is now a read-modify-write of fresh storage under the Web Lock `xray.local_keys`, re-checking the workspace pointer before it writes and aborting when its read fails; the whole-Map `save()` is removed, because it let one page erase another page's keys and copy one workspace's keys into another. The replace-all backup restore, the workspace reset and the workspace removal take the same lock (`withKeyStoreLock`), and every locked path refuses to run outside an extension origin. The entity-sync pull (B6) installs keys through `upsertKeys` BEFORE it writes entity rows, only under `entity:<its own id>`, and counts a key secp256k1 rejects as malformed; `upsertKeys` replaces its own names only and derives pubkey/npub/nsec from the private key instead of trusting the payload. Every extension page that runs `init()` re-reads `local_keys` on each storage change. The content script's unused `init()` is removed, so no web page's tab loads the keystore: gap **G10**, recorded and narrowed the same day (the content script's storage-API access to `local_keys` remains). New standing invariant: no keystore write erases what it did not touch. `local_keys` shape unchanged; no wire-format change. Guard: `tests/local-key-store.test.mjs`. |

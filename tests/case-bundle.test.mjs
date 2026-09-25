@@ -36,10 +36,16 @@ const { collectCaseBundle, buildCaseBundleJson, isCaseBundle, importCaseBundle,
 const { EntityModel } = await import('../src/shared/entity-model.js');
 const { ClaimModel } = await import('../src/shared/claim-model.js');
 const { LocalKeyManager } = await import('../src/shared/local-key-manager.js');
+const { Storage } = await import('../src/shared/storage.js');
+const { seedPrimary } = await import('./seed-primary.mjs');
 
+// Option C (NIP07_IDENTITY_KICKOFF, ratified 2026-08-11) makes
+// EntityModel.create refuse without a local primary identity to derive
+// entity keys from, so every reset seeds one.
 function resetState() {
     _stateStore.clear();
     LocalKeyManager.keys.clear();
+    seedPrimary(_stateStore);
 }
 
 async function seedCase() {
@@ -93,8 +99,13 @@ test('bundle: import on a fresh install — same ids, same pubkeys', async () =>
         exporterPubkeys.set(id, (await EntityModel.get(id)).keypair.pubkey);
     }
 
-    // "Device B": wipe everything, import the parsed bundle.
+    // "Device B": wipe everything, import the parsed bundle. Device B
+    // gets its OWN primary — with the SAME seeded primary, Option C's
+    // deterministic derivation would reproduce the exporter's pubkeys
+    // even if the import re-derived locally instead of installing the
+    // bundle's keys, and the transport property below would be vacuous.
     resetState();
+    await Storage.primaryIdentity.set('22'.repeat(32));
     const parsed = JSON.parse(buildCaseBundleJson(bundle, '2026-06-10T12:00:00.000Z'));
     const r = await importCaseBundle(parsed);
     assert.equal(r.added, 3);
@@ -128,8 +139,12 @@ test('bundle: key conflicts keep local keys and are reported', async () => {
     const bundle = await collectCaseBundle(kase.id);
 
     // Device B independently created the SAME case (same name+type →
-    // same deterministic id) with its OWN key.
+    // same deterministic id) with its OWN key. Device B gets its OWN
+    // primary: under Option C entity keys are DERIVED from the primary,
+    // so reusing the shared test primary would mint the identical case
+    // key and the conflict this test exists to exercise would vanish.
     resetState();
+    await Storage.primaryIdentity.set('22'.repeat(32));
     const local = await EntityModel.create({ name: 'Bricks & Minifigs scandal', type: 'case' });
     assert.equal(local.id, kase.id, 'deterministic ids collide on purpose');
     const localPubkey = local.keypair.pubkey;
