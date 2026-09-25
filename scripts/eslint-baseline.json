@@ -70,9 +70,6 @@
     "src/shared/nostr-client.js": {
       "no-unused-vars": 2
     },
-    "src/shared/platforms/instagram.js": {
-      "no-unused-vars": 1
-    },
     "src/shared/platforms/youtube.js": {
       "no-unused-vars": 1
     },
