@@ -11,9 +11,9 @@ description: >-
   src/page/ MAIN-world files, or a shared facade (storage.js,
   signer.js, nostr-client.js, crypto.js, platforms/). Also invoke on a
   new *_KICKOFF.md or *_DESIGN.md before code exists, when
-  tests/constitution-guards.test.mjs or tests/disciplines.test.mjs
-  goes red, and before a release tag. Output is a review report —
-  never a merge.
+  tests/constitution-guards.test.mjs, tests/disciplines.test.mjs, or
+  a family guard (e.g. lens-guards) goes red, and before a release
+  tag. Output is a review report — never a merge.
 ---
 
 # Architect — keep the load-bearing structure whole as changes accumulate
@@ -241,10 +241,11 @@ check does not bind.
 - The public surface of a shared facade changes: storage.js,
   signer.js, nostr-client.js, crypto.js, or platforms/index.js
   dispatch.
-- tests/constitution-guards.test.mjs or tests/disciplines.test.mjs
-  goes red — the bug-versus-unratified-amendment finding is
-  governance's (Art. 12: those are the only two possibilities);
-  this review supplies the structural verdict beside it.
+- tests/constitution-guards.test.mjs, tests/disciplines.test.mjs, or
+  a family guard (e.g. lens-guards) goes red — the
+  bug-versus-unratified-amendment finding is governance's (Art. 12:
+  those are the only two possibilities); this review supplies the
+  structural verdict beside it.
 - Before a release tag, alongside docs/SMOKE_TEST.md, and after any
   cross-cutting refactor — a whole-tree pass, not a diff pass. The
   tag-time report feeds the automator-aggregated release preflight,

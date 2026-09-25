@@ -152,8 +152,10 @@ that restates a neighbor's rule instead of citing it is a defect.
   rank (CONSTITUTION Art. 1–2), citation form, the Art. 13 tier and
   its drafted ceremony, Art. 5 / Art. 2 license checks, and the
   bug-or-unratified-amendment finding when a normative guard goes red.
-  `architect` gives the structural verdict beside that finding and
-  keeps the one-way-door record. `product-manager` still owns whether
+  `architect` gives the structural verdict beside that finding, owns
+  the one-way-door record, and keeps the bug-or-unratified-amendment
+  call for every non-normative guard (`structure-guards`, the
+  wire/idb/backup fixture guards). `product-manager` still owns whether
   an artifact should exist; `ecosystem-pm` still owns stranger-facing
   wire semantics. `governance` says only what the corpus permits,
   forbids, or requires, and brings doc-vs-doc divergences to the
