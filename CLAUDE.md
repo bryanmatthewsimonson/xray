@@ -495,9 +495,10 @@ without the other is the design's named long-term risk.
   to be tailored **maintainer-driven from real casework (COVID first)**.
   The 0.8.0 smoke walk passed (2026-07-20; Phases 11–15
   section walks completed then too), and the Phases 16 and 19 section
-  walks are complete as well. Walks ARE still outstanding — the whole
-  Transcribe Anywhere section (LT.1–LT.14) among them; the
-  "Not yet walked" list under `docs/SMOKE_TEST.md`'s walk ledger is
+  walks are complete as well. Walks ARE still outstanding — the
+  Transcribe Anywhere section's LT.1–LT.5 and LT.7–LT.14 among them
+  (LT.6 passed 2026-08-15 on the AssemblyAI engine only); the walk
+  ledger in `docs/SMOKE_TEST.md` and its "Not yet walked" list are
   the record.
 - **`docs/ROAD_TO_1_0.md`** — the **1.0 readiness punch list** (2026-08-09):
   19 blockers, 8 sequenced tracks, 15 kills (ratified 2026-08-09; its

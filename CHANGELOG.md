@@ -20,8 +20,9 @@ marked default-off stay inert until their flag is turned on.
 ### Wire format
 
 No event X-Ray published before changes meaning. Everything below is
-additive except the Instagram capture fix, which changes tag values on
-new captures.
+additive except two entries: the Instagram capture fix, which changes
+tag values on new captures, and the reservation of kinds 30050–30053
+and 9803, a retirement of kinds that were never emitted.
 
 - **New kind 30070, ExtractionAnalysis** — one addressable event per
   author per article (`d` = `xray-extraction:<article hash>`) that
@@ -69,7 +70,9 @@ new captures.
   `platform_account` come only from the shortcode-matched GraphQL/SSR
   item or the address. Already-published events are not superseded; a
   re-capture publishes under the constructed address as a new `d`
-  (#368; the full tag-by-tag list is JOURNAL 2026-09-25).
+  (#368; the full tag-by-tag list is the JOURNAL 2026-09-25 entry
+  "Instagram's Reels viewer (`/reels/<code>/`) fell through to the
+  generic extractor, and a stale head still named the author").
 
 ### Added
 
@@ -183,7 +186,7 @@ new captures.
   (`/reels/<code>/`) is captured as an Instagram reel instead of a
   generic page, a head rendered for another page is ignored, and a
   reel scrolled to in the viewer gets its own author rather than
-  whichever reel came first in Instagram's batch (#368).
+  none, or the one a stale page head named (#368).
 - **Session records leaked until storage was full**, failing every new
   capture; stale ones are now evicted, and a reader tab whose record
   was evicted can still publish (#359, #369).
@@ -278,8 +281,9 @@ new captures.
   #312).
 - **Example case briefs** under `EXAMPLE-case-briefs/` (#383, #384).
 - **CI and tests** — the browser smoke runs in CI, with structure
-  guards, golden fixtures and a branch-hygiene report (#379); CI and
-  releases run on Node 22, and the engines floor is `>=22` (#381); a
+  guards, golden fixtures and a branch-hygiene report (#379); CI's
+  build job and releases run on Node 22, and the engines floor is
+  `>=22` (#381; the browser-smoke job still pins Node 20); a
   release now fails instead of publishing an empty body when its
   CHANGELOG section is missing, and `npm run clean` works on Windows
   (#318); CI now also gates an ESLint ratchet (`no-undef`,

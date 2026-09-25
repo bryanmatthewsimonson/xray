@@ -643,8 +643,10 @@ looking where the bugs are.
       "dead stub". Verified by a two-way PR-number check (129/129,
       none extra), a diff showing the released CHANGELOG sections
       byte-identical, and every claim re-measured on the merged tree;
-      `options.html`'s "Phase 25" string and release.yml's awk step
-      stay out of scope (B9, not this item).* Original scope:
+      `options.html`'s "Phase 25" string and B9's remaining
+      "`[Unreleased]` must be non-empty" CI check stay out of scope
+      (B9, not this item; release.yml's awk step already fails on an
+      empty section, #318).* Original scope:
       README version and counts, CHANGELOG reconstruction from merged
       PR titles, esbuild header, api-interceptor header, CLAUDE.md's
       four wrong claims. (S; B9.)

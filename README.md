@@ -387,6 +387,8 @@ runtime assets (cmaps / standard fonts / wasm) into `dist/`.
 
 - `storage` — persist preferences, entities, keypair registry, primary
   identity.
+- `unlimitedStorage` — let the IndexedDB archive keep every capture
+  instead of running into the browser's default quota.
 - `notifications` — surface publish results as native notifications.
 - `scripting`, `activeTab` — forward action / context-menu commands to
   the content script; run the YouTube transcript fetch in the page's
@@ -400,6 +402,14 @@ runtime assets (cmaps / standard fonts / wasm) into `dist/`.
 - `https://api.anthropic.com/*` host permission — the opt-in LLM-assist
   features (Suggest, epistemic auditor, moral lens, corpus synthesis)
   call the Anthropic API with **your own** key; X-Ray never proxies.
+- `http://127.0.0.1/*`, `http://localhost/*` host permissions — reach
+  services on your own machine: the opt-in local transcription
+  companion (`companion/transcriber/`) and a local LM Studio server.
+- `https://api.assemblyai.com/*`, `https://api.deepgram.com/*` host
+  permissions — opt-in direct cloud transcription (flag
+  `directCloudTranscription`, default off) sends the media URL to the
+  provider you choose, with **your own** key; the provider fetches the
+  audio.
 
 ## Development notes
 
