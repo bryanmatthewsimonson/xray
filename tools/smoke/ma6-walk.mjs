@@ -88,29 +88,40 @@ page.on('pageerror', (e) => pageErrors.push(`pageerror: ${e.message}`));
 page.on('console', (m) => { if (m.type() === 'error') pageErrors.push(`console: ${m.text()}`); });
 
 let blockText = null;
-let blockTracked = false;   // once true, a failed wait also says whether the block was re-rendered
+let blockTracked = false;   // once true, a failing walk also says whether the block was re-rendered (finish())
 
 /**
- * One bounded condition wait. `until` resolves when the condition holds
- * and rejects when its bound runs out. On rejection the walk records
- * `never` — what never happened, in words — and stops (finish()).
+ * A bound for a Playwright call that takes no timeout of its own
+ * (addScriptTag waits on the script's load event, unbounded). A late
+ * settle of `p` is still handled — Promise.race subscribes to it.
+ */
+function bounded(p, ms) {
+    let timer;
+    const expiry = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`bound ${ms} ms`)), ms);
+    });
+    return Promise.race([p, expiry]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * One bounded condition wait (or bounded read). `until` resolves when the
+ * condition holds — its value is returned — and rejects when its bound
+ * runs out. On rejection the walk records `never` — what never happened,
+ * in words — and stops (finish()).
  */
 async function waitFor(label, never, until, { onFail = null } = {}) {
     const t0 = Date.now();
+    let value;
     try {
-        await until();
+        value = await until();
     } catch (e) {
-        let why = String((e && e.message) || e).split('\n')[0].slice(0, 160);
-        if (blockTracked) {
-            const attached = await page.evaluate(() => !!(window.__xrWalkBlock && window.__xrWalkBlock.isConnected))
-                .catch(() => null);
-            if (attached === false) why += ' — and the extraction block the walk was driving has left the DOM (the case view re-rendered under the walk)';
-        }
+        const why = String((e && e.message) || e).split('\n')[0].slice(0, 160);
         fail(`${never} (gave up after ${Date.now() - t0} ms: ${why})`);
         if (onFail) await onFail().catch(() => { /* diagnostics only */ });
         await finish();
     }
     waits.push([label, Date.now() - t0]);
+    return value;
 }
 
 /**
@@ -136,7 +147,7 @@ const portalReady = (label) => waitFor(label, `the portal never stamped ready (<
 
 async function harness() {
     await waitFor('seed script', 'the seed harness script never loaded into the page',
-        () => page.addScriptTag({ url: SEED_JS }));
+        () => bounded(page.addScriptTag({ url: SEED_JS }), BOUND.harness));
     await waitFor('seed harness', 'the seed harness never signalled window.__xrReady',
         () => page.waitForFunction(() => window.__xrReady === true, null, { timeout: BOUND.harness }));
 }
@@ -173,6 +184,24 @@ async function finish() {
     else ok('no uncaught exception anywhere in the walk');
     if (product.length) fail(`${product.length} product console.error(s) beyond the provoked publish failure — ${product[0].split('\n')[0].slice(0, 160)}`);
     else ok('no product console.error beyond the provoked publish failure');
+
+    // The re-render tripwire. A portal background render that lands after
+    // the case view opened replaces the block the walk is driving with a
+    // fresh one whose sections are closed and unpainted, so every later
+    // check fails against it and blames the product (JOURNAL 2026-09-25).
+    // It lives HERE, not in waitFor(), because the instant checks (the
+    // covered section, the Accept / Dismiss / publish counts) fail without
+    // a wait, and a finding from either kind reaches finish().
+    if (blockTracked && findings.length) {
+        const attached = await bounded(
+            page.evaluate(() => !!(window.__xrWalkBlock && window.__xrWalkBlock.isConnected)), BOUND.ui
+        ).catch(() => null);   // a closed or crashed page: say nothing rather than guess
+        if (attached === false) {
+            note('\n[9] re-render tripwire: the extraction block the walk tracked is no longer in the DOM');
+            fail('the extraction block the walk was driving left the DOM — the case view re-rendered under the walk '
+                + '(a portal background render; JOURNAL 2026-09-25), so the findings above may be downstream of it');
+        }
+    }
 
     note('\ncondition waits (ms): ' + waits.map(([l, ms]) => `${l} ${ms}`).join(' · '));
     note(findings.length ? `\nFINDINGS (${findings.length}):\n` + findings.map((f) => ' - ' + f).join('\n')
@@ -322,7 +351,8 @@ await waitFor('reload goto', `the portal page ${PORTAL} never reloaded`,
 // enrichments — each of which re-renders the current view when it lands.
 // Measured: every one landed 9–33 ms BEFORE the stamp (JOURNAL
 // 2026-09-25), so a case view opened after the stamp is not re-rendered
-// under the walk; if that ever changes, a failed wait below says so.
+// under the walk; if that ever changes, the report of any failing walk
+// says so (the re-render tripwire in finish()).
 await portalReady('the reload');
 await harness();   // window.__xr does not survive a navigation
 await page.evaluate((h) => { window.__xrHashes = h; }, seed.hashes);
@@ -464,12 +494,14 @@ if (!(await acceptBtn.count())) {
     await finish();
 }
 // Diagnostic only: the claim-text box is the Accept button's sibling in its row.
-const prefill = await acceptBtn.evaluate((b) => {
-    const box = b.parentElement && b.parentElement.querySelector('input[type="text"]');
-    return box ? box.value : null;
-}, null, { timeout: BOUND.ui });
+const prefill = await waitFor('accept row read', `the first Accept button ${SEL.accept} could not be read (its row's claim-text box)`,
+    () => acceptBtn.evaluate((b) => {
+        const box = b.parentElement && b.parentElement.querySelector('input[type="text"]');
+        return box ? box.value : null;
+    }, null, { timeout: BOUND.ui }));
 note('  claim-text box prefilled with: ' + JSON.stringify(String(prefill).slice(0, 70)));
-const acceptHandle = await acceptBtn.elementHandle({ timeout: BOUND.ui });
+const acceptHandle = await waitFor('accept handle', `the first Accept button ${SEL.accept} could not be held as an element`,
+    () => acceptBtn.elementHandle({ timeout: BOUND.ui }));
 await click('accept click', `the first Accept button ${SEL.accept}`, acceptHandle);
 await waitFor('claim minted', `Accept never minted a claim through ClaimModel (expected ${beforeClaims} → ${beforeClaims + 1})`,
     () => untilStored(async () => { const n = await claimCount(); return { ok: n === beforeClaims + 1, value: n }; }, BOUND.store));
@@ -509,10 +541,14 @@ if (!(await dismissBtn.count())) {
     fail(`no Dismiss button ${SEL.dismiss} in the open queue`);
     await finish();
 }
+// Relative to the count before the click, so the wait cannot be met by
+// a dismissal the walk did not make; nothing was dismissed yet, so 0.
+const beforeDismissed = await dismissedCount();
+if (beforeDismissed !== 0) fail(`the records already held ${beforeDismissed} dismissed atom(s) before the walk dismissed any (expected 0)`);
 await click('dismiss click', `the first Dismiss button ${SEL.dismiss}`, dismissBtn);
-await waitFor('dismiss stored', 'Dismiss never reached the record (expected exactly 1 dismissed atom)',
-    () => untilStored(async () => { const n = await dismissedCount(); return { ok: n === 1, value: n }; }, BOUND.store));
-ok('Dismiss is remembered on the record, not just in the DOM');
+await waitFor('dismiss stored', `Dismiss never reached the record (expected ${beforeDismissed} → ${beforeDismissed + 1} dismissed atoms)`,
+    () => untilStored(async () => { const n = await dismissedCount(); return { ok: n === beforeDismissed + 1, value: n }; }, BOUND.store));
+ok(`Dismiss is remembered on the record, not just in the DOM (${beforeDismissed} → ${beforeDismissed + 1})`);
 
 // ------------------------------------- the event AFTER human review
 note('\n[6] the same event after review — the marking must now differ');
@@ -568,7 +604,8 @@ else {
     const status = page.locator(SEL.publishStatus).first();
     await waitFor('publish status', `the per-article publish row has no status line ${SEL.publishStatus}`,
         () => status.waitFor({ state: 'attached', timeout: BOUND.ui }));
-    const before = (await status.textContent({ timeout: BOUND.ui }) || '').trim();
+    const before = (await waitFor('status before', `the per-article publish status line ${SEL.publishStatus} could not be read before the click`,
+        () => status.textContent({ timeout: BOUND.ui })) || '').trim();
     await click('publish click', `the per-article publish button ${SEL.publish}`, pub);
     await waitFor('publish outcome', `the per-article publish never reported an outcome on its status line ${SEL.publishStatus}`,
         () => page.waitForFunction(({ publish, publishStatus, prev }) => {
@@ -576,7 +613,8 @@ else {
             const s = document.querySelector(publishStatus);
             return !!b && !!s && !b.disabled && s.textContent.trim() !== prev;
         }, { publish: SEL.publish, publishStatus: SEL.publishStatus, prev: before }, { timeout: BOUND.publish }));
-    const text = (await status.textContent({ timeout: BOUND.ui }) || '').trim();
+    const text = (await waitFor('status after', `the per-article publish status line ${SEL.publishStatus} could not be read after the outcome`,
+        () => status.textContent({ timeout: BOUND.ui })) || '').trim();
     note('  status text: ' + JSON.stringify(text));
     if (/No local identity/i.test(text)) {
         fail('the publish path stopped at the identity check — the transport was never exercised');
