@@ -233,9 +233,8 @@ export async function resetWorkspace({ idb } = {}) {
     // The content keys include `local_keys`: clear them under the
     // keystore lock, so a key write in flight on another page cannot
     // land after the reset and put the old keys back (JOURNAL
-    // 2026-09-24) — and `entities` under the registry lock (2026-09-25). Nothing
-    // inside calls a keystore or registry writer. The pointer is re-checked before
-    // EVERY delete: a switch while this waited cleared one workspace's keys and another's DBs.
+    // 2026-09-24), `entities` under the registry lock; nothing inside calls either's
+    // writer. Re-check the pointer per delete: a switch mid-reset split workspaces.
     await withKeyStoreLock(() => withEntityStoreLock(async () => {
         for (const key of WORKSPACE_CLEAR_KEYS) {
             if (await Storage.activeWorkspaceId({ strict: true }).then((now) => now !== ws, () => true)) {
@@ -375,8 +374,7 @@ export const Workspaces = {
         if (!all[id]) throw new Error(`Workspace not found: ${id}`);
         // Its `ws:<id>:local_keys` goes too — under the keystore lock,
         // like the reset above, so a key write still in flight for that
-        // workspace lands before the delete, never after it. Same for
-        // `ws:<id>:entities` under the registry lock.
+        // workspace lands before the delete, never after it (`entities`: the registry lock).
         const result = await withKeyStoreLock(() => withEntityStoreLock(() => Storage.removeWorkspaceData(id, { idb })));
         delete all[id];
         await Storage.set(WORKSPACES_KEY, all);

@@ -152,12 +152,12 @@ const { Utils } = await import('../src/shared/utils.js');
 const { LocalKeyManager, lockedReadModifyWrite, withStoreLock } = await import('../src/shared/local-key-manager.js');
 const { EntityModel: A, withEntityStoreLock } = await import('../src/shared/entity-model.js');
 const { EntityModel: B } = await import('../src/shared/entity-model.js?page=B');
-const { pullEntities, serializeEntityForSync } = await import('../src/shared/entity-sync.js');
+const { pullEntities, pushEntities, serializeEntityForSync } = await import('../src/shared/entity-sync.js');
 const { NostrClient } = await import('../src/shared/nostr-client.js');
-const { applyBackup, mergeBackup, BACKUP_FORMAT } = await import('../src/shared/backup.js');
+const { applyBackup, mergeBackup, collectBackup, BACKUP_FORMAT } = await import('../src/shared/backup.js');
 const { resetWorkspace, workspaceBackup, Workspaces } = await import('../src/shared/identity-profiles.js');
 const { ClaimModel } = await import('../src/shared/claim-model.js');
-const { importCaseBundle, CASE_BUNDLE_FORMAT } = await import('../src/shared/case-bundle.js');
+const { importCaseBundle, collectCaseBundle, CASE_BUNDLE_FORMAT } = await import('../src/shared/case-bundle.js');
 const { activeWorkspaceId: wsKeysActiveWorkspaceId } = await import('../src/shared/workspace-keys.js');
 const { TV1, TV2, TV3, FIXED_TIME_S } = await import('./tools/fixture-keys.mjs');
 
@@ -563,6 +563,16 @@ test('a strict writer is correct while the page\'s plain cache holds a fallen-ba
     assert.ok(_store.get('entities') === defaultBefore, 'the default workspace registry is byte-for-byte unchanged');
     assert.equal(_store.has('local_keys'), false, 'and no keystore was written into the default workspace');
 
+    // The export and the reset's safety backup read strictly too: under an
+    // unreadable pointer the export refuses (it never exports 'default'), and
+    // with the cache fallen back the safety file holds what the reset clears.
+    failReads('pointer', 'lastError');
+    const exported = await attempt(() => collectBackup());
+    fail.pointer = null;
+    assert.ok(exported && exported.name === 'StoreRefusedError', `an export under an unreadable pointer refuses (got ${exported && exported.message})`);
+    const snap = await workspaceBackup();
+    assert.deepEqual(snap.data.entities, readJson('ws:wsb:entities'), 'the safety backup is the ACTIVE workspace\'s registry, not the default one');
+
     const removal = await attempt(() => Workspaces.remove('wsb', { idb: NO_IDB }));
     assert.match(String(removal && removal.message), /switch away from the active workspace/, 'removing the ACTIVE workspace is refused, whatever the cache says');
     assert.ok(_store.has('ws:wsb:entities'), 'and wsb\'s data is still there');
@@ -571,9 +581,72 @@ test('a strict writer is correct while the page\'s plain cache holds a fallen-ba
     seed('ws:wsb:article_claims', { c1: { id: 'c1' } });
     await resetWorkspace({ idb: NO_IDB });
     assert.equal(_store.has('ws:wsb:article_claims'), false, 'the reset cleared wsb');
+    assert.ok(snap.data.entities[E2] && !snap.data.entities[E1], 'so the safety file taken first holds what the reset cleared');
     assert.equal(_store.has('ws:wsb:entities'), false);
     assert.ok(_store.get('entities') === defaultBefore && _store.has('article_claims'), 'and left the default workspace alone');
     assert.equal(await Storage.activeWorkspaceId(), 'default', 'the strict paths left the plain cache as it was — plain reads and writes still agree');
+});
+
+// The keystore Map is loaded STRICTLY (it plans key writes), while the
+// entity list is a PLAIN read. A record joins a key, and a key signs, only
+// when the Map is the workspace that record came from — never one
+// workspace's record with another's private key (display, kind-0 signing,
+// entity-sync push, the case bundle that ships keys).
+test('a fallen-back plain cache never pairs the default workspace\'s records with the active workspace\'s keys — not in display, signing, sync push or a case bundle', async () => {
+    await reset();
+    const kn = `entity:${E1}`;
+    seed('entities', { [E1]: row(E1, 'Shared Name', { description: 'DEFAULT workspace text' }) });
+    seed('local_keys', { [kn]: keyRecord(kn, TV2) });
+    seed('ws:wsb:entities', { [E1]: row(E1, 'Shared Name', { description: 'WSB workspace text' }) });
+    seed('ws:wsb:local_keys', { [kn]: keyRecord(kn, TV3) });
+    const errs = captureErrors();
+    try {
+        await switchToWsbThenFailOnePointerRead();
+        await Storage.get('entities', {});            // the page's plain cache falls back to 'default'
+    } finally { fail.pointer = null; errs.restore(); }
+    await LocalKeyManager.init();                     // as every page's init does: the Map is wsb's
+    assert.equal(await Storage.activeWorkspaceId(), 'default', 'sanity: the plain cache fell back');
+
+    const sent = [];
+    const origPublish = NostrClient.publishToRelays;
+    NostrClient.publishToRelays = async (relays, ev) => { sent.push(ev); return { successful: 1, total: 1, results: [] }; };
+    let one, all, bundle, pushed, signed;
+    try {
+        one = await A.get(E1);
+        all = await A.getAll();
+        bundle = await collectCaseBundle(E1);
+        pushed = await pushEntities({ userPrivkey: TV1.privateKey, relays: ['wss://relay.example'] });
+        signed = await attempt(() => LocalKeyManager.signEvent({ kind: 0, content: '{}', tags: [], created_at: FIXED_TIME_S }, kn));
+    } finally { NostrClient.publishToRelays = origPublish; }
+    const convKey = await Crypto.nip44GetConversationKey(TV1.privateKey, TV1.pubkey);
+    const payloadKeys = [];
+    for (const ev of sent.filter((e) => e.kind === 30078)) {
+        const p = JSON.parse(await Crypto.nip44Decrypt(ev.content, convKey));
+        payloadKeys.push(p.keypair && (p.keypair.privateKey || p.keypair.privkey));
+    }
+    const wsbKey = (k) => !!k && (k.pubkey === TV3.pubkey || k.privateKey === TV3.privateKey);
+
+    // The invariant (origin/main holds it too: its Map followed the cache).
+    assert.equal(one.description, 'DEFAULT workspace text', 'sanity: the plain read shows the default workspace');
+    assert.ok(!wsbKey(one.keypair), 'get(): the default record never carries wsb\'s key');
+    assert.ok(!wsbKey(all[E1].keypair), 'getAll(): nor does the list');
+    assert.ok(!bundle.entities.some((e) => e.privkey === TV3.privateKey), 'the case bundle ships no wsb key under a default record');
+    assert.ok(!payloadKeys.includes(TV3.privateKey), 'the sync push publishes no wsb key under a default record');
+    assert.ok(!(signed && signed.pubkey === TV3.pubkey), 'nothing is signed with wsb\'s key for the displayed (default) record');
+    // How this branch holds it: the Map is loaded strictly (wsb's), so while
+    // the two disagree the record reads keyless and signing refuses.
+    assert.ok(LocalKeyManager.getKey(kn).pubkey === TV3.pubkey, 'the strictly-loaded Map holds wsb\'s key');
+    assert.equal(one.keypair, null, 'the record reads keyless while the Map and the cache disagree');
+    assert.equal(pushed.pushed, 0, 'so the push skips it');
+    assert.ok(signed instanceof Error && /Key not found/.test(signed.message), 'and signing refuses');
+
+    await otherPageSwitchesTo('wsb');                 // the pointer changes: the cache re-reads, the Map refreshes
+    await LocalKeyManager.refresh();
+    const again = await A.get(E1);
+    assert.equal(again.description, 'WSB workspace text', 'with the cache following the pointer, the list shows wsb');
+    assert.ok(again.keypair && again.keypair.pubkey === TV3.pubkey, 'and joins wsb\'s own key');
+    const ok = await LocalKeyManager.signEvent({ kind: 0, content: '{}', tags: [], created_at: FIXED_TIME_S }, kn);
+    assert.equal(ok.pubkey, TV3.pubkey, 'and signs with it');
 });
 
 test('a workspace reset whose workspace is switched while it waits for the locks clears nothing', async () => {

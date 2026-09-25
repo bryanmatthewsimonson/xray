@@ -66,6 +66,7 @@ const HEX64 = /^[0-9a-f]{64}$/;
 
 let refreshWanted = false;  // a refresh was requested since the loop's last read began
 let refreshLoop = null;     // the running refresh loop, if any
+let mapWorkspace;           // the workspace the Map was loaded from (a strict pointer read)
 let watching = false;       // one change listener per module instance
 
 // Rule 3. No location at all (Node's test runner) passes; any location
@@ -155,14 +156,16 @@ function refresh() {
             try {
                 while (refreshWanted) {
                     refreshWanted = false;
-                    let stored;
+                    let stored, ws;
                     try {
-                        stored = await Storage.getStrict(STORE_KEY, {});
+                        ws = await Storage.activeWorkspaceId({ strict: true });
+                        stored = await Storage.getStrict(STORE_KEY, {}, { workspace: ws });
                     } catch (err) {
                         Utils.error('LocalKeyManager: reading local_keys failed — keeping the keys loaded before:', err);
                         continue;
                     }
                     replaceMap(isPlainObject(stored) ? stored : {});
+                    mapWorkspace = ws;
                 }
             } finally {
                 refreshLoop = null;
@@ -212,6 +215,10 @@ function watchStorage() {
     } catch (_) { /* no change events here — init() still loads */ }
 }
 
+/** A StoreRefusedError for `label`; a nested one (a failed pointer read) keeps its own text. */
+export const storeRefusal = (label, why, err) => new StoreRefusedError(`${label}: ${err && err.name === 'StoreRefusedError'
+    ? err.message : `${why} — nothing written${err ? ` (${err.message || err})` : ''}`}`);
+
 // The one write path. Under the lock: read local_keys FRESH, let
 // `apply` change exactly its own names on that object, and write it
 // back (only when `apply` says so). After the lock is released the
@@ -219,12 +226,10 @@ function watchStorage() {
 // this write produced, because an unlocked change (another page's
 // workspace switch, say) can land between the write and that install.
 // `apply` must be synchronous and must not call back into this module
-// (the lock is not re-entrant). Serves every STORE_LOCKS key; every
-// refusal is a StoreRefusedError.
+// (the lock is not re-entrant). Serves every STORE_LOCKS key.
 //
 // The read is STRICT: an unreadable store aborts the write instead of
-// being read as empty (rule 1) — and so does an unreadable pointer,
-// which is re-read here, never taken from the page's cache.
+// being read as empty (rule 1) — so does an unreadable pointer (never cached).
 //
 // The write names the workspace the read resolved, so it can never
 // carry one workspace's keys into another; and if the pointer moved
@@ -232,26 +237,24 @@ function watchStorage() {
 export async function lockedReadModifyWrite({ key, label, what, apply }) {
     if (!Object.hasOwn(STORE_LOCKS, key)) throw new Error(`lockedReadModifyWrite: no lock is fixed for ${key}`);
     return withStoreLock(STORE_LOCKS[key], async () => {
-        const refuse = (why, err) => new StoreRefusedError(`${label}: ${why} — nothing written${err ? ` (${(err && err.message) || err})` : ''}`);
         for (let attempt = 1; ; attempt++) {
-            let ws, raw, moved;
+            let ws, raw;
             try {
                 ws = await Storage.activeWorkspaceId({ strict: true });
                 raw = await Storage.getStrict(key, {}, { workspace: ws });
             } catch (err) {
-                throw refuse(`reading ${key} failed`, err);
+                throw storeRefusal(label, `reading ${key} failed`, err);
             }
-            if (!isPlainObject(raw)) throw refuse(`stored ${key} is not an object — refusing to overwrite it`);
+            if (!isPlainObject(raw)) throw storeRefusal(label, `stored ${key} is not an object — refusing to overwrite it`);
             const stored = { ...raw };
             const { write, result: out } = apply(stored);
-            try { moved = await Storage.activeWorkspaceId({ strict: true }) !== ws; } catch (err) { throw refuse('re-reading the workspace pointer failed', err); }
-            if (moved) {
+            if (await Storage.activeWorkspaceId({ strict: true }) !== ws) {   // an unreadable pointer rejects
                 if (attempt < 3) continue;
-                throw refuse('the workspace kept changing during a write');
+                throw storeRefusal(label, 'the workspace kept changing during a write');
             }
             if (write) {
                 const ok = await Storage.set(key, stored, { workspace: ws });
-                if (ok === false) throw refuse(`writing ${key} failed`);
+                if (ok === false) throw storeRefusal(label, `writing ${key} failed`);
             }
             return out;
         }
@@ -369,6 +372,8 @@ export const LocalKeyManager = {
     },
 
     getKey: (name) => LocalKeyManager.keys.get(name) || null,
+    /** For a record read through the PLAIN pointer: null unless the Map is `workspace`'s (JOURNAL 2026-09-25). */
+    getKeyIn: (name, workspace) => (workspace === mapWorkspace ? LocalKeyManager.getKey(name) : null),
 
     listKeys: () => Array.from(LocalKeyManager.keys.values()),
 
@@ -382,7 +387,7 @@ export const LocalKeyManager = {
     // BIP-340 Schnorr sign an unsigned event with a locally-stored key.
     // Returns an event with `id` + `sig` filled in, ready to publish.
     signEvent: async (event, keyName) => {
-        const key = LocalKeyManager.getKey(keyName);
+        const key = LocalKeyManager.getKeyIn(keyName, await Storage.activeWorkspaceId());
         if (!key) throw new Error('Key not found: ' + keyName);
         if (!key.privateKey) throw new Error('Key has no private key material: ' + keyName);
 

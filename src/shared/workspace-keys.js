@@ -75,8 +75,7 @@ export function storageLastError() {
     } catch (_) { return null; }
 }
 
-/** A STORE-level refusal (nothing written): a caller importing many rows stops
- *  on it by `name` instead of skipping each; row-level errors stay plain. */
+/** A STORE-level refusal (nothing written): an importer stops on it by `name`; row-level errors stay plain. */
 export class StoreRefusedError extends Error {
     constructor(message) { super(message); this.name = 'StoreRefusedError'; }
 }
@@ -87,9 +86,8 @@ export class StoreRefusedError extends Error {
  * dependency-light IDB cache modules can use it and their Node tests
  * (no chrome stub) fall back to 'default' = the bare DB names they
  * have always used. storage.js keeps its own CACHED copy for hot
- * key-mapping; DB opens are rare enough to read fresh. A failed read
- * is 'default'; `strict` — every strict path, storage.js's included —
- * rejects with a StoreRefusedError instead (JOURNAL 2026-09-25).
+ * key-mapping; DB opens are rare enough to read fresh. A failed read is
+ * 'default'; `strict` (every strict path) rejects with a StoreRefusedError.
  */
 export async function activeWorkspaceId({ strict = false } = {}) {
     try {
@@ -97,10 +95,10 @@ export async function activeWorkspaceId({ strict = false } = {}) {
             ? browser.storage.local
             : (typeof chrome !== 'undefined' && chrome.storage ? chrome.storage.local : null);
         if (!area) return 'default';
-        const raw = await new Promise((resolve, reject) => area.get(['active_workspace'], (res) => {
+        const raw = await new Promise((resolve, reject) => Promise.resolve(area.get(['active_workspace'], (res) => {
             const err = strict && (storageLastError() || (!res && new Error('no result')));
             if (err) reject(err); else resolve(res ? res.active_workspace : undefined);
-        }));
+        })).catch(reject));   // a rejected promise too, never a hang
         if (typeof raw === 'string') {
             try { return String(JSON.parse(raw) || 'default'); } catch (_) { return raw || 'default'; }
         }

@@ -44,10 +44,8 @@ export const Storage = (() => {
     return activeWs;
   };
   const ensureWs = async () => (activeWs === undefined ? readActiveWs() : activeWs);
-  // A failed read caches 'default', so a page's plain reads and writes agree.
-  // STRICT paths never use the cache: they re-read the pointer and fail closed
-  // (StoreRefusedError), and a strict write names the workspace its read
-  // resolved (JOURNAL 2026-09-25).
+  // A failed read caches 'default' (a page's plain reads and writes agree); STRICT
+  // paths re-read, fail closed, and name their workspace (JOURNAL 2026-09-25).
   const strictWs = () => readPointer({ strict: true });
   try {
     area.onChanged.addListener((changes) => {
@@ -116,9 +114,9 @@ export const Storage = (() => {
   });
 
   const Store = {
-    get: async (key, defaultValue = null) => {
+    get: async (key, defaultValue = null, { workspace } = {}) => {
       try {
-        return decode(await rawGet(await mapKey(key)), defaultValue);
+        return decode(await rawGet(await mapKey(key, workspace)), defaultValue);
       } catch (e) {
         Utils.error('Storage get error:', e);
         return defaultValue;
@@ -132,7 +130,7 @@ export const Storage = (() => {
      *  `workspace`, else a strict pointer read — never the page's cache. */
     getStrict: async (key, defaultValue = null, { workspace } = {}) => decode(await rawGetStrict(
       await mapKey(key, workspace || (CONTENT_KEYS.has(key) ? await strictWs() : 'default'))), defaultValue),
-    // `workspace`: the one a strict read resolved (else the page's cache).
+    // get/set/delete `workspace`: one the caller already resolved (else the page's cache).
     set:    async (key, value, { workspace } = {}) => { try { return await rawSet(await mapKey(key, workspace), JSON.stringify(value)); } catch (e) { Utils.error('Storage set error:', e); return false; } },
     delete: async (key, { workspace } = {})        => { try { return await rawDelete(await mapKey(key, workspace)); }                    catch (e) { Utils.error('Storage delete error:', e); return false; } },
     // The LOGICAL key view for the active workspace: content keys of

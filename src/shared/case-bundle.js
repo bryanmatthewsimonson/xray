@@ -157,8 +157,7 @@ export async function importCaseBundle(parsed) {
         throw new Error(`Bundle version ${parsed.version} is newer than this X-Ray understands (${CASE_BUNDLE_VERSION})`);
     }
 
-    // Strict, before any key; a StoreRefusedError mid-loop stops the import —
-    // neither is a "malformed entry" (JOURNAL 2026-09-25).
+    // Strict, before any key; a StoreRefusedError stops the import, never "malformed".
     const existingAll = await EntityModel.readRecordsStrict();
     let added = 0, updated = 0, keysInstalled = 0;
     const conflicts = [];   // a DIFFERENT key already installed under this id

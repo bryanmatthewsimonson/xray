@@ -330,7 +330,7 @@ function areaGetAll(area) {
 }
 
 // A restore / merge writes against a strictly-read workspace + storage.
-const writeScope = (area) => Promise.all([activeWorkspaceId({ strict: true }), areaGetAll(area).catch((err) => {
+const writeScope = () => Promise.all([activeWorkspaceId({ strict: true }), areaGetAll(storageArea()).catch((err) => {
     throw new StoreRefusedError(`backup: ${err.message} — nothing written`); })]).then(([ws, current]) => ({ ws, current }));
 
 function areaRemove(area, keys) {
@@ -369,9 +369,9 @@ async function collectStorage() {
 }
 
 async function applyStorage(entries, warn = () => {}) {
-    const area = storageArea();
-    const { ws, current } = await writeScope(area);
+    const { ws, current } = await writeScope();
     const prefix = `ws:${ws}:`;
+    const area = storageArea();
     const mapK = (k) => (ws !== 'default' && WORKSPACE_CONTENT.has(k)) ? prefix + k : k;
     // Scope guard (T1 review, 2026-08-10): a file that carries no
     // signing identity — the delete-workspace snapshot, or a key-free
@@ -600,8 +600,7 @@ export async function applyBackup(backup, { warn = () => {} } = {}) {
     // Under the keystore lock: this replaces `local_keys` wholesale, and
     // a key write in flight on another page (which read the store before
     // this) would otherwise land after it and put the old keys back
-    // (JOURNAL 2026-09-24). Nothing inside calls a keystore writer. The
-    // same holds for `entities` and the registry lock (JOURNAL 2026-09-25).
+    // (JOURNAL 2026-09-24). Nothing inside calls a keystore or registry writer.
     await withKeyStoreLock(() => withEntityStoreLock(() => applyStorage(backup.storage, warn)));
     for (const [name, dump] of Object.entries(backup.databases || {})) {
         if (!WORKSPACE_DATABASES.includes(name)) {
@@ -685,9 +684,9 @@ export function mergeStorageValue(localRaw, incomingRaw) {
 }
 
 async function mergeStorage(entries) {
-    const area = storageArea();
-    const { ws, current } = await writeScope(area);
+    const { ws, current } = await writeScope();
     const prefix = `ws:${ws}:`;
+    const area = storageArea();
     const mapK = (k) => (ws !== 'default' && WORKSPACE_CONTENT.has(k)) ? prefix + k : k;
     const stats = { keysAdded: 0, keysMerged: 0, idsAdded: 0, keysUnchanged: 0, keysSkippedNonContent: 0 };
     const writes = {};

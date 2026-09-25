@@ -31,8 +31,7 @@
 import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
 import { Utils } from './utils.js';
-import { LocalKeyManager, withStoreLock, lockedReadModifyWrite, STORE_LOCKS } from './local-key-manager.js';
-import { StoreRefusedError } from './workspace-keys.js';
+import { LocalKeyManager, withStoreLock, lockedReadModifyWrite, storeRefusal, STORE_LOCKS } from './local-key-manager.js';
 import { isValidSuggestedBy } from './assessment-taxonomy.js';
 // Authored-field validation (Phase 19 §4) reads the field registry;
 // entity-field-schemas.js is dependency-free, so no cycle.
@@ -215,20 +214,18 @@ function synthesizeForeignKeypair(record) {
     return { pubkey: record.foreign_pubkey, privateKey: null, npub, nsec: null };
 }
 
-// ONE REGISTRY, MANY PAGES (JOURNAL 2026-09-25): every write is a locked
-// read-modify-write of a FRESH strict read (lock `xray.entities`); reads that
-// PLAN a write are strict, display reads plain; async work runs BEFORE the
-// lock. Wholesale writers elsewhere take withEntityStoreLock, never calling a writer here.
+// ONE REGISTRY, MANY PAGES (JOURNAL 2026-09-25): every write is a locked read-modify-write
+// of a FRESH strict read (lock `xray.entities`), async work BEFORE the lock; planning reads
+// are strict, display reads plain (a key joins only from their workspace's Map, getKeyIn).
+// Wholesale writers elsewhere take withEntityStoreLock, never calling a writer here.
 const ORIGIN_WHAT = 'EntityModel: the entity registry';
 export const withEntityStoreLock = (fn) => withStoreLock(STORE_LOCKS.entities, fn, ORIGIN_WHAT);
 const mutateRegistry = (apply) => lockedReadModifyWrite({ key: 'entities', label: 'EntityModel', what: ORIGIN_WHAT, apply });
 
 async function readRegistryStrict() {
     let all;
-    try { all = await Storage.getStrict('entities', {}); } catch (err) {
-        throw new StoreRefusedError(`EntityModel: reading entities failed — nothing written (${(err && err.message) || err})`);
-    }
-    if (!all || typeof all !== 'object' || Array.isArray(all)) throw new StoreRefusedError('EntityModel: stored entities is not an object — nothing written');
+    try { all = await Storage.getStrict('entities', {}); } catch (err) { throw storeRefusal('EntityModel', 'reading entities failed', err); }
+    if (!all || typeof all !== 'object' || Array.isArray(all)) throw storeRefusal('EntityModel', 'stored entities is not an object');
     return all;
 }
 
@@ -242,10 +239,11 @@ export const EntityModel = {
      */
     get: async (id) => {
         if (!id) return null;
-        const all = await Storage.get('entities', {});
+        const ws = await Storage.activeWorkspaceId();
+        const all = await Storage.get('entities', {}, { workspace: ws });
         const record = all[id];
         if (!record) return null;
-        const key = record.keyName ? LocalKeyManager.getKey(record.keyName) : null;
+        const key = record.keyName ? LocalKeyManager.getKeyIn(record.keyName, ws) : null;
         return {
             ...record,
             keypair: key ? {
@@ -258,10 +256,11 @@ export const EntityModel = {
     },
 
     getAll: async () => {
-        const all = await Storage.get('entities', {});
+        const ws = await Storage.activeWorkspaceId();
+        const all = await Storage.get('entities', {}, { workspace: ws });
         const out = {};
         for (const [id, record] of Object.entries(all)) {
-            const key = record.keyName ? LocalKeyManager.getKey(record.keyName) : null;
+            const key = record.keyName ? LocalKeyManager.getKeyIn(record.keyName, ws) : null;
             out[id] = {
                 ...record,
                 keypair: key ? {
@@ -846,8 +845,7 @@ export const EntityModel = {
         return found ? await EntityModel.get(id) : null;
     },
 
-    /** The pull's record write: each `{ row, updated }` (the PULLED stamp, 0 if
-     *  none) replaces only a staler record in a fresh locked read. → counts. */
+    /** The pull's write: each `{ row, updated }` (PULLED stamp, 0 if none) replaces only a staler record. */
     mergePulledRows: (entries) => mutateRegistry((all) => {
         const counts = { added: 0, updated: 0, unchanged: 0 };
         for (const { row, updated } of entries) {
