@@ -80,33 +80,34 @@ export class StoreRefusedError extends Error {
     constructor(message) { super(message); this.name = 'StoreRefusedError'; }
 }
 
+// ONE POINTER PER PAGE (JOURNAL 2026-09-25): storage.js registers its CACHED pointer, so the
+// IndexedDB names and the LLM-job scope resolve what its key mapping does, never a second read.
+let pagePointer = null;
+export function usePagePointer(fn) { pagePointer = fn; }
+
 /**
  * The active workspace id, read straight from extension storage —
  * call-time only, no import-time chrome dependency, so the
  * dependency-light IDB cache modules can use it and their Node tests
  * (no chrome stub) fall back to 'default' = the bare DB names they
- * have always used. storage.js keeps its own CACHED copy for hot
- * key-mapping; DB opens are rare enough to read fresh. A failed read is
- * 'default'; `strict` (every strict path) rejects with a StoreRefusedError.
+ * have always used. Once storage.js loads, its cached pointer answers.
  */
-export async function activeWorkspaceId({ strict = false } = {}) {
+export async function activeWorkspaceId() {
+    if (pagePointer) return pagePointer();
     try {
         const area = (typeof browser !== 'undefined' && browser.storage)
             ? browser.storage.local
             : (typeof chrome !== 'undefined' && chrome.storage ? chrome.storage.local : null);
         if (!area) return 'default';
-        const raw = await new Promise((resolve, reject) => Promise.resolve(area.get(['active_workspace'], (res) => {
-            const err = strict && (storageLastError() || (!res && new Error('no result')));
-            if (err) reject(err); else resolve(res ? res.active_workspace : undefined);
-        })).catch(reject));   // a rejected promise too, never a hang
+        const raw = await new Promise((resolve) => {
+            try { area.get(['active_workspace'], (res) => resolve(res ? res.active_workspace : undefined)); }
+            catch (_) { resolve(undefined); }
+        });
         if (typeof raw === 'string') {
             try { return String(JSON.parse(raw) || 'default'); } catch (_) { return raw || 'default'; }
         }
         return 'default';
-    } catch (err) {   // a throw included
-        if (strict) throw new StoreRefusedError(`reading the workspace pointer failed — nothing written (${(err && err.message) || err})`);
-        return 'default';
-    }
+    } catch (_) { return 'default'; }
 }
 
 /** `workspaceDbName(base)` under the ACTIVE workspace. */

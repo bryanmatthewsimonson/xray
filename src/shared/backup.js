@@ -50,7 +50,8 @@
 import { WORKSPACE_DATABASES } from './identity-profiles.js';
 import { withKeyStoreLock } from './local-key-manager.js';
 import { withEntityStoreLock } from './entity-model.js';
-import { WORKSPACE_CONTENT_KEYS, activeWorkspaceId, workspaceDbName, storageLastError, StoreRefusedError } from './workspace-keys.js';
+import { Storage } from './storage.js';
+import { WORKSPACE_CONTENT_KEYS, workspaceDbName, storageLastError, StoreRefusedError } from './workspace-keys.js';
 import { LLM_KEY_STORAGE } from './llm-prompts.js';
 import { isLlmJobKey } from './llm-jobs.js';
 import {
@@ -329,9 +330,11 @@ function areaGetAll(area) {
     }));
 }
 
-// A restore / merge writes against a strictly-read workspace + storage.
-const writeScope = () => Promise.all([activeWorkspaceId({ strict: true }), areaGetAll(storageArea()).catch((err) => {
-    throw new StoreRefusedError(`backup: ${err.message} — nothing written`); })]).then(([ws, current]) => ({ ws, current }));
+// Under the locks: still the verified `ws`, current storage read strictly — else refused.
+async function writeScope(ws, label) {
+    if (await Storage.verifiedWorkspaceId(label) !== ws) throw new StoreRefusedError(`${label}: the workspace changed — nothing written`);
+    return areaGetAll(storageArea()).catch((err) => { throw new StoreRefusedError(`${label}: ${err.message} — nothing written`); });
+}
 
 function areaRemove(area, keys) {
     return new Promise((resolve) => area.remove(keys, () => resolve()));
@@ -348,8 +351,7 @@ function areaSet(area, obj) {
 // workspace's bare content. The databases section is already
 // active-scoped the same way: openCovered routes through the module
 // openers, which resolve the workspace-suffixed on-disk names.
-async function collectStorage() {
-    const ws = await activeWorkspaceId({ strict: true });
+async function collectStorage(ws) {
     const prefix = `ws:${ws}:`;
     const all = await areaGetAll(storageArea());
     const out = {};
@@ -368,8 +370,8 @@ async function collectStorage() {
     return out;
 }
 
-async function applyStorage(entries, warn = () => {}) {
-    const { ws, current } = await writeScope();
+async function applyStorage(entries, ws, warn = () => {}) {
+    const current = await writeScope(ws, 'backup restore');
     const prefix = `ws:${ws}:`;
     const area = storageArea();
     const mapK = (k) => (ws !== 'default' && WORKSPACE_CONTENT.has(k)) ? prefix + k : k;
@@ -462,12 +464,13 @@ async function collectDbVersions() {
  *   restore refuses it (merge is its path in).
  */
 export async function collectBackup({ includeSourceBytes = true, shareable = false } = {}) {
+    const ws = await Storage.verifiedWorkspaceId('backup export');   // JOURNAL 2026-09-25
     const databases = {};
     for (const name of WORKSPACE_DATABASES) {
         const skipStores = includeSourceBytes ? [] : (BYTE_STORES[name] || []);
         databases[name] = await dumpDatabase(name, { skipStores });
     }
-    let storage = await collectStorage();
+    let storage = await collectStorage(ws);
     if (shareable) {
         storage = Object.fromEntries(Object.entries(storage)
             .filter(([k]) => !IDENTITY_STORAGE_KEYS.includes(k)));
@@ -596,12 +599,13 @@ export async function applyBackup(backup, { warn = () => {} } = {}) {
             + 'replace-all restore would ERASE the identities on this machine. '
             + 'Use "Import & merge" to bring its content in.');
     }
+    const ws = await Storage.verifiedWorkspaceId('backup restore');   // before anything opens or writes
     await assertBackupNotNewer(backup);
     // Under the keystore lock: this replaces `local_keys` wholesale, and
     // a key write in flight on another page (which read the store before
     // this) would otherwise land after it and put the old keys back
     // (JOURNAL 2026-09-24). Nothing inside calls a keystore or registry writer.
-    await withKeyStoreLock(() => withEntityStoreLock(() => applyStorage(backup.storage, warn)));
+    await withKeyStoreLock(() => withEntityStoreLock(() => applyStorage(backup.storage, ws, warn)));
     for (const [name, dump] of Object.entries(backup.databases || {})) {
         if (!WORKSPACE_DATABASES.includes(name)) {
             warn(`backup restore: database ${name} not covered — skipped`);
@@ -683,8 +687,8 @@ export function mergeStorageValue(localRaw, incomingRaw) {
     return { added, value: local.wasString ? JSON.stringify(out) : out };
 }
 
-async function mergeStorage(entries) {
-    const { ws, current } = await writeScope();
+async function mergeStorage(entries, ws) {
+    const current = await writeScope(ws, 'backup merge');
     const prefix = `ws:${ws}:`;
     const area = storageArea();
     const mapK = (k) => (ws !== 'default' && WORKSPACE_CONTENT.has(k)) ? prefix + k : k;
@@ -818,9 +822,10 @@ async function mergeIntoDatabase(name, dump, { warn = () => {}, onProgress = () 
 export async function mergeBackup(backup, { warn = () => {}, onProgress = () => {} } = {}) {
     const problems = validateBackup(backup);
     if (problems.length) throw new Error(`invalid backup: ${problems.join('; ')}`);
+    const ws = await Storage.verifiedWorkspaceId('backup merge');
     await assertBackupNotNewer(backup);
     // Under the registry lock, like the restore (it never merges `local_keys`).
-    const storage = await withEntityStoreLock(() => mergeStorage(backup.storage));
+    const storage = await withEntityStoreLock(() => mergeStorage(backup.storage, ws));
     const databases = {};
     // A merge has NO cross-stage rollback: storage commits before the
     // databases, and each store commits in its own transaction. So a

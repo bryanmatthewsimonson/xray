@@ -216,8 +216,8 @@ function synthesizeForeignKeypair(record) {
 
 // ONE REGISTRY, MANY PAGES (JOURNAL 2026-09-25): every write is a locked read-modify-write
 // of a FRESH strict read (lock `xray.entities`), async work BEFORE the lock; planning reads
-// are strict, display reads plain (a key joins only from their workspace's Map, getKeyIn).
-// Wholesale writers elsewhere take withEntityStoreLock, never calling a writer here.
+// are strict, display reads plain. Wholesale writers elsewhere take withEntityStoreLock,
+// never calling a writer here.
 const ORIGIN_WHAT = 'EntityModel: the entity registry';
 export const withEntityStoreLock = (fn) => withStoreLock(STORE_LOCKS.entities, fn, ORIGIN_WHAT);
 const mutateRegistry = (apply) => lockedReadModifyWrite({ key: 'entities', label: 'EntityModel', what: ORIGIN_WHAT, apply });
@@ -239,11 +239,10 @@ export const EntityModel = {
      */
     get: async (id) => {
         if (!id) return null;
-        const ws = await Storage.activeWorkspaceId();
-        const all = await Storage.get('entities', {}, { workspace: ws });
+        const all = await Storage.get('entities', {});
         const record = all[id];
         if (!record) return null;
-        const key = record.keyName ? LocalKeyManager.getKeyIn(record.keyName, ws) : null;
+        const key = record.keyName ? LocalKeyManager.getKey(record.keyName) : null;
         return {
             ...record,
             keypair: key ? {
@@ -256,11 +255,10 @@ export const EntityModel = {
     },
 
     getAll: async () => {
-        const ws = await Storage.activeWorkspaceId();
-        const all = await Storage.get('entities', {}, { workspace: ws });
+        const all = await Storage.get('entities', {});
         const out = {};
         for (const [id, record] of Object.entries(all)) {
-            const key = record.keyName ? LocalKeyManager.getKeyIn(record.keyName, ws) : null;
+            const key = record.keyName ? LocalKeyManager.getKey(record.keyName) : null;
             out[id] = {
                 ...record,
                 keypair: key ? {

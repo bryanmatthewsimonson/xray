@@ -7,23 +7,25 @@
 // for a read that FAILED as well as for one that found nothing, and then
 // wrote back that snapshot plus its own change: one failed read in
 // create / importRecord / importForeign / the entity-sync pull erased
-// every other entity record. The workspace pointer had the same shape: a
-// failed pointer read became 'default', was CACHED for the page's
-// lifetime, and routed that page's writes (a reset, a replace-all
-// restore, a merge-import included) into the default workspace. And two
-// pages writing the registry at once lost one page's write — the
-// lost-update #392 fixed for `local_keys`.
+// every other entity record (section 1). Two pages writing the registry
+// at once lost one page's write — the lost update #392 fixed for
+// `local_keys` (sections 4–5).
 //
-// Section 2 pins the pointer rule. PLAIN paths (Storage.get / set /
-// delete / keys, the IndexedDB names) keep origin/main's: a failed read
-// is 'default' (storage.js caches it), so a page's plain reads and
-// writes agree.
-// STRICT paths (getStrict and the locked writes on it, the backup
-// restore / merge / export, the reset and its safety backup, workspace
-// removal) re-read the pointer, never use that cache, fail closed, and
-// write the workspace their read resolved. Two earlier cuts split a
-// plain read from its write and erased the active workspace's records
-// (the verifiers' probes S1–S3, now permanent below).
+// The workspace pointer (sections 2–3). ONE pointer per page: every read
+// and write — plain and strict, the locked writes, the keystore Map and
+// signing, the entity list, the IndexedDB names — resolves the workspace
+// through the page's CACHED pointer with origin/main's rule (a failed
+// pointer read is 'default', cached until the pointer next changes), so
+// nothing read in one workspace is ever written into, or joined with,
+// another. Under that fault a page misroutes CONSISTENTLY into the
+// default workspace, as on main (a named follow-up). The destructive
+// wholesale operations — reset, workspace removal, replace-all restore,
+// merge-import, export, the reset's safety file — are the ones a misroute
+// would turn into erasure, so they first re-read the pointer strictly and
+// refuse unless it agrees with the cache. Earlier cuts of this branch
+// mixed a strict per-call pointer into ordinary paths, and each review
+// found a new straddle between the two (the verifiers' probes S1–S3 and
+// the join test below are the permanent observers).
 //
 // Each test models extension PAGES as module instances of
 // entity-model.js (`?page=B` gives a second instance) over one
@@ -31,10 +33,10 @@
 // as two real pages share one storage area. The stub is asynchronous
 // like the real API, delivers onChanged events, and injects faults: a
 // read of the registry, of the workspace pointer, or of the whole area
-// can fail by runtime.lastError or by a throw, and `onRegistryRead(n,
-// fn)` (one-shot) runs `fn` after the n-th registry read took its
-// snapshot and before the reader sees it — so another actor can land
-// "between a write's read and its write".
+// can fail by runtime.lastError (chrome's or, Firefox-style, browser's),
+// or by a throw, and `onRegistryRead(n, fn)` (one-shot) runs `fn` after
+// the n-th registry read took its snapshot and before the reader sees it
+// — so another actor can land "between a write's read and its write".
 //
 // Key material: only the BIP-340 vector keys TV1/TV2/TV3
 // (tests/tools/fixture-keys.mjs) plus keys derived at test time.
@@ -58,7 +60,7 @@ const later = (fn) => setImmediate(fn);
 
 const isRegistryKey = (k) => k === 'entities'
     || (typeof k === 'string' && k.startsWith('ws:') && k.endsWith(':entities'));
-// fail.<kind> = null | { mode: 'lastError' | 'throw', skip, times }
+// fail.<kind> = null | { mode: 'lastError' | 'ffLastError' | 'throw', skip, times }
 // (`write`: a write of the registry key fails by runtime.lastError).
 const fail = { registry: null, pointer: null, all: null, write: null };
 let _registryHook = null;     // { n, fn }: one-shot, fires on the n-th registry read after arming
@@ -98,6 +100,13 @@ const localArea = {
         if (mode === 'throw') throw new Error('stub: storage read threw');
         if (mode === 'lastError') {
             later(() => withLastError('stub: IO error', () => cb(undefined)));
+            return;
+        }
+        if (mode === 'ffLastError') {   // Firefox: the error on browser.runtime, and a result object anyway
+            later(() => {
+                globalThis.browser = { runtime: { lastError: { message: 'stub: IO error' } } };
+                try { cb({}); } finally { delete globalThis.browser; }
+            });
             return;
         }
         const out = {};
@@ -146,6 +155,7 @@ globalThis.chrome = {
     }
 };
 
+
 const { Storage } = await import('../src/shared/storage.js');
 const { Crypto } = await import('../src/shared/crypto.js');
 const { Utils } = await import('../src/shared/utils.js');
@@ -158,12 +168,12 @@ const { applyBackup, mergeBackup, collectBackup, BACKUP_FORMAT } = await import(
 const { resetWorkspace, workspaceBackup, Workspaces } = await import('../src/shared/identity-profiles.js');
 const { ClaimModel } = await import('../src/shared/claim-model.js');
 const { importCaseBundle, collectCaseBundle, CASE_BUNDLE_FORMAT } = await import('../src/shared/case-bundle.js');
-const { activeWorkspaceId: wsKeysActiveWorkspaceId } = await import('../src/shared/workspace-keys.js');
+const { activeWorkspaceId: wsKeysActiveWorkspaceId, resolveActiveDbName } = await import('../src/shared/workspace-keys.js');
 const { TV1, TV2, TV3, FIXED_TIME_S } = await import('./tools/fixture-keys.mjs');
 
 // ---- helpers ---------------------------------------------------------------
 const settle = () => new Promise((r) => setTimeout(r, 15));
-const rawSet = (obj) => new Promise((r) => chrome.storage.local.set(obj, r));
+const rawSet = (obj) => new Promise((r) => globalThis.chrome.storage.local.set(obj, r));
 const failReads = (kind, mode, { skip = 0, times = Infinity } = {}) => { fail[kind] = { mode, skip, times }; };
 const onRegistryRead = (n, fn) => { _registryHook = { n, fn }; };
 /** Inside a hook: let the racing operation run to completion — or, when it
@@ -259,6 +269,7 @@ async function pullWith(events) {
     }
 }
 const backupWith = (storage) => ({ format: BACKUP_FORMAT, storage, databases: {} });
+
 
 // ---- 1. a failed registry read never becomes "empty" and gets written back --
 // Each test asserts STORAGE first and the error second, so a red run
@@ -444,60 +455,40 @@ test('restoreDerivedKeys: the keys come back but recording their origin fails �
     assert.equal(out.stampFailed, true, 'and the caller is told, so Options can say so');
 });
 
-// ---- 2. the workspace pointer: plain paths fall back as on main, strict paths fail closed
+// ---- 2. ONE workspace pointer per page: a fault misroutes consistently, never straddles
 
-for (const mode of ['lastError', 'throw']) {
-    test(`a failed pointer read routes no entity write into the default workspace, and poisons no later write (${mode})`, async () => {
-        await reset();
-        seed('entities', { [E1]: row(E1, 'Default One') });
-        seed('ws:wsb:entities', { [E2]: row(E2, 'B One') });
-        const errs = captureErrors();
-        failReads('pointer', mode);            // armed BEFORE the switch: every pointer read after
-        await otherPageSwitchesTo('wsb');      // the switch's cache invalidation fails
-        let err;
-        try { err = await attempt(() => A.importRecord({ id: EX, name: 'Imported', type: 'person' })); } finally { fail.pointer = null; errs.restore(); }
-        assert.deepEqual(ids('entities'), [E1], 'the default workspace registry is untouched');
-        assert.deepEqual(ids('ws:wsb:entities'), [E2], 'and so is wsb');
-        assertRefused(err, 'importRecord');
-
-        await A.importRecord({ id: EX, name: 'Imported', type: 'person' });
-        assert.deepEqual(ids('entities'), [E1], 'with the pointer readable again, nothing lands in the default workspace');
-        assert.deepEqual(ids('ws:wsb:entities'), [E2, EX], 'the write lands in wsb');
-    });
-}
-
-// PLAIN paths keep origin/main's rule: a failed pointer read is 'default'
-// and is CACHED, so the page's plain reads and plain writes resolve the
-// same workspace until the pointer changes. Under a fault that misroutes
-// a plain write into the default workspace (as on main — a listed
-// follow-up) but never straddles: a read of one workspace is never
-// written back into another. S1–S3 are the verifiers' probes; the rule
-// they replaced (a fallen-back read marked its key, a later successful
-// read cleared the mark) let S3 erase the active workspace's records.
 const claim = (id, text) => ({ id, text, about: [], source: null, is_key: false, source_url: 'https://example.com/a', created: 1, updated: 1 });
-/** Another page switches to wsb while this page's pointer reads fail; then exactly ONE more of them fails. */
-async function switchToWsbThenFailOnePointerRead() {
-    failReads('pointer', 'lastError');   // through the switch: the keystore's strict refresh cannot resolve it either
-    await otherPageSwitchesTo('wsb');
-    failReads('pointer', 'lastError', { times: 1 });
-}
 async function seedClaims() {
     seed('article_claims', { claim_d1: claim('claim_d1', 'DEFAULT workspace claim') });
     seed('ws:wsb:article_claims', { claim_w1: claim('claim_w1', 'wsb claim 1'), claim_w2: claim('claim_w2', 'wsb claim 2') });
 }
+/** Another page switches to wsb while this page's pointer reads fail: the page caches the
+ *  'default' fallback (origin/main's rule) and keeps it once the pointer is readable again. */
+async function cacheFallsBackWhileWsbIsActive(mode = 'lastError') {
+    failReads('pointer', mode);
+    await otherPageSwitchesTo('wsb');
+    const cached = await Storage.activeWorkspaceId();
+    fail.pointer = null;
+    assert.equal(cached, 'default', 'sanity: the page cached the fallback');
+    assert.equal(JSON.parse(_store.get('active_workspace')), 'wsb', 'sanity: the stored pointer is wsb');
+}
+const wsbKeys = () => JSON.stringify([..._store.entries()].filter(([k]) => k.startsWith('ws:wsb:')).sort());
 
-test('S1: a failed pointer read inside a plain read-then-write (ClaimModel.create) erases nothing in the active workspace — main\'s outcome', async () => {
+// S1–S3: the verifiers' probes (a failed pointer read inside PLAIN
+// read-then-write code the fix did not convert). Outcome identical to
+// origin/main: the active workspace loses nothing and gains nothing.
+test('S1: a failed pointer read inside ClaimModel.create erases nothing in the active workspace — the claim lands in the page\'s cached workspace, as on main', async () => {
     await reset();
     await seedClaims();
     const errs = captureErrors();
     let made;
     try {
-        await switchToWsbThenFailOnePointerRead();
+        failReads('pointer', 'lastError', { times: 1 });   // exactly one, as in the probe
+        await otherPageSwitchesTo('wsb');
         made = await ClaimModel.create({ text: 'A new claim made in wsb', source_url: 'https://example.com/b' });
     } finally { fail.pointer = null; errs.restore(); }
     assert.deepEqual(ids('ws:wsb:article_claims'), ['claim_w1', 'claim_w2'], 'wsb keeps its own claims and gains none of the default workspace\'s');
-    assert.deepEqual(ids('article_claims'), ['claim_d1', made.id].sort(),
-        'the claim lands beside what its own read saw — the default workspace, as on origin/main');
+    assert.deepEqual(ids('article_claims'), ['claim_d1', made.id].sort(), 'the claim lands beside what its own read saw — the default workspace');
 });
 
 test('S2: Storage.initialize under a failed pointer read seeds nothing over the active workspace\'s accounts — main\'s outcome', async () => {
@@ -505,7 +496,8 @@ test('S2: Storage.initialize under a failed pointer read seeds nothing over the 
     seed('ws:wsb:platform_accounts', { acct1: { key: 'acct1' } });
     const errs = captureErrors();
     try {
-        await switchToWsbThenFailOnePointerRead();
+        failReads('pointer', 'lastError', { times: 1 });
+        await otherPageSwitchesTo('wsb');
         await Storage.initialize();
     } finally { fail.pointer = null; errs.restore(); }
     assert.deepEqual(ids('ws:wsb:platform_accounts'), ['acct1'], 'wsb keeps its platform accounts');
@@ -518,9 +510,9 @@ test('S3: a fallen-back plain read, a second plain read of the same key, then se
     const errs = captureErrors();
     let snap, again, wrote;
     try {
-        await switchToWsbThenFailOnePointerRead();
+        failReads('pointer', 'lastError', { times: 1 });
+        await otherPageSwitchesTo('wsb');
         snap = await Storage.get('article_claims', {});
-        fail.pointer = null;
         again = await Storage.get('article_claims', {});
         snap.claim_new = claim('claim_new', 'new');
         wrote = await Storage.set('article_claims', snap);
@@ -529,83 +521,51 @@ test('S3: a fallen-back plain read, a second plain read of the same key, then se
     assert.deepEqual(ids('article_claims'), ['claim_d1', 'claim_new'], 'the write landed in the workspace both reads saw');
     assert.deepEqual(Object.keys(again), ['claim_d1'], 'the second read used the cached fallback — no read/write straddle');
     assert.equal(wrote, true);
-    assert.equal(await Storage.activeWorkspaceId(), 'default', 'the page\'s plain cache holds the fallback');
     await otherPageSwitchesTo('wsb');
     assert.deepEqual(Object.keys(await Storage.get('article_claims', {})).sort(), ['claim_w1', 'claim_w2'],
-        'the next pointer change re-reads it: plain reads follow the real workspace again');
+        'the next pointer change re-reads it: the page follows the real workspace again');
 });
 
-// STRICT paths never use that cache: they re-read the pointer, fail closed,
-// and write the workspace their read resolved.
-test('a strict writer is correct while the page\'s plain cache holds a fallen-back \'default\': entity, key, reset and removal act on the ACTIVE workspace; the default one is untouched', async () => {
+for (const mode of ['lastError', 'throw']) {
+    test(`an entity write under a fallen-back pointer lands in the page's cached workspace beside that workspace's records — nothing erased in either (${mode})`, async () => {
+        await reset();
+        seed('entities', { [E1]: row(E1, 'Default One') });
+        seed('ws:wsb:entities', { [E2]: row(E2, 'B One') });
+        const wsbBefore = wsbKeys();
+        const errs = captureErrors();
+        try {
+            await cacheFallsBackWhileWsbIsActive(mode);
+            await A.importRecord({ id: EX, name: 'Imported', type: 'person' });
+            await A.update(E1, { description: 'edited under the fallback' });
+        } finally { errs.restore(); }
+        assert.equal(wsbKeys(), wsbBefore, 'wsb is byte-for-byte untouched');
+        assert.deepEqual(ids('entities'), [E1, EX].sort(), 'both writes joined the default workspace\'s records — the page\'s workspace, as on origin/main');
+        assert.equal(readJson('entities')[E1].description, 'edited under the fallback');
+
+        await otherPageSwitchesTo('wsb');
+        await A.importRecord({ id: E3, name: 'After The Switch', type: 'person' });
+        assert.deepEqual(ids('ws:wsb:entities'), [E2, E3].sort(), 'after the next pointer change the page writes wsb again');
+        assert.deepEqual(ids('entities'), [E1, EX].sort(), 'and leaves the default workspace alone');
+    });
+}
+
+// The join: records (a plain read) and keys (the keystore Map, loaded by a
+// strict VALUE read) come from the same cached pointer, so a record is only
+// ever paired with its own workspace's key — in display, signing, the sync
+// push and the case bundle that ships keys. Both workspaces hold the SAME
+// entity id with different keys (TV2 in default, TV3 in wsb).
+test('no straddle: with the cache fallen back to \'default\' and the pointer at wsb, every read, write, key join, signature, bundle and push acts on the default workspace alone', async () => {
     await reset();
     await Storage.primaryIdentity.set(TV1.privateKey);
-    seed('entities', { [E1]: row(E1, 'Default One') });
-    seed('ws:wsb:entities', { [E2]: row(E2, 'B One') });
-    seed('workspaces', { default: { id: 'default', label: 'Default workspace' }, wsb: { id: 'wsb', label: 'B' } });
-    const errs = captureErrors();
-    let during;
-    try {
-        await switchToWsbThenFailOnePointerRead();
-        during = await Storage.get('entities', {});
-    } finally { fail.pointer = null; errs.restore(); }
-    assert.deepEqual(Object.keys(during), [E1], 'sanity: this page\'s plain read fell back to the default workspace');
-    const defaultBefore = _store.get('entities');
-
-    await A.update(E2, { description: 'strict write' });
-    await A.importRecord({ id: EX, name: 'Imported', type: 'person' });
-    await A.create({ name: 'Made In B', type: 'person' });
-    const wsb = readJson('ws:wsb:entities');
-    const madeId = Object.keys(wsb).find((id) => ![E2, EX].includes(id));
-    assert.equal(wsb[E2].description, 'strict write', 'the update landed in wsb');
-    assert.ok(wsb[EX] && madeId, 'so did the import and the create');
-    assert.ok(readJson('ws:wsb:local_keys')[wsb[madeId].keyName], 'the created entity\'s key is in wsb\'s keystore');
-    assert.ok(_store.get('entities') === defaultBefore, 'the default workspace registry is byte-for-byte unchanged');
-    assert.equal(_store.has('local_keys'), false, 'and no keystore was written into the default workspace');
-
-    // The export and the reset's safety backup read strictly too: under an
-    // unreadable pointer the export refuses (it never exports 'default'), and
-    // with the cache fallen back the safety file holds what the reset clears.
-    failReads('pointer', 'lastError');
-    const exported = await attempt(() => collectBackup());
-    fail.pointer = null;
-    assert.ok(exported && exported.name === 'StoreRefusedError', `an export under an unreadable pointer refuses (got ${exported && exported.message})`);
-    const snap = await workspaceBackup();
-    assert.deepEqual(snap.data.entities, readJson('ws:wsb:entities'), 'the safety backup is the ACTIVE workspace\'s registry, not the default one');
-
-    const removal = await attempt(() => Workspaces.remove('wsb', { idb: NO_IDB }));
-    assert.match(String(removal && removal.message), /switch away from the active workspace/, 'removing the ACTIVE workspace is refused, whatever the cache says');
-    assert.ok(_store.has('ws:wsb:entities'), 'and wsb\'s data is still there');
-
-    seed('article_claims', { d1: { id: 'd1' } });
-    seed('ws:wsb:article_claims', { c1: { id: 'c1' } });
-    await resetWorkspace({ idb: NO_IDB });
-    assert.equal(_store.has('ws:wsb:article_claims'), false, 'the reset cleared wsb');
-    assert.ok(snap.data.entities[E2] && !snap.data.entities[E1], 'so the safety file taken first holds what the reset cleared');
-    assert.equal(_store.has('ws:wsb:entities'), false);
-    assert.ok(_store.get('entities') === defaultBefore && _store.has('article_claims'), 'and left the default workspace alone');
-    assert.equal(await Storage.activeWorkspaceId(), 'default', 'the strict paths left the plain cache as it was — plain reads and writes still agree');
-});
-
-// The keystore Map is loaded STRICTLY (it plans key writes), while the
-// entity list is a PLAIN read. A record joins a key, and a key signs, only
-// when the Map is the workspace that record came from — never one
-// workspace's record with another's private key (display, kind-0 signing,
-// entity-sync push, the case bundle that ships keys).
-test('a fallen-back plain cache never pairs the default workspace\'s records with the active workspace\'s keys — not in display, signing, sync push or a case bundle', async () => {
-    await reset();
     const kn = `entity:${E1}`;
     seed('entities', { [E1]: row(E1, 'Shared Name', { description: 'DEFAULT workspace text' }) });
     seed('local_keys', { [kn]: keyRecord(kn, TV2) });
     seed('ws:wsb:entities', { [E1]: row(E1, 'Shared Name', { description: 'WSB workspace text' }) });
     seed('ws:wsb:local_keys', { [kn]: keyRecord(kn, TV3) });
+    const wsbBefore = wsbKeys();
     const errs = captureErrors();
-    try {
-        await switchToWsbThenFailOnePointerRead();
-        await Storage.get('entities', {});            // the page's plain cache falls back to 'default'
-    } finally { fail.pointer = null; errs.restore(); }
-    await LocalKeyManager.init();                     // as every page's init does: the Map is wsb's
-    assert.equal(await Storage.activeWorkspaceId(), 'default', 'sanity: the plain cache fell back');
+    try { await cacheFallsBackWhileWsbIsActive(); } finally { errs.restore(); }
+    await LocalKeyManager.refresh();                   // the keystore's own read — through the same cache
 
     const sent = [];
     const origPublish = NostrClient.publishToRelays;
@@ -614,90 +574,176 @@ test('a fallen-back plain cache never pairs the default workspace\'s records wit
     try {
         one = await A.get(E1);
         all = await A.getAll();
+        signed = await LocalKeyManager.signEvent({ kind: 0, content: '{}', tags: [], created_at: FIXED_TIME_S }, kn);
         bundle = await collectCaseBundle(E1);
         pushed = await pushEntities({ userPrivkey: TV1.privateKey, relays: ['wss://relay.example'] });
-        signed = await attempt(() => LocalKeyManager.signEvent({ kind: 0, content: '{}', tags: [], created_at: FIXED_TIME_S }, kn));
+        await A.update(E1, { nip05: 'under@fallback.example' });
+        await A.importRecord({ id: EX, name: 'Imported', type: 'person' });
+        await A.create({ name: 'Made Under The Fallback', type: 'person' });
     } finally { NostrClient.publishToRelays = origPublish; }
     const convKey = await Crypto.nip44GetConversationKey(TV1.privateKey, TV1.pubkey);
-    const payloadKeys = [];
-    for (const ev of sent.filter((e) => e.kind === 30078)) {
-        const p = JSON.parse(await Crypto.nip44Decrypt(ev.content, convKey));
-        payloadKeys.push(p.keypair && (p.keypair.privateKey || p.keypair.privkey));
-    }
-    const wsbKey = (k) => !!k && (k.pubkey === TV3.pubkey || k.privateKey === TV3.privateKey);
+    const payloads = [];
+    for (const ev of sent.filter((e) => e.kind === 30078)) payloads.push(JSON.parse(await Crypto.nip44Decrypt(ev.content, convKey)));
+    const isTV2 = (k) => !!k && k.pubkey === TV2.pubkey && (k.privateKey === undefined || k.privateKey === TV2.privateKey);
 
-    // The invariant (origin/main holds it too: its Map followed the cache).
-    assert.equal(one.description, 'DEFAULT workspace text', 'sanity: the plain read shows the default workspace');
-    assert.ok(!wsbKey(one.keypair), 'get(): the default record never carries wsb\'s key');
-    assert.ok(!wsbKey(all[E1].keypair), 'getAll(): nor does the list');
-    assert.ok(!bundle.entities.some((e) => e.privkey === TV3.privateKey), 'the case bundle ships no wsb key under a default record');
-    assert.ok(!payloadKeys.includes(TV3.privateKey), 'the sync push publishes no wsb key under a default record');
-    assert.ok(!(signed && signed.pubkey === TV3.pubkey), 'nothing is signed with wsb\'s key for the displayed (default) record');
-    // How this branch holds it: the Map is loaded strictly (wsb's), so while
-    // the two disagree the record reads keyless and signing refuses.
-    assert.ok(LocalKeyManager.getKey(kn).pubkey === TV3.pubkey, 'the strictly-loaded Map holds wsb\'s key');
-    assert.equal(one.keypair, null, 'the record reads keyless while the Map and the cache disagree');
-    assert.equal(pushed.pushed, 0, 'so the push skips it');
-    assert.ok(signed instanceof Error && /Key not found/.test(signed.message), 'and signing refuses');
+    assert.ok(LocalKeyManager.getKey(kn).pubkey === TV2.pubkey, 'the keystore refresh loaded the default workspace\'s keys');
+    assert.equal(one.description, 'DEFAULT workspace text', 'get(): the default record…');
+    assert.ok(isTV2(one.keypair), '…with the default workspace\'s key');
+    assert.ok(all[E1].description === 'DEFAULT workspace text' && isTV2(all[E1].keypair), 'getAll(): the same pair');
+    assert.equal(signed.pubkey, TV2.pubkey, 'signEvent signs with the default workspace\'s key');
+    const shipped = bundle.entities.find((e) => e.id === E1);
+    assert.ok(shipped.description === 'DEFAULT workspace text' && shipped.privkey === TV2.privateKey, 'the case bundle ships the default record with its own key');
+    const p = payloads.find((x) => x.id === E1);
+    assert.ok(pushed.pushed >= 1 && p && p.description === 'DEFAULT workspace text' && p.keypair.privateKey === TV2.privateKey,
+        'the sync push publishes the default record with its own key');
+    const ents = readJson('entities');
+    const madeId = Object.keys(ents).find((id) => ![E1, EX].includes(id));
+    assert.equal(ents[E1].nip05, 'under@fallback.example', 'the update landed in the default workspace');
+    assert.ok(ents[EX] && madeId, 'so did the import and the create');
+    assert.ok(readJson('local_keys')[ents[madeId].keyName], 'and the created entity\'s key is in the default workspace\'s keystore');
+    assert.equal(await resolveActiveDbName('xray-archive'), 'xray-archive', 'the IndexedDB names resolve the same cached workspace');
+    assert.equal(await wsKeysActiveWorkspaceId(), 'default', 'as does every workspace-keys caller (the LLM-job scope)');
+    assert.equal(wsbKeys(), wsbBefore, 'wsb is byte-for-byte untouched');
 
-    await otherPageSwitchesTo('wsb');                 // the pointer changes: the cache re-reads, the Map refreshes
+    await otherPageSwitchesTo('wsb');                  // the pointer changes: the cache re-reads, the Map refreshes
     await LocalKeyManager.refresh();
     const again = await A.get(E1);
-    assert.equal(again.description, 'WSB workspace text', 'with the cache following the pointer, the list shows wsb');
-    assert.ok(again.keypair && again.keypair.pubkey === TV3.pubkey, 'and joins wsb\'s own key');
+    assert.ok(again.description === 'WSB workspace text' && again.keypair.pubkey === TV3.pubkey, 'following the pointer again, the page pairs wsb\'s record with wsb\'s key');
     const ok = await LocalKeyManager.signEvent({ kind: 0, content: '{}', tags: [], created_at: FIXED_TIME_S }, kn);
     assert.equal(ok.pubkey, TV3.pubkey, 'and signs with it');
+    assert.equal(await resolveActiveDbName('xray-archive'), 'xray-archive::wsb');
 });
 
-test('a workspace reset whose workspace is switched while it waits for the locks clears nothing', async () => {
-    await reset();
+// ---- 3. destructive wholesale operations verify the page's pointer first ---------
+// Each acts on the page's cached workspace only when a STRICT re-read of the
+// pointer agrees with it; unreadable or different, it refuses with a
+// StoreRefusedError before writing, deleting or producing anything.
+
+const WORKSPACES = { default: { id: 'default', label: 'Default workspace' }, wsb: { id: 'wsb', label: 'B' }, wsc: { id: 'wsc', label: 'C' } };
+function seedThreeWorkspaces() {
+    seed('workspaces', WORKSPACES);
     seed('entities', { [E1]: row(E1, 'Default One') });
+    seed('article_claims', { d1: { id: 'd1' } });
     seed('ws:wsb:entities', { [E2]: row(E2, 'B One') });
-    const deleted = [];
-    const idb = { deleteDatabase(name) { deleted.push(name); } };
-    let release;
-    const holding = withEntityStoreLock(() => new Promise((r) => { release = r; }));
-    const resetting = resetWorkspace({ idb });   // reads the pointer ('default'), then waits on the registry lock
-    await settle();
-    await otherPageSwitchesTo('wsb');
-    release();
-    await holding;
-    const err = await attempt(() => resetting);
-    assert.deepEqual(ids('ws:wsb:entities'), [E2], 'the workspace switched to was not cleared');
-    assert.deepEqual(ids('entities'), [E1], 'nor the one the reset started in');
-    assert.deepEqual(deleted, [], 'and no database was deleted');
-    assertRefused(err, 'resetWorkspace');
-});
+    seed('ws:wsb:article_claims', { b1: { id: 'b1' } });
+    seed('ws:wsc:entities', { [EX]: row(EX, 'C One') });
+}
+const storeSnapshot = () => JSON.stringify([..._store.entries()].sort());
+const fromFile = () => backupWith({ entities: JSON.stringify({ [E3]: row(E3, 'From File') }) });
+// Stamped newer than any schema: the version check would refuse it too, after opening
+// the databases — so a pointer refusal proves it came FIRST, before anything opened.
+const newerFile = () => ({ ...fromFile(), dbVersions: { 'xray-archive': 9999 } });
+const DESTRUCTIVE = [
+    ['resetWorkspace', () => resetWorkspace({ idb: NO_IDB })],
+    ['Workspaces.remove', () => Workspaces.remove('wsc', { idb: NO_IDB })],
+    ['applyBackup (replace-all restore)', () => applyBackup(newerFile())],
+    ['mergeBackup', () => mergeBackup(newerFile())],
+    ['collectBackup (export)', () => collectBackup()],
+    ['workspaceBackup (the reset\'s safety file)', () => workspaceBackup()]
+];
+function assertStoreRefused(err, label) {
+    assertRefused(err, label);
+    assert.equal(err.name, 'StoreRefusedError', `${label}: a typed store refusal (got ${err.name}: ${err.message})`);
+}
 
-test('a Firefox-style failure (browser.runtime.lastError) is a failed pointer read too', async () => {
-    const pointerArea = {
-        get(keys, cb) {
-            globalThis.browser.runtime.lastError = { message: 'stub: IO error' };
-            try { cb({}); } finally { delete globalThis.browser.runtime.lastError; }
-        }
-    };
-    globalThis.browser = { runtime: {}, storage: { local: pointerArea } };
-    try {
-        await assert.rejects(() => wsKeysActiveWorkspaceId({ strict: true }), /workspace pointer/);
-        assert.equal(await wsKeysActiveWorkspaceId(), 'default', 'a plain caller still gets the default');
-    } finally { delete globalThis.browser; }
-});
+for (const [label, run] of DESTRUCTIVE) {
+    test(`${label}: refused, nothing changed, when the page's cached pointer ('default', fallen back) differs from the stored one (wsb)`, async () => {
+        await reset();
+        seedThreeWorkspaces();
+        const errs = captureErrors();
+        try { await cacheFallsBackWhileWsbIsActive(); } finally { errs.restore(); }
+        const before = storeSnapshot();
+        let out;
+        const err = await attempt(async () => { out = await run(); });
+        assert.equal(storeSnapshot(), before, 'storage is byte-for-byte unchanged');
+        assert.equal(out, undefined, 'nothing was produced (no file to download)');
+        assertStoreRefused(err, label);
+    });
 
-test('a workspace reset under a failed pointer read clears nothing — least of all the default workspace', async () => {
+    for (const mode of ['lastError', 'throw', 'ffLastError']) {
+        test(`${label}: refused, nothing changed, when the strict pointer read fails (${mode})`, async () => {
+            await reset();
+            seedThreeWorkspaces();
+            assert.equal(await Storage.activeWorkspaceId(), 'default', 'sanity: the cache is warm and right');
+            const before = storeSnapshot();
+            let out, err;
+            failReads('pointer', mode);
+            try { err = await attempt(async () => { out = await run(); }); } finally { fail.pointer = null; }
+            assert.equal(storeSnapshot(), before, 'storage is byte-for-byte unchanged');
+            assert.equal(out, undefined, 'nothing was produced (no file to download)');
+            assertStoreRefused(err, label);
+        });
+    }
+}
+
+test('with the pointer verified (cache == stored == wsb), every destructive operation proceeds — on wsb, and only wsb', async () => {
     await reset();
-    seed('entities', { [E1]: row(E1, 'Default One') });
-    seed('ws:wsb:entities', { [E2]: row(E2, 'B One') });
-    const errs = captureErrors();
-    failReads('pointer', 'lastError');
+    seedThreeWorkspaces();
     await otherPageSwitchesTo('wsb');
-    let err;
-    try { err = await attempt(() => resetWorkspace({ idb: NO_IDB })); } finally { fail.pointer = null; errs.restore(); }
-    assert.deepEqual(ids('entities'), [E1], 'the default workspace keeps its registry');
-    assert.deepEqual(ids('ws:wsb:entities'), [E2], 'and the active one was not half-cleared');
-    assertRefused(err, 'resetWorkspace');
+    const defaultBefore = [_store.get('entities'), _store.get('article_claims')];
+
+    const exported = await collectBackup();
+    assert.deepEqual(Object.keys(JSON.parse(exported.storage.entities)), [E2], 'the export holds wsb\'s registry');
+    const safety = await workspaceBackup();
+    assert.equal(safety.workspace, 'wsb', 'the safety file names its workspace');
+    assert.deepEqual(Object.keys(safety.data.entities), [E2], 'and holds wsb\'s registry');
+    await mergeBackup(fromFile());
+    assert.deepEqual(ids('ws:wsb:entities'), [E2, E3].sort(), 'the merge accrued into wsb');
+    await applyBackup(backupWith({ entities: JSON.stringify({ [E1]: row(E1, 'Restored') }) }));
+    assert.deepEqual(ids('ws:wsb:entities'), [E1], 'the restore replaced wsb\'s registry');
+    assert.equal(_store.has('ws:wsb:article_claims'), false, 'and its other content');
+    await Workspaces.remove('wsc', { idb: NO_IDB });
+    assert.equal(_store.has('ws:wsc:entities'), false, 'removing wsc deleted its data');
+    const removal = await attempt(() => Workspaces.remove('wsb', { idb: NO_IDB }));
+    assert.match(String(removal && removal.message), /switch away from the active workspace/, 'removing the active workspace is refused');
+    seed('ws:wsb:article_claims', { b2: { id: 'b2' } });
+    await resetWorkspace({ idb: NO_IDB, workspace: safety.workspace });
+    assert.ok(!_store.has('ws:wsb:entities') && !_store.has('ws:wsb:article_claims'), 'the reset cleared wsb');
+    assert.deepEqual([_store.get('entities'), _store.get('article_claims')], defaultBefore, 'the default workspace was never touched');
 });
 
-test('the safety backup a reset downloads first refuses on a failed read — the reset flow never clears after an empty file', async () => {
+test('the reset clears exactly the workspace its safety file holds, and refuses any other', async () => {
+    await reset();
+    seedThreeWorkspaces();
+    await otherPageSwitchesTo('wsb');
+    const safety = await workspaceBackup();
+    assert.equal(safety.workspace, 'wsb');
+    assert.deepEqual(safety.data.entities, readJson('ws:wsb:entities'), 'the file holds wsb\'s registry');
+    await otherPageSwitchesTo('wsc');                  // another page switches between the download and the reset
+    const before = storeSnapshot();
+    const err = await attempt(() => resetWorkspace({ idb: NO_IDB, workspace: safety.workspace }));
+    assert.equal(storeSnapshot(), before, 'nothing cleared: this page now verifies wsc, which the file does not hold');
+    assertStoreRefused(err, 'resetWorkspace');
+    await otherPageSwitchesTo('wsb');
+    await resetWorkspace({ idb: NO_IDB, workspace: safety.workspace });
+    assert.equal(_store.has('ws:wsb:entities'), false, 'with the page back on wsb, the reset cleared wsb — the file\'s workspace');
+    assert.ok(_store.has('entities') && _store.has('ws:wsc:entities'), 'and nothing else');
+});
+
+for (const [label, start, expect] of [
+    ['a workspace reset', () => resetWorkspace({ idb: NO_IDB }), /nothing written/],
+    ['a replace-all restore', () => applyBackup(fromFile()), /nothing written/]
+]) {
+    test(`${label} whose workspace is switched while it waits for the locks writes nothing`, async () => {
+        await reset();
+        seedThreeWorkspaces();
+        const before = storeSnapshot();
+        let release;
+        const holding = withEntityStoreLock(() => new Promise((r) => { release = r; }));
+        const running = start();                      // verifies 'default', then waits on the registry lock
+        await settle();
+        await otherPageSwitchesTo('wsb');
+        const afterSwitch = storeSnapshot();
+        release();
+        await holding;
+        const err = await attempt(() => running);
+        assert.notEqual(afterSwitch, before, 'sanity: the switch itself wrote the pointer');
+        assert.equal(storeSnapshot(), afterSwitch, 'nothing was written after the switch — in either workspace');
+        assert.match(String(err && err.message), expect, `${label}: refused`);
+    });
+}
+
+test('the safety backup a reset downloads first refuses on a failed registry read — the reset flow never clears after an empty file', async () => {
     await reset();
     seed('entities', { [E1]: row(E1, 'One') });
     failReads('registry', 'lastError');
@@ -705,39 +751,19 @@ test('the safety backup a reset downloads first refuses on a failed read — the
     try {
         err = await attempt(async () => { snapshot = await workspaceBackup(); });
     } finally { fail.registry = null; }
-    assert.ok(!snapshot || (snapshot.data.entities && snapshot.data.entities[E1]),
-        'no safety file was produced without the registry in it');
+    assert.equal(snapshot, undefined, 'no safety file was produced without the registry in it');
     assert.ok(err, 'the backup rejected, so the Options flow stops before resetWorkspace');
     assert.deepEqual(ids(), [E1], 'and the registry is still there');
 });
-
-for (const [label, run] of [
-    ['replace-all restore', (b) => applyBackup(b)],
-    ['merge-import', (b) => mergeBackup(b)]
-]) {
-    test(`a ${label} under a failed pointer read writes nothing into the default workspace`, async () => {
-        await reset();
-        seed('entities', { [E1]: row(E1, 'Default One') });
-        seed('ws:wsb:entities', { [E2]: row(E2, 'B One') });
-        const errs = captureErrors();
-        failReads('pointer', 'lastError');
-        await otherPageSwitchesTo('wsb');
-        let err;
-        try { err = await attempt(() => run(backupWith({ entities: JSON.stringify({ [E3]: row(E3, 'From File') }) }))); } finally { fail.pointer = null; errs.restore(); }
-        assert.deepEqual(ids('entities'), [E1], 'the default workspace registry is untouched');
-        assert.deepEqual(ids('ws:wsb:entities'), [E2], 'and so is wsb');
-        assertRefused(err, label);
-    });
-}
 
 test('a merge-import whose read of current storage fails refuses instead of writing the file\'s registry over the local one', async () => {
     await reset();
     seed('entities', { [E1]: row(E1, 'Local One'), [E2]: row(E2, 'Local Two') });
     failReads('all', 'lastError');
     let err;
-    try { err = await attempt(() => mergeBackup(backupWith({ entities: JSON.stringify({ [E3]: row(E3, 'From File') }) }))); } finally { fail.all = null; }
+    try { err = await attempt(() => mergeBackup(fromFile())); } finally { fail.all = null; }
     assert.deepEqual(ids(), [E1, E2], 'the local registry is as it was');
-    assertRefused(err, 'mergeBackup');
+    assertStoreRefused(err, 'mergeBackup');
 });
 
 test('a replace-all restore whose read of current storage fails refuses instead of leaving stale content behind', async () => {
@@ -746,13 +772,13 @@ test('a replace-all restore whose read of current storage fails refuses instead 
     seed('claims', { c1: { id: 'c1' } });
     failReads('all', 'lastError');
     let err;
-    try { err = await attempt(() => applyBackup(backupWith({ entities: JSON.stringify({ [E3]: row(E3, 'From File') }) }))); } finally { fail.all = null; }
+    try { err = await attempt(() => applyBackup(fromFile())); } finally { fail.all = null; }
     assert.deepEqual(Object.keys(readJson('claims')), ['c1'], 'sanity: content outside the file is still there');
     assert.deepEqual(ids('entities'), [E1], 'nothing was half-replaced: the registry is the local one, not the file\'s beside stale claims');
-    assertRefused(err, 'applyBackup');
+    assertStoreRefused(err, 'applyBackup');
 });
 
-// ---- 3. two pages, one registry: no lost update ------------------------------
+// ---- 4. two pages, one registry: no lost update ------------------------------
 
 test('two pages update different entities at once: both updates survive', async () => {
     await reset();
@@ -863,7 +889,7 @@ test('a merge-import racing an entity update keeps both', async () => {
     assert.equal(ents[E1].description, 'late', 'the update');
 });
 
-// ---- 4. the lock itself --------------------------------------------------------
+// ---- 5. the lock itself --------------------------------------------------------
 
 test('entity writers serialize on the Web Lock "xray.entities" and never nest another lock inside it', async () => {
     await reset();
@@ -950,7 +976,7 @@ test('entity writers refuse to run outside an extension origin', async () => {
     }
 });
 
-// ---- 5. the source guard ------------------------------------------------------
+// ---- 6. the source guard ------------------------------------------------------
 // A tripwire on the call shape, not the invariant: a raw chrome.storage
 // writer or a key held in a variable passes it (the wholesale writers in
 // backup.js write raw — under withEntityStoreLock). The behavior tests

@@ -147,27 +147,28 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   to run outside an extension origin, and content scripts hold no
   keystore. **The entity registry (JOURNAL 2026-09-25)** follows the
   same contract: every incremental `entities` write goes through
-  `entity-model.js`, a locked read-modify-write under the Web Lock
-  `xray.entities`; the wholesale writers (backup restore and merge,
-  workspace reset and removal) write or clear `entities` directly
-  under `withEntityStoreLock`. Restore, reset and removal nest the
-  registry lock inside the keystore lock (never the reverse); merge
-  takes only the registry lock (it never merges `local_keys`). **The
-  workspace pointer:** plain paths (`Storage.get`/`set`/`delete`/
-  `keys`, `activeWorkspaceId()`, the IndexedDB names, the LLM-job
-  scope) read a failed pointer as `'default'`, as before, and
-  `storage.js` caches that fallback, so a page's plain reads and
-  writes agree. Strict paths (`getStrict` and the locked writes on it,
-  the keystore Map's load, backup restore/merge/export, reset and its
-  safety backup, removal) re-read the pointer and never use that
-  cache: a failed pointer read there rejects with a
-  `StoreRefusedError` and nothing is written (the Map's load keeps the
-  keys it had), and each write names the workspace its read resolved.
-  The keystore Map is loaded strictly, but an entity record read
-  through the plain pointer (`EntityModel.get`/`getAll`) joins a key,
-  and `signEvent` signs, only while the Map's workspace equals the
-  plain pointer's (`getKeyIn`); otherwise the record reads keyless and
-  signing refuses — never one workspace's record with another's key.
+  `entity-model.js`, a locked read-modify-write of a fresh STRICT read
+  under the Web Lock `xray.entities` (a failed read writes nothing);
+  the wholesale writers (backup restore and merge, workspace reset and
+  removal) write or clear `entities` directly under
+  `withEntityStoreLock`. Restore, reset and removal nest the registry
+  lock inside the keystore lock (never the reverse); merge takes only
+  the registry lock (it never merges `local_keys`). **The workspace
+  pointer: ONE cached pointer per page.** Every read and write — plain
+  and strict `Storage` calls, the locked writes, the keystore Map and
+  `signEvent`, the entity list, the IndexedDB names and the LLM-job
+  scope (`workspace-keys.js` defers to `storage.js`'s cache once it
+  loads) — resolves the workspace through `storage.js`'s cached
+  pointer, which reads a failed pointer read as `'default'` and caches
+  it until the pointer next changes: a fault misroutes a page
+  consistently, never across two workspaces. The destructive wholesale
+  operations (reset, workspace removal, backup restore / merge /
+  export, the reset's safety backup) first re-read the pointer strictly
+  (`Storage.verifiedWorkspaceId`) and refuse with a `StoreRefusedError`
+  — nothing written or downloaded — when that read fails or disagrees
+  with the cache; the reset also refuses any workspace but the one its
+  safety file names. Never add a second pointer read to an ordinary
+  path.
 - **`signer.js`** — unified signing façade over Local / NIP-07 /
   NSecBunker, dispatched on `preferences.signing_method`. NIP-07 only works
   where a `nip07Client` is injected (`Signer.configure({ nip07Client })`),

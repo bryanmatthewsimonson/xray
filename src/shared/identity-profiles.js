@@ -40,7 +40,8 @@ import {
     WORKSPACE_CONTENT_KEYS,
     WORKSPACE_DATABASES as WS_DATABASES,
     DERIVED_CACHE_DATABASES as WS_DERIVED_CACHES,
-    workspaceDbName
+    workspaceDbName,
+    StoreRefusedError
 } from './workspace-keys.js';
 
 export const WORKSPACE_CLEAR_KEYS = WORKSPACE_CONTENT_KEYS;
@@ -207,14 +208,15 @@ export const IdentityProfiles = {
  * workspace content store plus preferences and saved identities.
  * Contains private keys (profiles/nsec) by design — it is the user's
  * own recovery file; the UI warns. `xray:llm:key` is deliberately
- * absent (its module forbids export). Strict reads: a reset follows it (JOURNAL 2026-09-25).
+ * absent (its module forbids export). A reset follows it: strict reads of
+ * the page's verified workspace, named in `workspace` (JOURNAL 2026-09-25).
  */
 export async function workspaceBackup() {
-    const snapshot = { format: 'xray-workspace-backup', exported_at: new Date().toISOString(), data: {} };
+    const workspace = await Storage.verifiedWorkspaceId('workspaceBackup');
+    const snapshot = { format: 'xray-workspace-backup', exported_at: new Date().toISOString(), workspace, data: {} };
     const keys = [...WORKSPACE_CLEAR_KEYS, 'preferences', 'local_primary_identity', 'identity_profiles'];
-    const workspace = await Storage.activeWorkspaceId({ strict: true });   // one workspace for every key
     for (const key of keys) {
-        snapshot.data[key] = await Storage.getStrict(key, null, { workspace });
+        snapshot.data[key] = await Storage.getStrict(key, null);
     }
     return snapshot;
 }
@@ -222,13 +224,17 @@ export async function workspaceBackup() {
 /**
  * Clear the workspace content stores + IndexedDB caches. Keeps
  * everything in WORKSPACE_KEEP_KEYS untouched. `idb` is injectable for
- * tests; defaults to the global indexedDB when present.
+ * tests; defaults to the global indexedDB when present. `workspace`: the
+ * one the caller's safety backup holds — any other is refused.
  *
  * @returns {{cleared: string[], databases: string[]}}
  */
-export async function resetWorkspace({ idb } = {}) {
-    // The pointer first, strictly: a failed read cleared the DEFAULT workspace (JOURNAL 2026-09-25).
-    const ws = await Storage.activeWorkspaceId({ strict: true });
+export async function resetWorkspace({ idb, workspace } = {}) {
+    // The page's workspace, verified strictly first: a failed pointer read cleared the DEFAULT one (JOURNAL 2026-09-25).
+    const ws = await Storage.verifiedWorkspaceId('resetWorkspace');
+    if (workspace !== undefined && workspace !== ws) {
+        throw new StoreRefusedError(`resetWorkspace: the safety backup holds workspace "${workspace}", not "${ws}" — nothing written`);
+    }
     const cleared = [];
     // The content keys include `local_keys`: clear them under the
     // keystore lock, so a key write in flight on another page cannot
@@ -237,10 +243,10 @@ export async function resetWorkspace({ idb } = {}) {
     // writer. Re-check the pointer per delete: a switch mid-reset split workspaces.
     await withKeyStoreLock(() => withEntityStoreLock(async () => {
         for (const key of WORKSPACE_CLEAR_KEYS) {
-            if (await Storage.activeWorkspaceId({ strict: true }).then((now) => now !== ws, () => true)) {
+            if (await Storage.verifiedWorkspaceId('resetWorkspace').then((now) => now !== ws, () => true)) {
                 throw new Error(`resetWorkspace: the workspace changed or became unreadable — ${cleared.length ? `stopped after ${cleared.length} stores` : 'nothing written'}`);
             }
-            if (await Storage.delete(key, { workspace: ws }) === false) {
+            if (await Storage.delete(key) === false) {
                 throw new Error(`resetWorkspace: clearing ${key} failed after ${cleared.length} of ${WORKSPACE_CLEAR_KEYS.length} stores`);
             }
             cleared.push(key);

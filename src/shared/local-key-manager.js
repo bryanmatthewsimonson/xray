@@ -44,9 +44,8 @@
 //      requests a refresh, so a page's Map converges on storage after
 //      other pages' writes, raw restores, resets and workspace switches.
 // A page's Map is replaced in place (clear/set) — callers and tests
-// hold references to LocalKeyManager.keys. Rules 1–3 also serve the entity
-// registry (JOURNAL 2026-09-25): each store's ONE lock is fixed in STORE_LOCKS,
-// and the only nesting is keystore → registry, in the wholesale writers.
+// hold references to LocalKeyManager.keys. Rules 1–3 serve the entity registry too, each
+// store's ONE lock fixed in STORE_LOCKS; wholesale writers nest keystore → registry (JOURNAL 2026-09-25).
 
 import { Storage } from './storage.js';
 import { Utils } from './utils.js';
@@ -66,7 +65,6 @@ const HEX64 = /^[0-9a-f]{64}$/;
 
 let refreshWanted = false;  // a refresh was requested since the loop's last read began
 let refreshLoop = null;     // the running refresh loop, if any
-let mapWorkspace;           // the workspace the Map was loaded from (a strict pointer read)
 let watching = false;       // one change listener per module instance
 
 // Rule 3. No location at all (Node's test runner) passes; any location
@@ -156,16 +154,14 @@ function refresh() {
             try {
                 while (refreshWanted) {
                     refreshWanted = false;
-                    let stored, ws;
+                    let stored;
                     try {
-                        ws = await Storage.activeWorkspaceId({ strict: true });
-                        stored = await Storage.getStrict(STORE_KEY, {}, { workspace: ws });
+                        stored = await Storage.getStrict(STORE_KEY, {});
                     } catch (err) {
                         Utils.error('LocalKeyManager: reading local_keys failed — keeping the keys loaded before:', err);
                         continue;
                     }
                     replaceMap(isPlainObject(stored) ? stored : {});
-                    mapWorkspace = ws;
                 }
             } finally {
                 refreshLoop = null;
@@ -215,9 +211,8 @@ function watchStorage() {
     } catch (_) { /* no change events here — init() still loads */ }
 }
 
-/** A StoreRefusedError for `label`; a nested one (a failed pointer read) keeps its own text. */
-export const storeRefusal = (label, why, err) => new StoreRefusedError(`${label}: ${err && err.name === 'StoreRefusedError'
-    ? err.message : `${why} — nothing written${err ? ` (${err.message || err})` : ''}`}`);
+/** The StoreRefusedError for a store-level refusal by `label`. */
+export const storeRefusal = (label, why, err) => new StoreRefusedError(`${label}: ${why} — nothing written${err ? ` (${err.message || err})` : ''}`);
 
 // The one write path. Under the lock: read local_keys FRESH, let
 // `apply` change exactly its own names on that object, and write it
@@ -229,31 +224,33 @@ export const storeRefusal = (label, why, err) => new StoreRefusedError(`${label}
 // (the lock is not re-entrant). Serves every STORE_LOCKS key.
 //
 // The read is STRICT: an unreadable store aborts the write instead of
-// being read as empty (rule 1) — so does an unreadable pointer (never cached).
+// being read as empty (rule 1).
 //
-// The write names the workspace the read resolved, so it can never
-// carry one workspace's keys into another; and if the pointer moved
-// meanwhile the whole read-modify-write is redone in the new one.
+// Storage maps the key per call, so a workspace switch landing between
+// the read and the write would carry one workspace's keys into the
+// other. The pointer is re-checked right before the write (no event can
+// run between that check and the write's own mapping) and the whole
+// read-modify-write is redone if it moved.
 export async function lockedReadModifyWrite({ key, label, what, apply }) {
     if (!Object.hasOwn(STORE_LOCKS, key)) throw new Error(`lockedReadModifyWrite: no lock is fixed for ${key}`);
     return withStoreLock(STORE_LOCKS[key], async () => {
         for (let attempt = 1; ; attempt++) {
-            let ws, raw;
+            const ws = await Storage.activeWorkspaceId();
+            let raw;
             try {
-                ws = await Storage.activeWorkspaceId({ strict: true });
-                raw = await Storage.getStrict(key, {}, { workspace: ws });
+                raw = await Storage.getStrict(key, {});
             } catch (err) {
                 throw storeRefusal(label, `reading ${key} failed`, err);
             }
             if (!isPlainObject(raw)) throw storeRefusal(label, `stored ${key} is not an object — refusing to overwrite it`);
             const stored = { ...raw };
             const { write, result: out } = apply(stored);
-            if (await Storage.activeWorkspaceId({ strict: true }) !== ws) {   // an unreadable pointer rejects
+            if (await Storage.activeWorkspaceId() !== ws) {
                 if (attempt < 3) continue;
                 throw storeRefusal(label, 'the workspace kept changing during a write');
             }
             if (write) {
-                const ok = await Storage.set(key, stored, { workspace: ws });
+                const ok = await Storage.set(key, stored);
                 if (ok === false) throw storeRefusal(label, `writing ${key} failed`);
             }
             return out;
@@ -372,8 +369,6 @@ export const LocalKeyManager = {
     },
 
     getKey: (name) => LocalKeyManager.keys.get(name) || null,
-    /** For a record read through the PLAIN pointer: null unless the Map is `workspace`'s (JOURNAL 2026-09-25). */
-    getKeyIn: (name, workspace) => (workspace === mapWorkspace ? LocalKeyManager.getKey(name) : null),
 
     listKeys: () => Array.from(LocalKeyManager.keys.values()),
 
@@ -387,7 +382,7 @@ export const LocalKeyManager = {
     // BIP-340 Schnorr sign an unsigned event with a locally-stored key.
     // Returns an event with `id` + `sig` filled in, ready to publish.
     signEvent: async (event, keyName) => {
-        const key = LocalKeyManager.getKeyIn(keyName, await Storage.activeWorkspaceId());
+        const key = LocalKeyManager.getKey(keyName);
         if (!key) throw new Error('Key not found: ' + keyName);
         if (!key.privateKey) throw new Error('Key has no private key material: ' + keyName);
 
