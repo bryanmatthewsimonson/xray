@@ -52,7 +52,8 @@ real. What a protocol CANNOT do: make anyone believe a true thing,
 adjudicate intent or hearts, reach what was never recorded, substitute
 for courts, or force repentance. The system says so, on every surface
 where the difference matters. (The full statement of limits is
-`docs/TRUTH_SYSTEMS.md` H-1–H-7, adopted on ratification of that annex.)
+`docs/TRUTH_SYSTEMS.md` H-1–H-7, which is advice; Art. 5.6 keeps
+H-2's gate as law.)
 
 The operator's own object-level convictions — about money, about
 institutions, about any case this tool is pointed at — are not
@@ -123,10 +124,15 @@ this document:
   the universal ones as project-wide law (Art. 4) and leaves the
   audit-scoped ones (P1's score mechanics, P6's ceiling, P7's
   multiplier) to their family.
-- **`docs/TRUTH_ADJUDICATION_DESIGN.md`** §1 and §5 — the organic
-  statute of the truth-adjudication family (kinds 30063/30064). Its
-  header's "not a derivation of PHILOSOPHY.md" stands: the two statutes
-  are siblings under this document, harmonized by Art. 5.
+
+Four documents bind: this document; `docs/PHILOSOPHY.md`, within the
+epistemic-audit family; the rulings ledger (`docs/RULINGS.md`); and,
+when it exists, `docs/SURFACE_CONSTRAINTS.md`, the one-page index of
+what a screen may and may not do, which states no rule of its own and
+cites the rule behind each row. `docs/TRUTH_ADJUDICATION_DESIGN.md` is
+a design document. `docs/TRUTH_SYSTEMS.md` and `docs/DISCIPLINES.md`
+are advice, in the non-normative tier below: kept and cited, but not
+law.
 
 Subordinate documents' internal amendment idiom (`Amended <date> — the
 amendment governs`) remains valid within its tier (Art. 13).
@@ -283,11 +289,17 @@ auto-triggered by estimates.
 lawful as spread-shown distributions with roster and coverage
 disclosed. Diversity-weighted convergence (bridging) is admissible in
 principle as a *measurement of the disagreement structure* — who ruled
-what, and whether raters with divergent prior records converge — under
-the constraints of `docs/TRUTH_SYSTEMS.md` §3.3 on its adoption; it may
+what, and whether raters with divergent prior records converge
+(`docs/TRUTH_SYSTEMS.md` §3.3 gives advice on its constraints); it may
 gate attention, never set a verdict, and stays dormant below a
 disclosed minimum-data threshold. Computed *authority* — a consensus
 number presented as the network's judgment — remains forbidden.
+
+**5.6 The adjudicability gate.** Values and interpretations are
+outside the verdict's jurisdiction: they are not adjudicable as
+true/false, and only the observable gap between a value and an action
+is. Lifted 2026-09-26 from `TRUTH_ADJUDICATION_DESIGN.md` §3.1 and
+`docs/TRUTH_SYSTEMS.md` H-2.
 
 ## Article 6 — The never-merge firewall
 
@@ -556,9 +568,9 @@ the guards:
 | Art. 6 | EPISTEMIC_AUDIT_DESIGN.md firewall; MORAL_LENS §5.2 reserved words | lens-guards |
 | Art. 12 | PHILOSOPHY.md §10 (enforcement formula, quoted verbatim) | two-sided quote pin |
 | Organic statute | PHILOSOPHY.md v1.2.0 (audit family) | version + concord sentence pinned |
-| Organic statute | TRUTH_ADJUDICATION_DESIGN.md §1/§5 (truth family) | §-headings pinned |
+| Design document | TRUTH_ADJUDICATION_DESIGN.md §1/§5 | not a statute (amended 2026-09-26) |
 | Advice | docs/DISCIPLINES.md (Art. 9) | advice, not a statute (amended 2026-09-26) |
-| On adoption | docs/TRUTH_SYSTEMS.md (Preamble, Art. 5.5) | enters schedule when merged |
+| Advice | docs/TRUTH_SYSTEMS.md (Preamble, Art. 5.5) | advice, not a statute (amended 2026-09-26) |
 
 Concord points enacted with this document's ratification:
 

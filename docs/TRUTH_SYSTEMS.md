@@ -1,10 +1,10 @@
 # Truth Systems — the comparative foundation
 
 **Document version:** 1.0.0
-**Status:** Evidentiary annex to `docs/CONSTITUTION.md`; normative for
-the §3.3 bridging constraints and the §4 honest-limits clauses
-(adopted by CONSTITUTION Preamble and Art. 5.5 on this document's
-ratification)
+**Status:** Evidentiary annex to `docs/CONSTITUTION.md`; advice, not
+law (amended 2026-09-26, R-023). The constitution itself keeps two
+of its lines: the bridging line (CONSTITUTION Art. 5.5) and H-2's gate
+(CONSTITUTION Art. 5.6).
 **Date:** 2026-07-22
 
 The maintainer's question, verbatim: *"What do all of the systems in
@@ -604,8 +604,8 @@ authority; nothing in the red lines rejects computed measurement of
 the disagreement structure. That is the line, and it is bright.
 
 Diversity-weighted aggregation is therefore admissible — under all
-seven constraints, each load-bearing (CONSTITUTION Art. 5.5 adopts
-this section):
+seven constraints, each load-bearing (advice since 2026-09-26;
+CONSTITUTION Art. 5.5 states the line itself):
 
 1. **Distribution-not-number.** The output is the shape of agreement —
    who ruled what, the spread, cross-prior convergence counts — never
@@ -649,9 +649,9 @@ offers this protocol.
 
 ## §4. Honest limits
 
-The constitutional honesty clauses — "honest at all times" includes
-honest about itself. Adopted by the CONSTITUTION Preamble on this
-document's ratification.
+The honesty clauses — "honest at all times" includes honest about
+itself. Advice since 2026-09-26 (the CONSTITUTION Preamble cites
+them); H-2's gate is law in CONSTITUTION Art. 5.6.
 
 - **H-1. The protocol records; it does not compel.** No signature,
   hash, or verdict forces a single mind to update. Consensus of

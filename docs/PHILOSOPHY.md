@@ -1,7 +1,7 @@
 # Epistemic Auditing: Philosophy and Standards
 
 **Document version:** 1.2.0
-**Status:** Normative
+**Status:** Normative within the epistemic-audit family (kinds 30056–30061); not repo-wide law — see CONSTITUTION Art. 2
 **Date:** 2026-06-11 (amended 2026-08-02, §13)
 
 This document is the organic statute of the X-Ray Epistemic Auditor — the audit family's governing law under the project constitution, `docs/CONSTITUTION.md`. It codifies the principles that every prompt, schema, scorer, rollup, dispute mechanism, and user-facing surface of the audit family must implement. Within its scope, unchanged: code expresses this document; when code and this document conflict, this document governs until it is formally amended (§13). Where this document and the constitution conflict, the constitution governs (CONSTITUTION Art. 14).

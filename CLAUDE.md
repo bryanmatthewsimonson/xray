@@ -267,8 +267,9 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   `lens_jurisdictions`; zero built-ins), `lens-schemas.js` (the §7
   contract validators, over the shared `schema-walker.js`),
   `lens-prompt.js` (`LENS_PROMPT_VERSION`), `lens-engine.js` (pre-flight
-  refusals, code-side assembly, panel composition, the session-ONLY
-  cache — deliberately no `storage.local` fallback),
+  refusals, code-side assembly, panel composition, the session
+  cache — no `storage.local` fallback today; a lasting local cache is
+  allowed, R-025, but not built),
   `reader/lens-section.js` (pure HTML renderers). One `xray:lens:read`
   call per jurisdiction; gated by `moralLens` + the API key,
   independent of `llmAssist`. **No wire kind** — 30066 stays free and
@@ -415,6 +416,9 @@ without the other is the design's named long-term risk.
   first principles), Art. 13 (three-tier
   amendment). Machine-checked by `tests/constitution-guards.test.mjs`
   — a red guard is a bug or an unratified amendment; keep it green.
+- **`docs/RULINGS.md`** — the rulings ledger: binding, subordinate to the
+  constitution (CONSTITUTION Art. 2). Seed rows R-001–R-017 are marked
+  pending until the maintainer confirms them.
 - **`docs/DISCIPLINES.md`** — **Discipline Standards** (advice
   under CONSTITUTION Art. 9): fifteen disciplines, each with standards
   **derived from first principles** (§0 documents the method that
@@ -454,13 +458,15 @@ without the other is the design's named long-term risk.
   `docs/discipline-standards.html` renders all eight on one page
   (GENERATED — `npm run docs:disciplines`, drift-guarded by
   `tests/discipline-docs.test.mjs`).
-- **`docs/TRUTH_SYSTEMS.md`** — the constitution's evidentiary annex:
+- **`docs/TRUTH_SYSTEMS.md`** — the constitution's evidentiary annex,
+  advice since 2026-09-26, not law (CONSTITUTION Art. 2):
   16 truth-adjudication systems surveyed, invariants I-1–I-18 (the gap
   list is the constitutional roadmap-seed registry), subversion modes
   S-1–S-9 with residual risks stated honestly, the seven-constraint
-  §3.3 bridging license (what CONSTITUTION Art. 5.5 adopts), and the
-  honest-limits clauses H-1–H-7 (including H-7, the persuasion line:
-  make honesty louder, never make loudness a method).
+  §3.3 bridging license (CONSTITUTION Art. 5.5 keeps the bridging line
+  itself), and the honest-limits clauses H-1–H-7 (including H-7, the
+  persuasion line: make honesty louder, never make loudness a method;
+  CONSTITUTION Art. 5.6 keeps H-2's gate as law).
 - **`docs/ROADMAP.md`** — per-phase scope. Complete through Phase 28;
   **Phase 29** (store-first publish + the local event store,
   `docs/EVENT_STORE_DESIGN.md`) is in progress — 29.1, the publish
@@ -617,8 +623,8 @@ without the other is the design's named long-term risk.
   was; project-wide law (universal principles, licensed estimation,
   the never-merge firewall, operator accountability) lives in
   `docs/CONSTITUTION.md`. Phase 15 truth verdicts operate under
-  `TRUTH_ADJUDICATION_DESIGN.md`'s own form-of-judgment (§1/§5, its
-  sibling statute) — deliberately no 0–100 score or knowability
+  `TRUTH_ADJUDICATION_DESIGN.md`'s own form-of-judgment (§1/§5; a design
+  document since 2026-09-26) — deliberately no 0–100 score or knowability
   ceiling there.
 - **`docs/TRUTH_INFRASTRUCTURE.md`** — **non-normative** expansion
   map: the portable "truth infrastructure" framework (five

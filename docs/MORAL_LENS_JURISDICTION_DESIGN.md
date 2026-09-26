@@ -13,6 +13,16 @@
 > questions. Where the amendment and the 2026-06-24 text disagree, the
 > amendment governs.
 >
+> **Amended 2026-09-26** (maintainer ruling R-025: "Yes: allow a
+> lasting cache" — the amendment governs). Keeping a lens reading only
+> for the browser session is current behaviour, not a rule. The lens
+> may keep readings on the user's computer like any ordinary feature;
+> building that is its own feature PR. The lens still has no wire kind
+> and publishes nothing. Accepted failure mode: a saved reading could
+> later be mistaken for a judgment record, and unless it is added to
+> the backup exclusion list it would travel inside backups and shared
+> merge-imports.
+>
 > **Phase 16.** Depends on Phase 14.5 (LLM-assist client, merged) and
 > sits on the far side of the Phase-15 truth firewall
 > (`docs/TRUTH_ADJUDICATION_DESIGN.md`). **Derived/advisory only:** no
@@ -313,7 +323,9 @@ against a cherry-picked **full** one. So P5 extends top-to-bottom:
   `chrome.storage.local`, no IndexedDB, no relay pool. A 16.4 guard test
   pins the zero-durable-writes property. A durable "precious" lens cache
   (the `audit-cache.js` posture) is explicitly deferred alongside the wire
-  format.
+  format. *Amended 2026-09-26 (R-025; see the header): session-only is
+  current behaviour, not a rule; a lasting local cache is allowed,
+  separate from any wire kind.*
 - **Provenance.** The §7 output carries `{ model, prompt_version, run_at }`.
   `LENS_PROMPT_VERSION` is exported from the pure prompt module with an
   exact-match pin test (the `CURRENT_MODULE_VERSIONS` "bump alongside the
