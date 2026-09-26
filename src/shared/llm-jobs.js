@@ -9,7 +9,10 @@
 // keepalive pings do to the idle timer — so a long reduce (87 members on
 // Fable 5) died with "the message channel closed before a response was
 // received", and the completed, PAID result had nowhere to land. A ~$5
-// run, gone.
+// run, gone. The five remaining passes of that single-call shape —
+// hypothesis edges, claim links, the forensic corpus pass, the entity
+// audit, and the reader's Quick audit — joined on 2026-09-25 (the
+// JOURNAL 2026-09-05 addendum).
 //
 // The shape here is the repo's transcribe precedent
 // (xray:transcribe:{start,status}), applied to the in-worker LLM passes:
@@ -52,7 +55,19 @@ export const LLM_JOB_KEY_PREFIX = 'xray:llm-job:';
 
 /** The passes a page may start by name. Fail-closed: anything else is
  *  rejected at the receiver before any function is looked up. */
-export const LLM_JOB_PASSES = Object.freeze(['corpus-map', 'corpus-reduce', 'entity-page']);
+export const LLM_JOB_PASSES = Object.freeze([
+    'corpus-map', 'corpus-reduce', 'entity-page',
+    'hypothesis-edges', 'corpus-links', 'forensic-corpus', 'entity-audit', 'audit-run'
+]);
+
+/** Passes whose scope key must END in `llmJobRequestHash(request)`. The
+ *  receiver recomputes the hash and refuses a start whose key does not
+ *  carry it, so a kept result is only ever served for the request it
+ *  answered — the key is checked, not trusted. (#374's three passes
+ *  scope by fingerprints the worker cannot rebuild: page-derived.) */
+export const LLM_JOB_REQUEST_SCOPED = Object.freeze([
+    'hypothesis-edges', 'corpus-links', 'forensic-corpus', 'entity-audit', 'audit-run'
+]);
 
 /** Un-acked records older than this are swept (once per worker boot). A
  *  paid result should not evaporate in an hour; a week is generous. */
@@ -99,10 +114,33 @@ export function isLlmJobKey(key) {
  * Build a scope key from id/hash parts. Parts are joined with `:` after
  * clamping each to the key alphabet, so an id with an unexpected
  * character degrades to a still-unique key instead of a refused start.
+ * Over the 200-character cap the LEADING parts are shortened, never the
+ * last: the last part is the content half (a request or input hash)
+ * that makes the key unique, and cutting it would pair unrelated
+ * requests under one key (ids arriving by backup merge are not
+ * shape-checked, so a long one is possible).
  */
 export function llmJobScopeKey(...parts) {
-    return parts.map((p) => String(p == null ? '' : p).replace(/[^A-Za-z0-9._-]/g, '_'))
-        .join(':').slice(0, 200);
+    const clean = parts.map((p) => String(p == null ? '' : p).replace(/[^A-Za-z0-9._-]/g, '_'));
+    const joined = clean.join(':');
+    if (joined.length <= 200 || clean.length < 2) return joined.slice(0, 200);
+    const tail = clean[clean.length - 1].slice(0, 200);
+    const room = 200 - tail.length - 1;
+    return room > 0 ? `${clean.slice(0, -1).join(':').slice(0, room)}:${tail}` : tail;
+}
+
+/**
+ * SHA-256 (hex) of a request's JSON — the CONTENT half of a scope key,
+ * `llmJobScopeKey(<id>, await llmJobRequestHash(request))`. It hashes
+ * exactly what the page sends, so a kept result is only ever reused for
+ * the byte-identical request it answered: one changed claim, hypothesis,
+ * or character of audited text is a new job. WebCrypto only — pages,
+ * the worker, and node's test runner all carry it.
+ */
+export async function llmJobRequestHash(request) {
+    const bytes = new TextEncoder().encode(JSON.stringify(request === undefined ? null : request));
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 function defaultArea() {
@@ -344,6 +382,12 @@ export function createLlmJobRunner({
                 }
                 scopeKey = m.scopeKey;
             }
+            // The reuse criterion is the key, so a request-scoped key is
+            // verified against the request it arrived with.
+            if (scopeKey && LLM_JOB_REQUEST_SCOPED.includes(pass)
+                && !scopeKey.endsWith(`:${await llmJobRequestHash(m.request)}`)) {
+                return { ok: false, error: 'LLM job scope key does not match its request' };
+            }
             await sweep();
 
             const id = jobIdFor(pass, scopeKey);
@@ -532,6 +576,27 @@ export async function runLlmJob({
 export function jobElapsedSeconds(st, fallbackStartedAt, now = Date.now()) {
     const startedAt = st && Number.isFinite(st.createdAt) ? st.createdAt : fallbackStartedAt;
     return Math.max(0, Math.round((now - startedAt) / 1000));
+}
+
+/**
+ * The sentence a failed job owes its surface, naming what a retry
+ * costs. A LOST job (the worker died mid-call) produced nothing, so the
+ * retry is a new, billed call. A lost CHANNEL left the job running, so a
+ * result that comes in is kept and the next identical run reuses it —
+ * after a started job (`jobId` set) the client's own error already says
+ * it is kept, so the note only names the control; after a dropped start
+ * whether a job began is unknown, and the note says so. Empty for every
+ * other failure (the error names it). Leading space.
+ *
+ * @param {object} res       a runLlmJob result
+ * @param {string} control   the control the user retries with, e.g. "Suggest links…"
+ */
+export function jobFailureNote(res, control) {
+    if (!res || res.ok) return '';
+    if (res.lost) return ` ${control} makes a new call, billed again.`;
+    if (!res.swLost) return '';
+    const pickup = `${control} with the same inputs picks it up without a new call.`;
+    return res.jobId ? ` ${pickup}` : ` If the call started, its result is kept: ${pickup}`;
 }
 
 /** Delete a job record once its result is safely persisted page-side. */

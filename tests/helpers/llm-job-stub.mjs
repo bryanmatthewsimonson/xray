@@ -73,14 +73,20 @@ export function createJobStub({ passes, area = memoryArea(), runner: runnerOpts 
     return { sendMessage, runner, area, messages };
 }
 
+/** The retired single-message type a pass rode before it became a job,
+ *  where it was not `xray:llm:<pass>`. */
+const LEGACY_TYPES = Object.freeze({ 'audit-run': 'xray:audit:run' });
+
 /**
  * Adapt an old single-message stub to the job protocol. Every pass the
- * runner allows is routed to `legacy({ type: 'xray:llm:<pass>', request })`.
+ * runner allows is routed to `legacy({ type, request })` with the type
+ * that pass rode before: `xray:llm:<pass>`, or its LEGACY_TYPES entry.
  */
 export function jobSendMessage(legacy, opts = {}) {
     const passes = {};
     for (const pass of LLM_JOB_PASSES) {
-        passes[pass] = (request) => legacy({ type: `xray:llm:${pass}`, request });
+        const type = LEGACY_TYPES[pass] || `xray:llm:${pass}`;
+        passes[pass] = (request) => legacy({ type, request });
     }
     return createJobStub({ passes, ...opts }).sendMessage;
 }
