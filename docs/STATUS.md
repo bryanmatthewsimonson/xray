@@ -32,7 +32,7 @@ The nineteen blockers of [`ROAD_TO_1_0.md`](ROAD_TO_1_0.md)
 | B5 | `rules/csp-strip.json` strips page security (CSP) on every site | open | rule 1 still has no domain condition | R7 security item (§10) |
 | B6 | NIP-07 signed replies were not verified | closed | #316 (`41b8fff`, 2026-08-09); real-signer walk PASS, ledger 2026-08-11 | — |
 | B7 | No store listing or other installable channel; the zip is unpruned | open | no store listing or signed build. Besides the companion, `webExt.ignoreFiles` now excludes only the smoke output, Chrome's `_metadata/` and `eslint.config.mjs` (#396, `1c4fa87`); nothing on B7's prune list is dropped. CI now asserts the zip's contents (`npm run check:package`, #396): today's leaks — `tests/`, `docs/`, `tools/`, `scripts/`, the source maps, the `src/` tree and more — are pinned shrink-only in `KNOWN_LEAKS` (`scripts/check-package.mjs`), so a new leak is red, but none is removed yet | R4 "First run"; decision §11-6 |
-| B8 | No runnable release gate; no verification record | partly done | walk ledger since #320 (`a3a8e02`, 2026-08-10); browser smoke in CI since #379 (`d139ba5`, 2026-09-21) and, as read 2026-09-26, a required check on `main` (with `build + lint + package`) under the repository ruleset `main` (created 2026-09-22 00:11Z); version lockstep, the packaged-contents assertion and a bundle budget in `ci.yml` since #396 (`1c4fa87`, 2026-09-25). The MA.6 walk's preconditions for going required are met (#395, `16073bc`), but it still runs `--advisory=ma6` — the flip is the maintainer's, due 2026-10-05. Still open: SMOKE_TEST not split into a short gate (no `docs/GATE.md`); CI runs one companion test file (the normalizer parity), not its key-hygiene tests (`test_server_keys.py`) | R0 (the MA.6 flip), R6 (`GATE.md`), R7 (the gate on the shipped zip); the companion's key-hygiene tests: unowned |
+| B8 | No runnable release gate; no verification record | partly done | walk ledger since #320 (`a3a8e02`, 2026-08-10); browser smoke in CI since #379 (`d139ba5`, 2026-09-21) and, as read 2026-09-26, a required check on `main` (with `build + lint + package`) under the repository ruleset `main` (created 2026-09-22 00:11Z); version lockstep, the packaged-contents assertion and a bundle budget in `ci.yml` since #396 (`1c4fa87`, 2026-09-25). The MA.6 walk's preconditions for going required are met (#395, `16073bc`), and the maintainer decided the flip on 2026-09-26 ("flip MA.6", quoted in #401's body); draft #401 deletes `--advisory=ma6` from `ci.yml`. Until #401 merges, `main` still runs `ma6` advisory. Still open: SMOKE_TEST not split into a short gate (no `docs/GATE.md`); CI runs one companion test file (the normalizer parity), not its key-hygiene tests (`test_server_keys.py`) | R0 (the MA.6 flip: #401, awaiting merge), R6 (`GATE.md`), R7 (the gate on the shipped zip); the companion's key-hygiene tests: unowned |
 | B9 | The front door misstates what shipped | partly done | `release.yml` refuses an empty CHANGELOG section (#318, JOURNAL 2026-08-09). #398 (`94733e1`, 2026-09-26) rebuilt CHANGELOG `[Unreleased]` from the merged PRs and corrected README's version and counts, CLAUDE.md and two code headers (R0's front-door box, ticked). Still open: Settings "Enable the Network page (Phase 25)" (`options.html`), README's Status still told in phase numbers rather than user jobs, and B9's CI check that `[Unreleased]` is non-empty while `main` is ahead of the newest tag | R6 (its doc-currency guard names both the empty `[Unreleased]` and `Phase \d+` in user-facing HTML or docs) |
 | B10 | Three features reachable only through DevTools | open | still no Settings control for `reviewCoordination`, `storeFirstPublish`, `extractionAnalysisPublishing` | R2 "Flags" |
 | B11 | Flag registry noise; the guide's flag table is wrong | partly done | eight dead flags retired (#317, `bd0396d`). The guide no longer lists them but omits four live flags (`aiVision`, `directCloudTranscription`, `storeFirstPublish`, `extractionAnalysisPublishing`); no flag ledger, no guard | R2 "Flags"; R6 |
@@ -94,7 +94,7 @@ of the same feature is noted separately.
 | `directCloudTranscription` | Transcribe with nothing installed (AssemblyAI / Deepgram fetch the media URL) | Settings | 2026-10-01, or the release tag after DC.1 if sooner (DIRECT_CLOUD_TRANSCRIBE_KICKOFF §5) | walks only: ledger 2026-08-15/16 (real episodes, including a Deepgram direct run in the DC.3 walk). Casework — §5's "one transcript feeds a claim or entity page" — was deferred by the maintainer to real corpus-building and is not yet on record |
 | `transcriptClaimDrafts` | LM Studio claim drafts over a finished transcript (local, free) | Settings | none set | JOURNAL 2026-08-01 (item 7: the maintainer's same-day correction after a reopened capture hid the drafts button); nothing later |
 | `storeFirstPublish` | journal every signed event before sending it to relays | DevTools | none set — R2 and §11-11 propose turning it on next release after its smoke rows are walked once, then dropping the flag | none on record; no ledger row for its smoke section (SMOKE_TEST Phase 29) |
-| `extractionAnalysisPublishing` | publishing an article's whole extraction analysis (30070) | DevTools | 2026-11-30 proposed (R2 parks the 30070 path) | none on record — 30070 has only been built against a loopback relay (MA.6 walk, JOURNAL 2026-08-02; CI's `ma6` scenario, still advisory — its preconditions for going required met by #395, the flip the maintainer's on 2026-10-05) |
+| `extractionAnalysisPublishing` | publishing an article's whole extraction analysis (30070) | DevTools | 2026-11-30 proposed (R2 parks the 30070 path) | none on record — 30070 has only been built against a loopback relay (MA.6 walk, JOURNAL 2026-08-02; CI's `ma6` scenario, advisory on `main` until draft #401 merges — the maintainer decided the flip on 2026-09-26, after #395 met its preconditions) |
 
 **Retired flags** (names kept for the record; a stale override is
 ignored): `annotations`, `respondsTo` (the tag it named is still
@@ -139,16 +139,31 @@ merged ones, and two old branches it first archived, not parked —
 `archive/claude-kind-hypatia-fu8nqm-20260905`. `feat/margin-s1` was
 kept. `git ls-remote origin` on 2026-09-25, and again on 2026-09-26,
 shows both archive tags and `feat/margin-s1`, and none of the deleted
-branches. Six merged PRs' head branches are left over, though: those
-of #368, #393, #395, #396 and #397 (merged 2026-09-25) and of #394
-(`claude/vibrant-dirac-6hixpt`, merged 2026-09-26) are still on
-`origin`, because "Automatically delete head branches" was off when
-they merged. It is on now: the repository API read
-`delete_branch_on_merge: false` early on 2026-09-26 and `true` after
-#399 merged, and the heads of #398, #399 and #400 were deleted as they
-merged. So runbook step 1 is done (RESET_PLAN §9.1). The setting does
-not reach back: a squash-merged head is never an ancestor of `main`, so
-only the 14-day stale rule reaches the six.
+branches. Sixteen head branches of merged PRs are left over, though
+(`git ls-remote origin` on 2026-09-26, each head matched to its PR
+through GitHub's API): those of #324, #364, #366, #368, #369, #374
+and #390 (one branch, `claude/eager-knuth-ipv3xd`), #379, #381, #382,
+#389, #391, #393, #394, #395, #396 and #397. "Automatically delete
+head branches" was off when they merged. It is on now: the repository
+API read `delete_branch_on_merge: false` early on 2026-09-26 and
+`true` after #399 merged, and the heads of #398, #399 and #400 were
+deleted as they merged. So runbook step 1 is done (RESET_PLAN §9.1).
+The setting does not reach back. All sixteen were squash-merged, so
+none is an ancestor of `main` and the hygiene script's "merged" rule
+never matches them; the ten that predate the step-6 run were kept by
+it because none was more than 14 days old (every tip is from
+2026-09-15 or later). They go only when the maintainer dispatches
+`branch hygiene` with `apply=true` after a tip is more than 14 days
+old, which tags it `archive/<name>-<yyyymmdd>` and then deletes it,
+or when someone deletes them by hand. The weekly cron run only
+reports (`.github/workflows/hygiene.yml`, header). The first tips pass
+14 days on 2026-09-29 (#364, #366, #369), the last on 2026-10-10
+(#394). Such a run also archives and deletes three branches that are
+not merged heads once they are past 14 days, unless its `keep` input
+names them: `feat/margin-s1` (below; tip 2026-08-30) and
+`claude/loving-gauss-k8gsta` (#365's kept branch; tip 2026-08-29),
+both already past, and `bryanmatthewsimonson-patch-1` (no PR; tip
+2026-09-21, past on 2026-10-05).
 
 ## 4. The open-PR cap
 
@@ -156,9 +171,10 @@ only the 14-day stale rule reaches the six.
 at most **four** open non-Dependabot PRs. A new one is not opened
 until one merges or is parked.
 
-**Open on 2026-09-26, after #400 merged** (read from GitHub): no
-non-Dependabot PR and no Dependabot PR. This page's own PR, once
-opened, is the only one — **three slots free.**
+**Open on 2026-09-26, after #400 merged** (read from GitHub): one,
+**#401**, a draft opened at 00:28Z on `toolchain/ma6-flip` — "ci(smoke):
+make the MA.6 walk required", R0's last box (below). No Dependabot PR.
+This page's own PR, once opened, makes two — **two slots free.**
 
 **Merged on 2026-09-26**, within twenty minutes:
 
@@ -193,7 +209,8 @@ opened, is the only one — **three slots free.**
 
 The count went from one open PR to three at 21:11Z on 2026-09-25 (#398
 and #399 opened), to four at 23:21Z (#400), then down to none as the
-four merged. The cap was never exceeded in that window.
+four merged; #401 opened five minutes after the last of them. The cap
+was never exceeded in that window.
 
 **Earlier, on 2026-09-25**, three of the four PRs that had filled
 the cap that day merged or closed: #393 (`57a3398`); #368 (`6ef815a`) after its
@@ -207,9 +224,10 @@ The cap was exceeded twice that day, briefly: five were open from
 to 20:28:06Z (#397 opened ten seconds before #365 closed).
 
 **Waiting to open:** only this page's own branch,
-`toolchain/status-doc`. The entity-list fix the previous refresh knew
-only as a report became #400 and merged, so every line on this page can
-be checked against the record.
+`toolchain/status-doc`, the second open PR once it opens (#401 is the
+first). The entity-list fix the previous refresh knew only as a report
+became #400 and merged, so every line on this page can be checked
+against the record.
 
 **R0's checklist** (RESET_PLAN §7) on 2026-09-26: nine of its ten
 boxes are ticked, two of them on this page's own branch. On `main`: the
@@ -221,5 +239,8 @@ fixtures; the structure guard; the JOURNAL split; the PR template
 (#399); and the front-door fixes (#398). On this branch: this page,
 and branch and PR triage — every runbook step is now done, the last
 being auto-delete of merged heads (§9.1's 2026-09-25 update). Open:
-only the MA.6 walk going required (its preconditions met by #395; the
-flip is the maintainer's, due 2026-10-05).
+only the MA.6 walk going required. Its preconditions were met by #395,
+and the maintainer decided the flip on 2026-09-26 ("flip MA.6"); draft
+#401 deletes `--advisory=ma6` from `ci.yml` and ticks the box. So the
+box waits on #401's merge, not on a decision, and `ma6` stays advisory
+on `main` until then.

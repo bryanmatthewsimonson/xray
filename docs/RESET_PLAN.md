@@ -611,8 +611,12 @@ looking where the bugs are.
       been in place since 2026-09-22, and auto-delete reads `true`
       since #398 and #399 merged, their heads deleted as they merged
       (§9.1's update). Every runbook step is done, so the box is
-      ticked; the six merged heads left from before the setting go by
-      the 14-day stale rule.*
+      ticked. Sixteen merged heads are left from before the setting
+      (`docs/STATUS.md` §3 lists them): squash-merged, so no "merged"
+      rule matches them, and they go only when a `branch hygiene` run
+      dispatched with `apply=true` finds a tip more than 14 days old
+      (it archive-tags, then deletes), the first on 2026-09-29, or by
+      hand. The weekly cron only reports.*
 - [x] **Split the JOURNAL now, not in R6.** *Landed 2026-09-21 as PR
       #382 (`toolchain/journal-split`): `docs/journal/YYYY-MM.md` × 5,
       oldest-first, new entries appended at the bottom; `merge=union`
@@ -668,8 +672,9 @@ looking where the bugs are.
       GitHub (three open when first written, four once #394 opened
       that afternoon; after #393, #368, #395, #396 and #397 merged and
       #365 closed the same day, one — #394; on 2026-09-26, after #398,
-      #399 and #400 opened and all four merged, none, so this page's
-      PR is the only one);
+      #399 and #400 opened and all four merged, none, until #401, the
+      MA.6 flip, opened as a draft at 00:28Z; with this page's PR,
+      two);
       R0's own checklist state; a pointer in CLAUDE.md. The same slice
       added the 2026-09-25 update to §9.1 (extended 2026-09-26) and
       three agent rows to the walk ledger. Verified by the full
@@ -1399,7 +1404,7 @@ runbook above stay as the record of that day.*
 | #390 | `88b1c5b` (2026-09-25) | #374's walk-note follow-up (it also recorded the 20.m/20.n ledger row); merged, not open |
 | #393 | `57a3398` (2026-09-25) | the hygiene workflow's `keep` input. The step-6 `--apply` had already used it, dispatched from this PR's branch |
 | #368 | `6ef815a` (2026-09-25) | step 2's last merge: the Instagram post URL is constructed, never read from `og:url`. Its row: the maintainer's first walk was PARTIAL — a reel reached in the Reels viewer (`/reels/<code>/`) fell through to the generic extractor (JOURNAL 2026-09-25) — fixed on the branch and re-walked PASS the same day (ledger) |
-| #395 | `16073bc` (2026-09-25) | R0's MA.6 preconditions: no fixed sleeps left in the walk, every control it drives found by a `SMOKE_ANCHORS` anchor. `ma6` stays advisory; the flip is the maintainer's, due 2026-10-05 |
+| #395 | `16073bc` (2026-09-25) | R0's MA.6 preconditions: no fixed sleeps left in the walk, every control it drives found by a `SMOKE_ANCHORS` anchor. `ma6` stays advisory until the flip, which was set for 2026-10-05; the maintainer decided it on 2026-09-26 ("flip MA.6"), and it is draft #401, not yet merged |
 | #396 | `1c4fa87` (2026-09-25) | R0's static net: the ESLint ratchet, version lockstep in CI, the packaged-contents assertion and the bundle budget (R0 box ticked) |
 | #397 | `4d2b1aa` (2026-09-25) | step 7, the fold of #365: a 120-line `.claude/skills/governance/SKILL.md`. #365 was closed unmerged the same day, its branch `claude/loving-gauss-k8gsta` kept so the 453-line text stays recoverable |
 | #394 | `a4f859d` (2026-09-26, 00:04Z) | #374's follow-up: the last five single-call LLM passes (hypothesis edges, claim links, the forensic corpus pass, the entity audit, the reader's Quick audit) run as jobs; five `xray:*` message types retired, none added; the job messages answer extension pages only (THREAT_MODEL change row 2026-09-25). Rows LJ.a–LJ.d walked by an agent against a canned model; a real Quick audit in Chrome passed (the maintainer); the Firefox run and LJ.e, a real pass past ~5 minutes with no DevTools, were skipped by the maintainer on 2026-09-26 and stay unobserved (SMOKE_TEST ledger, 2026-09-25, and its "Not yet walked" note) |
@@ -1449,11 +1454,19 @@ the ruleset, and no merge commit has reached `main` since.
 "Automatically delete head branches", the last setting, read
 `delete_branch_on_merge: false` just after #394 merged and `true` after
 #399 merged; the heads of #398, #399 and #400 were deleted as they
-merged. The heads of #368, #393, #394, #395, #396 and #397, merged
-before the switch, are still on `origin` until the 14-day stale rule
-reaches them. **Open PRs after #400 merged:** none, Dependabot
-included. The `docs/STATUS.md` PR, once opened, is the only one,
-against the cap of four.
+merged. Sixteen head branches of merged PRs, all merged before the switch, are
+still on `origin` (`git ls-remote origin`, each head matched to its
+PR): those of #368, #393, #394, #395, #396 and #397, and ten older
+ones the step-6 run kept, since none was an ancestor of `main` or more
+than 14 days old — #324, #364, #366, #369, #374 and #390 (one branch),
+#379, #381, #382, #389 and #391. All were squash-merged, so the
+"merged" rule never matches them. They go only when a `branch
+hygiene` run dispatched with `apply=true` finds a tip more than 14
+days old (it archive-tags, then deletes; the first tips cross on
+2026-09-29), or by hand; the weekly cron run only reports. **Open PRs
+after #400 merged:** none, Dependabot included, until #401 (the MA.6
+flip, a draft) opened at 00:28Z. With the `docs/STATUS.md` PR, two
+are open against the cap of four.
 
 
 ---
