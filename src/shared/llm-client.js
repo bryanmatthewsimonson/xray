@@ -105,6 +105,13 @@ function timeoutForBudget(maxTokens) {
 const AUDIT_TIMEOUT_MS  = timeoutForBudget(MAX_AUDIT_OUTPUT_TOKENS);
 const MODULE_TIMEOUT_MS = timeoutForBudget(MAX_MODULE_OUTPUT_TOKENS);
 const LENS_TIMEOUT_MS   = timeoutForBudget(MAX_LENS_OUTPUT_TOKENS);
+// The entity audit and the forensic corpus pass had no abort at all
+// while each rode a held-open message — MV3's 5-minute request kill was
+// their de-facto bound. As JOBS (shared/llm-jobs.js) the worker
+// heartbeats itself alive, so the pass's own abort is now the only
+// thing that ends a hung call (JOURNAL 2026-09-05 and its 2026-09-25 addendum).
+const ENTITY_AUDIT_TIMEOUT_MS = timeoutForBudget(MAX_ENTITY_AUDIT_OUTPUT_TOKENS);
+const FORENSIC_TIMEOUT_MS     = timeoutForBudget(MAX_FORENSIC_OUTPUT_TOKENS);
 
 // ------------------------------------------------------------------
 // Storage helpers (callback → promise; SW-safe)
@@ -350,7 +357,11 @@ export async function runEntityAuditPass(req = {}) {
     };
     Utils.log('[X-Ray LLM] entity audit pass:', { model, chars: digest.length });
 
-    const res = await postMessages(payload, apiKey);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ENTITY_AUDIT_TIMEOUT_MS);
+    let res;
+    try { res = await postMessages(payload, apiKey, { signal: controller.signal }); }
+    finally { clearTimeout(timer); }
     if (!res.ok) return res;
     const data = res.data;
     { const r = refusalResult(data, 'an audit of this entity registry'); if (r) return r; }
@@ -395,7 +406,11 @@ export async function runForensicCorpusPass(req = {}) {
         messages: [{ role: 'user', content: buildForensicCorpusUserPrompt(bundle) }]
     };
     Utils.log('[X-Ray LLM] forensic corpus pass:', { model, chars: bundle.length });
-    const res = await postMessages(payload, apiKey);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FORENSIC_TIMEOUT_MS);
+    let res;
+    try { res = await postMessages(payload, apiKey, { signal: controller.signal }); }
+    finally { clearTimeout(timer); }
     if (!res.ok) return res;
     const data = res.data;
     { const r = refusalResult(data, 'a behavioral analysis of this subject'); if (r) return r; }
@@ -470,7 +485,8 @@ export async function runAuditPass(req = {}) {
 
     Utils.log('[X-Ray LLM] audit pass:', { model, chars: markdown.length });
 
-    // Bounded so a hung request can't hold the response channel forever.
+    // Bounded: this runs as the `audit-run` JOB, whose worker heartbeats
+    // itself alive, so the abort is what ends a hung request.
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), AUDIT_TIMEOUT_MS);
     let res;
@@ -617,10 +633,11 @@ export async function runAuditModulePass(req = {}) {
 // hand-set: a full-budget emission must be able to FINISH, or a raised
 // cap just converts a token-cap failure into an AbortError — the trade
 // JOURNAL 2026-07-18 warned about, and the drift that hand-set pairs
-// invite. Neither call is bounded by the MV3 lifetime: both run as JOBS
-// (shared/llm-jobs.js — no held-open message, the worker heartbeats
-// itself while a job runs, the result is persisted before any response
-// hop), so this AbortController is the sole limiter.
+// invite. Neither call — nor the entity-page, hypothesis-edge, and
+// claim-link passes that reuse the reduce bound — is bounded by the MV3
+// lifetime: all run as JOBS (shared/llm-jobs.js — no held-open message,
+// the worker heartbeats itself while a job runs, the result is persisted
+// before any response hop), so this AbortController is the sole limiter.
 const CORPUS_MAP_TIMEOUT_MS = timeoutForBudget(MAX_MAP_OUTPUT_TOKENS);
 const CORPUS_REDUCE_TIMEOUT_MS = timeoutForBudget(MAX_REDUCE_OUTPUT_TOKENS);
 

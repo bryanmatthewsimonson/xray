@@ -60,6 +60,7 @@ import { captureFromRange } from '../shared/metadata/anchor-capture.js';
 import { normalize as normalizeUrl } from '../shared/metadata/url-normalizer.js';
 import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
 import { importAuditJson } from '../shared/audit/import.js';
+import { runQuickAuditJob, INGEST_IMPORTED, INGEST_REJECTED, INGEST_FAILED } from './quick-audit.js';
 import { AuditRunModel, PredictionModel, ResolutionModel, staleModules } from '../shared/audit/audit-model.js';
 import {
     listResolutions as listAuditResolutions,
@@ -4382,10 +4383,6 @@ async function setupAuditRunControl() {
 // ------------------------------------------------------------------
 
 const AUDIT_DRAFT_PREFIX = 'xray:audit:draft:';
-// Reader-side ceiling on a quick run — beyond the SW's own 300s abort
-// so the SW's richer error wins when it CAN answer, but the button can
-// never stick forever when the response channel is gone.
-const READER_QUICK_TIMEOUT_MS = 330000;
 const SW_KEEPALIVE_MS = 20000;
 
 async function loadAuditDraft(hash) {
@@ -4458,12 +4455,14 @@ function auditRequestMeta() {
 
 /**
  * Ingest an assembled audit through the SAME firewall the file importer
- * uses (re-hash + schema-validate), then repaint. Returns true when the
- * import succeeded — the thorough path only clears its draft then.
+ * uses (re-hash + schema-validate), then repaint. Returns INGEST_IMPORTED
+ * (the thorough path only clears its draft then), INGEST_REJECTED (the
+ * firewall refused it), or INGEST_FAILED (anything else) — never throws.
  */
 async function ingestAuditResult(audit, localHash, how, model) {
+    let summary;
     try {
-        const summary = await importAuditJson(audit, {
+        summary = await importAuditJson(audit, {
             localArticleHash: localHash,
             source: 'background',
             // Truncated-capture runs key to the slice hash; carry the
@@ -4472,47 +4471,35 @@ async function ingestAuditResult(audit, localHash, how, model) {
             captureArticleHash: (state.articleHash && state.articleHash !== localHash)
                 ? state.articleHash : null
         });
-        const bits = [`${summary.modulesValid} module${summary.modulesValid === 1 ? '' : 's'} valid`];
-        if (summary.modulesFailed) bits.push(`${summary.modulesFailed} failed validation`);
-        if (summary.predictionsImported) bits.push(`${summary.predictionsImported} prediction${summary.predictionsImported === 1 ? '' : 's'}`);
-        if (summary.predictionsSkipped) bits.push(`${summary.predictionsSkipped} skipped`);
-        toast(`Audit complete (${how}, ${model || 'unknown model'}) — ${bits.join(', ')}`,
-            summary.modulesFailed ? 'warning' : 'success', 6000);
-        await refreshAuditStatus();
-        return true;
     } catch (err) {
         // importAuditJson is the firewall — surface its reason verbatim.
         console.error('[xray] audit import failed', err, audit);
         toast('Audit import failed: ' + ((err && err.message) || 'unknown error'), 'error', 7000);
-        return false;
+        return err && err.auditImport ? INGEST_REJECTED : INGEST_FAILED;
     }
+    const bits = [`${summary.modulesValid} module${summary.modulesValid === 1 ? '' : 's'} valid`];
+    if (summary.modulesFailed) bits.push(`${summary.modulesFailed} failed validation`);
+    if (summary.predictionsImported) bits.push(`${summary.predictionsImported} prediction${summary.predictionsImported === 1 ? '' : 's'}`);
+    if (summary.predictionsSkipped) bits.push(`${summary.predictionsSkipped} skipped`);
+    toast(`Audit complete (${how}, ${model || 'unknown model'}) — ${bits.join(', ')}`,
+        summary.modulesFailed ? 'warning' : 'success', 6000);
+    // Imported is decided by the import alone: a panel repaint that throws
+    // must not read as a failed import (the kept job would import twice).
+    await refreshAuditStatus().catch((err) => Utils.error('audit panel repaint failed', err));
+    return INGEST_IMPORTED;
 }
 
-/** Quick: one single-shot SW call, keepalive + raced timeout. */
-async function runQuickAudit({ markdown, localHash }) {
-    const keepalive = startSwKeepalive();
-    let resp;
-    try {
-        resp = await Promise.race([
-            browserApi.runtime.sendMessage({
-                type: 'xray:audit:run',
-                request: { mode: 'single', markdown, ...auditRequestMeta() }
-            }),
-            new Promise((resolve) => setTimeout(() => resolve({
-                ok: false,
-                error: `No response after ${Math.round(READER_QUICK_TIMEOUT_MS / 1000)}s — the run was likely lost to a service-worker restart. Try again (thorough mode is restart-proof).`
-            }), READER_QUICK_TIMEOUT_MS))
-        ]);
-    } catch (err) {
-        resp = { ok: false, error: (err && err.message) || String(err) };
-    } finally {
-        keepalive.stop();
-    }
-    if (!resp || !resp.ok) {
-        toast('Audit failed: ' + ((resp && resp.error) || 'unknown error'), 'error', 7000);
-        return;
-    }
-    await ingestAuditResult(resp.audit, localHash, 'quick', resp.model);
+/** Quick: one single-shot pass, run as the `audit-run` LLM job
+ *  (./quick-audit.js) — no held-open message, no page-side race. */
+async function runQuickAudit({ markdown, localHash, active }) {
+    await runQuickAuditJob({ request: { mode: 'single', markdown, ...auditRequestMeta() }, localHash }, {
+        sendMessage: (msg) => browserApi.runtime.sendMessage(msg),
+        ingest: (audit, model) => ingestAuditResult(audit, localHash, 'quick', model),
+        // Also left on the status line: a 7 s toast is gone before a user
+        // back from another tab mid-run could read what a retry costs.
+        onFailure: (message) => { toast(message, 'error', 7000); $('#xr-audit-status').textContent = message; },
+        onElapsed: (secs) => { active.textContent = `⏳ Auditing… ${secs}s`; }
+    });
 }
 
 /**
@@ -4597,7 +4584,7 @@ async function runThoroughAudit({ markdown, localHash, active, corpusSources = [
         return;
     }
 
-    const imported = await ingestAuditResult(audit, localHash, 'thorough', model || draftModel);
+    const imported = (await ingestAuditResult(audit, localHash, 'thorough', model || draftModel)) === INGEST_IMPORTED;
     // Clear the draft ONLY on full success with nothing missing — a
     // partial import keeps it so a later re-run tops the modules up.
     if (imported && failures.length === 0) await clearAuditDraft(localHash);
@@ -4697,8 +4684,8 @@ async function runAuditFromReader(mode = 'single') {
     }
 
     // Disable BOTH controls during a run (no concurrent passes); label
-    // the active one; ALWAYS restore (the raced timeout guarantees the
-    // quick path returns; the orchestrator guarantees the thorough one).
+    // the active one; ALWAYS restore (the job's own abort bounds the
+    // quick path; the orchestrator guarantees the thorough one).
     const labels = new Map();
     for (const b of [quick, thorough]) { if (b) { labels.set(b, b.textContent); b.disabled = true; } }
     active.textContent = mode === 'per_module' ? '⏳ Auditing (thorough)…' : '⏳ Auditing…';
@@ -4706,7 +4693,7 @@ async function runAuditFromReader(mode = 'single') {
         if (mode === 'per_module') {
             await runThoroughAudit({ markdown, localHash, active, corpusSources, family, forcedOpinion });
         } else {
-            await runQuickAudit({ markdown, localHash });
+            await runQuickAudit({ markdown, localHash, active });
         }
     } finally {
         for (const b of [quick, thorough]) { if (b) { b.textContent = labels.get(b); b.disabled = false; } }
