@@ -95,6 +95,11 @@ an estimation is an approximate evaluative judgment folded into a
 number. Measurements are admissible as evidence about a judgment;
 estimations are lawful only under the license of Art. 5.
 
+**Fused** — a single number or state computed from more than one
+family's judgment, or presented without its inputs, method, spread and
+n (n: the count of its inputs). Art. 4.4, Art. 5.4 and Art. 12 red
+line 2 use the word in this sense.
+
 **The constitutional corpus**, in rank order: this document; the organic
 statutes (Art. 2); the design documents; code. Higher rank governs
 lower, except that a document governs code only as Art. 2 provides.
@@ -257,10 +262,11 @@ aggregated quantity that is not a reproducible measurement — is lawful
    never-merge firewall (Art. 6), and the signals beneath it remain
    independently retrievable.
 
-An estimation failing any condition does not appear. An estimation
-passing all five is not a lesser output to be apologized for: crude,
-labeled, method-shown estimates are how finite minds steer, and
-refusing them wholesale was itself a form of false precision.
+An estimation failing any condition is withheld, and the surface shows
+`estimate withheld: <failed condition>` in its place (Art. 3). An
+estimation passing all five is not a lesser output to be apologized
+for: crude, labeled, method-shown estimates are how finite minds steer,
+and refusing them wholesale was itself a form of false precision.
 
 **5.3 Schedule of precedents.** The epistemic audit's 0–100 score with
 its family ceiling — knowability for the news modules,
@@ -277,7 +283,7 @@ reproducible from its author — and remains quarantined by Art. 6.
 
 **5.4 What remains forbidden.** A fused single number standing where a
 distribution belongs. Any estimation as the operative content of a
-kind-30063/30064 artifact. A fused case-probability as a case's
+kind-30063/30064 artifact. A case-probability as a case's
 headline or verdict — the project's answer to Rootclaim-style scoring
 remains no *as a conclusion*; a labeled, method-shown, spread-shown
 probability instrument rendered beside (never above) the deterministic

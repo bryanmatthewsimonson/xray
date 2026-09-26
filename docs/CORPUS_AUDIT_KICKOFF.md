@@ -54,6 +54,13 @@ reader sessions.
 - **No fused corpus score, ever** (§10.1/.9, §4): corpus surfaces show
   DISTRIBUTIONS — per-member scores, per-module flag rates, knowability
   ceilings — never an average.
+  *(Amended 2026-09-26 — the amendment governs: ruling R-019 names a
+  corpus mean + range + n, beside the subject dossier's existing one,
+  a licensed instrument (CONSTITUTION Art. 5.2; "fused" is defined in
+  Art. 1, v1.1.0). "Never an average" no longer bars that number; the
+  rest of this rail stands. Accepted failure mode: a labeled,
+  spread-shown number beside the record can still be read as the
+  verdict by a hurried reader.)*
 - **A finding is not a verdict.** Findings describe the ARTICLE's
   process (§2 Outsider Stance); joined to a claim they are LOCATION,
   never a judgment of the claim's truth (the §3.1 truth firewall
@@ -88,6 +95,8 @@ reader sessions.
   view over the joined runs: score distribution (list, min/max,
   NEVER a mean), per-module flag rates, per-source concentrations,
   ceilings and caveats on the face. No wire kind.
+  *(Amended 2026-09-26: "NEVER a mean" is superseded for the corpus
+  mean + range + n named in §3's note (R-019); the amendment governs.)*
 - **CA.4 — the brief sees epistemics.** `digestDossier` gains the
   audit-coverage summary (counts + distribution + per-member flags)
   so the reduce can note epistemic-quality context per position —

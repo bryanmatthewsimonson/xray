@@ -182,7 +182,7 @@ The auditor's own errors are corrected with at least the speed and prominence th
 
 Auditor identity is first-class throughout the system: a model (provider, model, version), a human (signing key), a pipeline (named orchestration with a manifest hash), or a consensus (constituent auditors enumerated). Every score, extraction, resolution, and adjudication carries its auditor.
 
-Everyone who exercises judgment inside the system — verifiers, auditors, adjudicators — is scored on the same epistemic axes as the journalists they evaluate. Weight follows track record: contributors whose findings hold up gain influence; those whose findings collapse lose it. This symmetric application is the structural defense against brigading, ideological capture, and crowd-quality decay, and it is the only arrangement under which the system has earned the right to grade anyone.
+Everyone who exercises judgment inside the system — verifiers, auditors, adjudicators — is scored on the same epistemic axes as the journalists they evaluate. Weight follows track record: contributors whose findings hold up gain influence; those whose findings collapse lose it. This symmetric application is the structural defense against brigading, ideological capture, and crowd-quality decay, and it is the only arrangement under which the system has earned the right to grade anyone. Weight follows track record only within CONSTITUTION Art. 5.5's limits, never over open sets (v1.3.0, §13).
 
 Methodology is versioned. Stored audits remain valid under the methodology version that produced them; rescoring under a new version is explicit, attributed, and creates new lineage — never a silent recalculation.
 
