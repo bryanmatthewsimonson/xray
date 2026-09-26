@@ -26,7 +26,7 @@ import { NostrClient } from '../shared/nostr-client.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
-import { runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runHypothesisEdgePass, runClaimLinksPass, getCorpusConfig, runExtractPass, runEntityAuditPass, runForensicCorpusPass, runVisionPass, getVisionConfig } from '../shared/llm-client.js';
+import { runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, getCorpusConfig, runExtractPass, runVisionPass, getVisionConfig } from '../shared/llm-client.js';
 import { respondLlmJob } from './llm-jobs.js';
 import { putSessionArticle } from '../shared/session-articles.js';
 import { getSourceDocument } from '../shared/archive-cache.js';
@@ -699,19 +699,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // async
     }
 
-    // Reader page → worker: run an in-extension epistemic-audit pass
-    // against the open article. Same home as Suggest (SW outside page
-    // CSP, key never leaves the SW), gated identically inside
-    // runAuditPass. Returns the canonical scorer-export object only —
-    // the reader runs importAuditJson (re-hash + schema-validate) and
-    // nothing is published here (that stays behind `epistemicAuditing`).
-    if (message.type === 'xray:audit:run') {
-        runAuditPass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Audit pass failed' })
-        );
-        return true; // async sendResponse
-    }
+    // (The reader's Quick epistemic audit — the single-shot pass — runs
+    // as the `audit-run` LLM job, below with the other jobs.)
 
     // Reader page → worker: ONE thorough-audit module call. The reader
     // orchestrates eight of these with bounded concurrency
@@ -796,59 +785,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // async sendResponse
     }
 
-    // Sidepanel → worker: the LLM entity audit (Phase 17 E2). Gated by
-    // llmAssist + key inside the pass; returns RAW ops — the sidepanel
-    // runs the validation firewall and gates every mutation behind a
-    // human Accept. Nothing is saved or published here.
-    // Portal → worker: the per-subject forensic corpus pass (FA.1).
-    // Raw findings out; the portal firewalls + human-Accepts everything.
-    if (message.type === 'xray:llm:forensic-corpus') {
-        runForensicCorpusPass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Forensic corpus call failed' })
-        );
-        return true; // async sendResponse
-    }
-
-    if (message.type === 'xray:llm:entity-audit') {
-        runEntityAuditPass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Entity audit call failed' })
-        );
-        return true; // async sendResponse
-    }
-
-    // Page → worker: the LONG LLM passes (corpus map / corpus reduce /
-    // entity page) run as JOBS — never a held-open message (JOURNAL
-    // 2026-09-05). The runner, its pass table, and the rationale live
-    // in ./llm-jobs.js; each op answers asynchronously (return true)
-    // but never across a model call.
-    if (message.type === 'xray:llm:job:start') return respondLlmJob('start', message, sendResponse);
-    if (message.type === 'xray:llm:job:status') return respondLlmJob('status', message, sendResponse);
-    if (message.type === 'xray:llm:job:find') return respondLlmJob('find', message, sendResponse);
-    if (message.type === 'xray:llm:job:ack') return respondLlmJob('ack', message, sendResponse);
-    // Portal → worker: hypothesis-edge suggestion (Phase 26 H.4). One
-    // reduce-shaped call; same triple gate inside the pass; returns RAW
-    // tool output (the portal validates, grounds, runs the both-sides
-    // post-check, and gates every mutation behind human Accept).
-    if (message.type === 'xray:llm:hypothesis-edges') {
-        runHypothesisEdgePass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Hypothesis edge call failed' })
-        );
-        return true; // async sendResponse
-    }
-    // Portal → worker: standalone cross-article link suggestion (28.3).
-    // One reduce-shaped call over the claims index; same triple gate
-    // inside the pass; returns RAW tool output (the portal validates,
-    // drops existing pairs, and gates every mutation behind Accept).
-    if (message.type === 'xray:llm:corpus-links') {
-        runClaimLinksPass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Link suggestion call failed' })
-        );
-        return true; // async sendResponse
-    }
+    // Page → worker: the LONG single-call LLM passes run as JOBS — never
+    // a held-open message (JOURNAL 2026-09-05 and its 2026-09-25
+    // addendum): the corpus map / reduce and the entity page; the
+    // portal's hypothesis edges (H.4), claim links (28.3), and
+    // per-subject forensic corpus pass (FA.1); the side panel's entity
+    // audit (E2); the reader's Quick epistemic audit. The runner, its
+    // pass table, and the rationale live in ./llm-jobs.js; each op
+    // answers asynchronously (return true) but never across a model
+    // call. Every pass keeps its own gates (flags + key) and returns RAW
+    // output — the page validates, grounds, and human-Accepts; nothing
+    // is saved or published here.
+    if (message.type === 'xray:llm:job:start') return respondLlmJob('start', message, sendResponse, sender);
+    if (message.type === 'xray:llm:job:status') return respondLlmJob('status', message, sendResponse, sender);
+    if (message.type === 'xray:llm:job:find') return respondLlmJob('find', message, sendResponse, sender);
+    if (message.type === 'xray:llm:job:ack') return respondLlmJob('ack', message, sendResponse, sender);
     if (message.type === 'xray:llm:corpus-config') {
         getCorpusConfig().then(
             (cfg) => sendResponse({ ok: true, ...cfg }),

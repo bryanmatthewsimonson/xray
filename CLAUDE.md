@@ -108,16 +108,25 @@ extension approves in-context.
 (e.g. `xray:capture`, `xray:capture:transcribe`, `xray:capture:publish`,
 `xray:relay:publish`, `xray:relay:query`, `xray:sign`,
 `xray:youtube:fetchTranscript`, `xray:screenshot:capture`,
-`xray:llm:job:{start,status,find,ack}` — the corpus map / corpus reduce /
-entity-page passes as **jobs** (`shared/llm-jobs.js`: start answers at
-once, the raw result is persisted under the job id before any response
-hop, the page long-polls; a held-open message dies at MV3's 5-minute
-request kill and takes the paid result with it — JOURNAL 2026-09-05),
-`xray:audit:run`, `xray:transcribe:{start,status,
-config,ping,claims}`, `xray:transcribe:direct:{start,status}`, `xray:vision:describe`). When adding a cross-context
+`xray:llm:job:{start,status,find,ack}`, `xray:audit:module`,
+`xray:transcribe:{start,status,config,ping,claims}`,
+`xray:transcribe:direct:{start,status}`, `xray:vision:describe`). When adding a cross-context
 call, add an `xray:*` message rather than reaching across contexts directly.
 **A pass that can run past a few minutes must be a job, never a single
 held-open message** — the transcribe and LLM-job families are the precedents.
+Every single-call LLM pass is a **job** on `xray:llm:job:*`
+(`shared/llm-jobs.js`: start answers at once, the raw result is persisted
+under the job id before any response hop, the page long-polls and acks
+only once it holds the result — persisted, or shown on a visible review
+surface; a held-open message dies at MV3's 5-minute request kill and
+takes the paid result with it — JOURNAL 2026-09-05). The pass table in
+`background/llm-jobs.js` is the allowlist: corpus map / reduce, entity
+page, hypothesis edges, claim links, the forensic corpus pass, the entity
+audit, and the reader's Quick audit (`audit-run`, formerly
+`xray:audit:run`). The job ops answer extension pages only, and the
+worker refuses a request-scoped pass whose scope key does not end in its
+request's hash. A new LLM pass is a pass-table line plus its caller;
+`tests/llm-jobs.test.mjs` names the four per-unit passes still held open.
 
 ### Shared layer (`src/shared/`)
 
@@ -440,7 +449,7 @@ without the other is the design's named long-term risk.
   **Phase 28** (corpus intake automation) is COMPLETE: batch URL-list
   import (`url-import.js`), suggest-after-import (parked proposals), and
   the standalone cross-article "Suggest links" pass
-  (`xray:llm:corpus-links`) — every LLM suggestion still human-accepted.
+  (the `corpus-links` LLM job) — every LLM suggestion still human-accepted.
   A **post-28 workflow wave** (2026-07-20, PRs #233–#254) then landed:
   case-bound workspaces (PRs #223–#231), one-step case creation +
   Pre-analyze with the corpus-v4 claims-independent map cache, the
