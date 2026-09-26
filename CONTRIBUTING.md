@@ -315,6 +315,11 @@ Art. 13 — the constitution governs where this summary and it disagree.
   for the maintainer.
   `[ENGINEERING-FACT: <measured how>]` — something measured.
   A constraint in those places with no marker is an INTERPRETATION.
+  A guard test carries `// Provenance: R-NNN` or
+  `// Provenance: INTERPRETATION (YYYY-MM-DD) — expires <date+90d>`
+  (RESET_PLAN §4.4 item 3); `scripts/provenance-expiry.mjs` lists
+  expired ones weekly and never fails a build;
+  `tests/rulings-guards.test.mjs` fails on an R-id the ledger lacks.
 - **Kill-and-revisit.** Kills are recorded with rationale and left
   git-recoverable. A killed plan is not frozen doctrine — inherited
   decisions may be re-argued on merits. Only an explicit red line

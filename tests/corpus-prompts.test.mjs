@@ -40,6 +40,7 @@ test('corpus-prompts: the reduce prompt AFFIRMATIVELY asks for cross-article rel
     assert.match(sys, /NEVER output a verdict, score, probability/);
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('corpus-prompts: NEITHER tool schema carries a numeric score/confidence field (P2)', () => {
     const banned = /score|confidence|probability|rating|grade|likelihood/i;
     const scan = (tool) => {

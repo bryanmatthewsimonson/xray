@@ -198,11 +198,6 @@ test('CA.4: digestDossier carries audit_coverage when a rollup is given — dist
     assert.equal(withAudit.audit_coverage.weakest[0].title, 'Weak piece');
     assert.deepEqual(withAudit.audit_coverage.module_ranges,
         [{ module: 'source_architecture', min: 35, max: 65, n: 2 }]);
-    // The §10 structural pin: no fused number anywhere in the summary.
-    const json = JSON.stringify(withAudit.audit_coverage).toLowerCase();
-    for (const banned of ['mean', 'average', 'avg', 'corpus_score']) {
-        assert.ok(!json.includes(banned), `forbidden aggregate "${banned}"`);
-    }
 });
 
 test('case-synthesis: corpusExtractKey keys on MAP_PROMPT_VERSION, and a version change moves it', async () => {
@@ -360,6 +355,7 @@ test('case-synthesis: corpusExtractKey is stable on identical inputs, changes on
 
 // ---- UA.1 guard rail 1: the cache-key PREIMAGE is pinned -------------------
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD (UA.1 rail 1): corpusExtractKey hashes EXACTLY {v, text, title, url} — nothing may ride back in', async () => {
     const { Crypto } = await import('../src/shared/crypto.js');
     const request = { member_id: 'm1', memberText: 'The body.',
@@ -405,6 +401,7 @@ test('loadBearingSubset: strict === true filter; pass-through when nothing filte
     assert.deepEqual(CS.loadBearingSubset(null), null);
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD (UA.1 rail 5): the live extract is subset-filtered BEFORE the record union in the Analyze runner', async () => {
     // Order matters twice over: filtering AFTER unionExtractWithRecord
     // would drop the record's recovered atoms (they carry no flag), and

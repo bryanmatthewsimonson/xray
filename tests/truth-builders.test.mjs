@@ -95,6 +95,7 @@ test('30063: build + parse round-trip; d recomputable; NO p tag exists', async (
     assert.equal(parsed.url, 'https://example.com/article');
 });
 
+// Provenance: R-020 (build refuses interpretation and stated-value); the read-side null: INTERPRETATION (2026-09-26) — expires 2026-12-25 (R-020 replaces it with a visible "not admitted" record, in a later PR)
 test('30063: the firewall holds on the wire — build AND parse', async () => {
     await assert.rejects(() => buildAdjudicatedVerdictEvent(baseVerdictArgs({
         propositionClass: 'interpretation'
@@ -145,6 +146,7 @@ test('30063: wire validation — caveats, adequacy, coords, prediction horizon, 
     assert.equal(e[3], 'supersedes');
 });
 
+// Provenance: R-020
 test('30063 mirror: labels the claim coordinate, never a pubkey', () => {
     const { event } = buildVerdictMirrorEvent({
         claimCoord: CLAIM, verdict: 'established-false', sourceUrl: 'https://example.com/article'

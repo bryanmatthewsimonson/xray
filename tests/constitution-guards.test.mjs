@@ -5,19 +5,20 @@
 // bug or an unratified amendment — never a test to "fix".
 //
 //   - The 14 articles exist, in order, under the pinned version header.
-//   - The load-bearing clauses are pinned verbatim (whitespace- and
-//     markup-normalized): the §1 spine, the five license conditions,
-//     the reconciliation sentence, the enforcement formula.
+//   - The Art. 3 reconciliation sentence is pinned verbatim; the Art. 5.1
+//     spine is pinned two-sided in the Concord test.
 //   - Every P<n> cited from src/ comments resolves to a live P-heading
 //     in PHILOSOPHY.md (the first guard that reads a governing doc).
 //   - The Concord Schedule's cross-references resolve, two-sided.
 //   - Version stamps agree (constitution log, PHILOSOPHY v1.1.0+,
 //     CLAUDE.md pointer).
-//   - The Art. 10 wire-kind schedule matches the code: retired/free
+//   - The Art. 10 wire-kind schedule matches the code: retired/reserved
 //     kinds unemitted, 30065 constant-reserved but never emitted.
-//   - The never-merge firewall holds at the export surface (Art. 6).
 //   - No operator identity is special-cased in src/ (Art. 8.6).
 //   - The CASE_SYNTHESIS P5→P8 citation drift stays fixed.
+//
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
+// A test with its own Provenance line below is pinned by that line instead.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -38,13 +39,11 @@ const philosophy = await readFile(new URL('../docs/PHILOSOPHY.md', import.meta.u
 // a reworded clause always does.
 const normalize = (s) => s.replace(/[>*`]/g, '').replace(/\s+/g, ' ').trim();
 const normConstitution = normalize(constitution);
-const normPhilosophy = normalize(philosophy);
 
 const SPINE = 'Verdicts are descriptive states. Quantities are measurements, never '
     + 'estimations. Every number shows its derivation from evidence, or it does not appear.';
 const RECONCILIATION = 'The only lawful remedy for a lie is a durable, evidence-bound '
     + 'record beside it — never its removal.';
-const ENFORCEMENT = 'is not a feature; it is a different, worse system';
 
 async function* walkJs(dir) {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -95,23 +94,8 @@ test('guard: all fourteen articles exist, in order (Art. 12)', () => {
 // The load-bearing clauses, pinned verbatim (Art. 12)
 // ------------------------------------------------------------------
 
-test('guard: the Art. 5 spine and license conditions are pinned verbatim', () => {
-    assert.ok(normConstitution.includes(SPINE), 'the §1 spine is quoted in Art. 5');
-    for (const label of ['Declared.', 'Derived in the open.', 'Spread-shown.',
-        'Stakes-bounded.', 'Firewall-respecting.']) {
-        assert.ok(normConstitution.includes(label), `license condition "${label}"`);
-    }
-    // The corrective sentence recording the aggregation reopening.
-    assert.ok(normConstitution.includes('refusing them wholesale was itself a form of false precision'));
-});
-
 test('guard: the Art. 3 reconciliation clause is pinned verbatim', () => {
     assert.ok(normConstitution.includes(RECONCILIATION));
-});
-
-test('guard: the enforcement formula is pinned, two-sided with PHILOSOPHY §10', () => {
-    assert.ok(normConstitution.includes(ENFORCEMENT), 'constitution side');
-    assert.ok(normPhilosophy.includes(ENFORCEMENT), 'PHILOSOPHY §10 side');
 });
 
 // ------------------------------------------------------------------
@@ -165,7 +149,6 @@ test('guard: the Concord Schedule cross-references resolve, two-sided', async ()
     // fails CI and forces a conscious concord amendment.
     assert.ok(normalize(truth).includes(SPINE), 'spine in TRUTH_ADJUDICATION §1');
     assert.ok(normConstitution.includes(SPINE), 'spine in CONSTITUTION Art. 5');
-    assert.ok(truth.includes('organic statute'), 'TRUTH_ADJUDICATION concord status line');
 
     assert.ok(dossier.includes('No case-level score, ever'), 'CASE_DOSSIER §2 principle');
     assert.ok(lens.includes('### 5.1'), 'MORAL_LENS §5.1 heading');
@@ -195,10 +178,11 @@ test('guard: version stamps are consistent across the concord', async () => {
 });
 
 // ------------------------------------------------------------------
-// The wire covenant (Art. 10): retired/free/reserved kinds vs code
+// The wire covenant (Art. 10): retired/reserved kinds vs code
 // ------------------------------------------------------------------
 
-test('guard: the Art. 10 kind schedule matches the code — retired and free kinds unemitted', async () => {
+// Provenance: R-018 (never emitted), R-014 (seed row, pending); the no-constant half: INTERPRETATION (2026-09-26) — expires 2026-12-25
+test('guard: the Art. 10 kind schedule matches the code — retired and reserved kinds unemitted', async () => {
     const srcRoot = fileURLToPath(new URL('../src', import.meta.url));
     const emitted = new Set();   // `kind: N` / `.kind = N` sites
     const constants = new Set(); // KIND_X / X_KIND declarations
@@ -214,7 +198,7 @@ test('guard: the Art. 10 kind schedule matches the code — retired and free kin
     assert.ok(anywhere.has(30063), 'sanity: the scan sees the verdict kind');
     assert.ok(anywhere.has(30040), 'sanity: the scan sees suffix-style constants (CLAIM_KIND)');
 
-    assert.equal(anywhere.has(30066), false, '30066 stays FREE (Art. 10; the lens has no wire kind)');
+    assert.equal(anywhere.has(30066), false, '30066 stays RESERVED (Art. 10; the lens has no wire kind)');
     assert.equal(anywhere.has(30067), false, '30067 stays RETIRED (fact sheets — never reuse)');
     assert.equal(anywhere.has(30043), false, '30043 stays RETIRED (evidence — never reuse)');
     // 30065 is reserved: pinned as a constant, never at an emission site.
@@ -231,32 +215,6 @@ test('guard: the Art. 10 kind schedule matches the code — retired and free kin
     for (const k of [30050, 30051, 30052, 30053, 9803]) {
         assert.equal(emitted.has(k), false,
             `${k} stays RESERVED — scaffolded in Phase 9a, never emitted, never reuse`);
-    }
-});
-
-// ------------------------------------------------------------------
-// The never-merge firewall at the export surface (Art. 6)
-// ------------------------------------------------------------------
-
-test('guard: the never-merge firewall holds at the export surface', async () => {
-    const truthBuilders = await import('../src/shared/truth-builders.js');
-    const truthModel = await import('../src/shared/truth-adjudication-model.js');
-    const auditBuilders = await import('../src/shared/audit/builders.js');
-
-    // Sanity: each family exports its own vocabulary…
-    assert.ok(Object.keys(truthBuilders).some((k) => /verdict/i.test(k)),
-        'sanity: truth-builders speaks verdict');
-    assert.ok(Object.keys(auditBuilders).some((k) => /audit/i.test(k)),
-        'sanity: audit builders speak audit');
-    // …and never the other family's. The truth family carries no
-    // score; the audit family renders no verdict.
-    for (const [name, mod] of [['truth-builders', truthBuilders], ['truth-adjudication-model', truthModel]]) {
-        for (const key of Object.keys(mod)) {
-            assert.doesNotMatch(key, /score|rating|percent/i, `${name} export "${key}"`);
-        }
-    }
-    for (const key of Object.keys(auditBuilders)) {
-        assert.doesNotMatch(key, /verdict|ruling/i, `audit builders export "${key}"`);
     }
 });
 

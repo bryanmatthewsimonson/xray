@@ -445,6 +445,7 @@ test('articleCoord and relayHint thread through to the events when supplied', as
     }
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('events carry the article hash and never a stance — the audit/assessment firewall holds', async () => {
     const { entries } = await assembleAuditBatch({
         articleHash: HASH, userPubkey: USER_PK,
