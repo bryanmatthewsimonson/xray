@@ -659,9 +659,28 @@ looking where the bugs are.
       `check:version`, `web-ext lint`, `web-ext build` +
       `check:package`, `check:budget`, `npm run smoke`), and by
       re-reading every cited commit, PR and JOURNAL date.*
-- [ ] **Fix the front-door lies now** (README version and counts,
-      CHANGELOG reconstruction from merged PR titles, esbuild header,
-      api-interceptor header, CLAUDE.md's four wrong claims). (S; B9.)
+- [x] **Fix the front-door lies now** *Built 2026-09-25 on
+      `toolchain/front-door` (PR pending; JOURNAL entry of that date):
+      CHANGELOG `[Unreleased]` rebuilt from all 129 first-parent
+      merges since v0.8.0 (through #397, main at `4d2b1aa`), grouped,
+      with a `Wire format` list taken from the `NIP_DRAFT.md` diff
+      plus #368's tag-value change on Instagram kind-30023 captures;
+      README's version, zip name, Node floor and counts; the esbuild
+      header and the api-interceptor activation paragraph
+      (comment-only); CLAUDE.md's claims — three of the audit's four
+      still wrong (the test count had already been fixed; the skills
+      sentence re-counted after #397's governance skill: thirteen),
+      plus the kill-ratification status and the `Storage.entities`
+      "dead stub". Verified by a two-way PR-number check (129/129,
+      none extra), a diff showing the released CHANGELOG sections
+      byte-identical, and every claim re-measured on the merged tree;
+      `options.html`'s "Phase 25" string and B9's remaining
+      "`[Unreleased]` must be non-empty" CI check stay out of scope
+      (B9, not this item; release.yml's awk step already fails on an
+      empty section, #318).* Original scope:
+      README version and counts, CHANGELOG reconstruction from merged
+      PR titles, esbuild header, api-interceptor header, CLAUDE.md's
+      four wrong claims. (S; B9.)
 
 ### R1 — Reconcile governance (week 2; one session, one PR)
 

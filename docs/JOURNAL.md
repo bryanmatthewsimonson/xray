@@ -37,6 +37,7 @@ the entry's heading anchor in its monthly file.
 ## 2026-09
 
 - **2026-09-25** — [STATUS.md: what counts as a check date, and as casework](journal/2026-09.md#2026-09-25--statusmd-what-counts-as-a-check-date-and-as-casework) · design
+- **2026-09-25** — [The front door, re-verified: CHANGELOG rebuilt from the merge log, and what CLAUDE.md had wrong](journal/2026-09.md#2026-09-25--the-front-door-re-verified-changelog-rebuilt-from-the-merge-log-and-what-claudemd-had-wrong) · process
 - **2026-09-25** — [Instagram's Reels viewer (`/reels/<code>/`) fell through to the generic extractor, and a stale head still named the author](journal/2026-09.md#2026-09-25--instagrams-reels-viewer-reelscode-fell-through-to-the-generic-extractor-and-a-stale-head-still-named-the-author) · bug, capture, wire
 - **2026-09-25** — [The MA.6 walk's two preconditions: condition waits and `data-xr` anchors](journal/2026-09.md#2026-09-25--the-ma6-walks-two-preconditions-condition-waits-and-data-xr-anchors) · design, pattern
 - **2026-09-25** — [R0's static net: an ESLint ratchet, a closed-world zip, CI lockstep, and a budget sized from a month of growth](journal/2026-09.md#2026-09-25--r0s-static-net-an-eslint-ratchet-a-closed-world-zip-ci-lockstep-and-a-budget-sized-from-a-month-of-growth) · design, pattern
