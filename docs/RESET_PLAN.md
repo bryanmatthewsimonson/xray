@@ -469,7 +469,11 @@ looking where the bugs are.
       Measured: CI job 81 s on the first cut; the run 20.7 s locally
       after the review round.* (VERI-02; B8 and T4's "Playwright
       devDependency + CI job loading the extension" checkbox — closed.)
-      **Owed to the maintainer:** mark the `browser smoke` check
+      **Owed to the maintainer** (*done, as read from GitHub's API on
+      2026-09-26: the repository ruleset `main`, created 2026-09-22
+      00:11Z, requires `browser smoke` and `build + lint + package` on
+      an up-to-date branch — §9.1's 2026-09-25 update*): mark the
+      `browser smoke` check
       required in `main`'s branch protection — the workflow cannot set
       that. Budget: the whole smoke job ≤ 5 minutes wall clock.
 - [ ] **The MA.6 walk required.** It runs in the same job today,
@@ -503,7 +507,8 @@ looking where the bugs are.
       #396; JOURNAL entry of that date): four `ci.yml` build-job
       steps in the §8 order. `npm run lint:js` runs `eslint.config.mjs`
       (only `no-undef` and `no-unused-vars`, globals per context)
-      against a SHRINK-ONLY per-file baseline, 21 + 55 hits today; a
+      against a SHRINK-ONLY per-file baseline, 21 + 55 hits when built
+      and 21 + 54 once #368 merged (#396's second commit lowered it); a
       breach and an unlowered stale entry are both red, and none of the
       21 `no-undef` hits is a real bug. The console ratchet is not
       duplicated, because structure-guards Rule 6 already is that
@@ -582,7 +587,7 @@ looking where the bugs are.
       `index.js` line-count ceilings, no `console.` outside `utils.js`
       and `page/`. Every later PR shrinks an allowlist; none may grow
       one. (S; ARCH-15.)
-- [ ] **Branch and PR triage** per §9. *Status 2026-09-15 (§9.1 —
+- [x] **Branch and PR triage** per §9. *Status 2026-09-15 (§9.1 —
       the dated re-verification, the runbook, and the 65 names): every
       disposition re-checked against the tree and against the R0 net;
       one correction (#376 carries a runtime `pdfjs-dist` bump — not
@@ -598,7 +603,20 @@ looking where the bugs are.
       in the order given, delete the 65 merged branches, park #370,
       rebase #374 and #324; land `scripts/branch-hygiene.mjs` and the
       weekly `hygiene.yml`; turn on auto-delete-on-merge and Dependabot
-      auto-merge for devDependencies. (S.)
+      auto-merge for devDependencies. (S.) *Status 2026-09-25 (§9.1's
+      update of that date): every runbook step is done except step 1,
+      the repo settings — auto-delete-on-merge is evidently still off,
+      since the day's merged heads are still on `origin`. 2026-09-26:
+      read from GitHub's API, step 1 is done — the rules on `main` have
+      been in place since 2026-09-22, and auto-delete reads `true`
+      since #398 and #399 merged, their heads deleted as they merged
+      (§9.1's update). Every runbook step is done, so the box is
+      ticked. Sixteen merged heads are left from before the setting
+      (`docs/STATUS.md` §3 lists them): squash-merged, so no "merged"
+      rule matches them, and they go only when a `branch hygiene` run
+      dispatched with `apply=true` finds a tip more than 14 days old
+      (it archive-tags, then deletes), the first on 2026-09-29, or by
+      hand. The weekly cron only reports.*
 - [x] **Split the JOURNAL now, not in R6.** *Landed 2026-09-21 as PR
       #382 (`toolchain/journal-split`): `docs/journal/YYYY-MM.md` × 5,
       oldest-first, new entries appended at the bottom; `merge=union`
@@ -641,9 +659,30 @@ looking where the bugs are.
       journal-presence (a `hygiene.yml` input with no JOURNAL entry or
       cite). Verified by 23 tests in `tests/pr-body-check.test.mjs`
       and 39 negative controls that each turned it red.*
-- [ ] **`docs/STATUS.md`** (hand-maintained until R6 generates it): the
+- [x] **`docs/STATUS.md`** (hand-maintained until R6 generates it): the
       1.0 blocker list; every default-off flag with its check date and
       last casework evidence; the parked shelf; the open PR cap. (S.)
+      *Built 2026-09-25 on `toolchain/status-doc` (PR pending): the 19
+      ROAD_TO_1_0 blockers each re-checked against the tree, `git log
+      origin/main` and `docs/journal/` (7 closed · 4 partly done · 8
+      open; B17 has no named track); the 19 default-off flags, where
+      each is switched on, its check date (none is ratified — two set
+      by kickoffs, 2026-11-30 proposed by R2) and its last casework
+      evidence; the parked shelf (K3, #370); the open-PR cap read from
+      GitHub (three open when first written, four once #394 opened
+      that afternoon; after #393, #368, #395, #396 and #397 merged and
+      #365 closed the same day, one — #394; on 2026-09-26, after #398,
+      #399 and #400 opened and all four merged, none, until #401, the
+      MA.6 flip, opened as a draft at 00:28Z; with this page's PR,
+      two);
+      R0's own checklist state; a pointer in CLAUDE.md. The same slice
+      added the 2026-09-25 update to §9.1 (extended 2026-09-26) and
+      three agent rows to the walk ledger. Verified by the full
+      CI-equivalent set green after merging `main` at `7e10bfd`
+      (#400; `lint:js`, build, `npm test`,
+      `check:version`, `web-ext lint`, `web-ext build` +
+      `check:package`, `check:budget`, `npm run smoke`), and by
+      re-reading every cited commit, PR and JOURNAL date.*
 - [x] **Fix the front-door lies now** *Built 2026-09-25 on
       `toolchain/front-door` (PR pending; JOURNAL entry of that date):
       CHANGELOG `[Unreleased]` rebuilt from all 129 first-parent
@@ -685,6 +724,10 @@ looking where the bugs are.
       doc), FOUNDING_TRANSCRIPT, TRUTH_INFRASTRUCTURE. (M; nothing
       deleted.)
 - [ ] #364 merge; #366 merge as the answered record; #365 fold. (S.)
+      *Status 2026-09-25: #364 (`07b91c5`) and #366 (`f56b3b6`, as the
+      unanswered agenda, §9) merged 2026-09-15; #365 was folded into
+      #397 (`4d2b1aa`) and closed. Left: #366's answers, after the
+      session.*
 
 ### R2 — Scope the 1.0 and park the shelf (weeks 2–3)
 
@@ -1269,7 +1312,7 @@ wrong, but the reason it must hold is now mechanical.
 | #364 | mark ready, merge (docs only) | `docs/GOVERNANCE_UX_REVIEW.md` +307 and a JOURNAL entry; draft | green / 3034 pass / green / n/a | **unchanged** |
 | #365 | fold (a 453-line skill mirroring the corpus) | 453 lines exact; also edits `architect/SKILL.md`, the skills README, `CLAUDE.md`, and the GENERATED `discipline-standards.html` (the drift guard stayed green on the net) | green / 3034 pass / green / n/a | **unchanged** |
 | #374 | mark ready, rebase and merge after #369; fold into R3 lane B | draft; +1,580; `shared/llm-jobs.js` 534 exact; vs #369 the `background/index.js` hunks do not overlap (`merge-tree` of the two heads conflicts only in the JOURNAL); vs #377 it conflicts in JOURNAL + THREAT_MODEL, both docs, both union-resolvable; also touches `feature-flags.js` and `backup.js` (the `store` lane) | green / 2 red = ceiling (background 1906 > 1875) + registry (four new `xray:llm:job:*` messages and the `xray:llm-job:` storage prefix are unregistered) / smoke green | **unchanged**, plus: when rebased onto the net, register the five literals in `tests/structure-guards.test.mjs` (handlers + non-message prefix) — the registry did exactly its job here; the money row stands |
-| #324 | rebase and merge after the browser smoke; confirm legacy random-keyed entities still load and sign once fixtures exist | +390/−57, 31 files, behind 172; conflict is the JOURNAL only (union-resolves cleanly); sidepanel 2245 → 2253 | green / 1 red = ceiling (sidepanel 2253 > 2245) / smoke green — and the backup golden fixture, whose `local_keys` are legacy-shaped (no `derived_from`), restores and merges under #324 unchanged: the LOAD half of the fixture check passes | **unchanged**; the SIGN half of the legacy-entity check stays the one human row (create an entity under Local and under NIP-07 with no local primary; expect the named refusal) |
+| #324 | rebase and merge after the browser smoke; confirm legacy random-keyed entities still load and sign once fixtures exist | +390/−57, 31 files, behind 172; conflict is the JOURNAL only (union-resolves cleanly); sidepanel 2245 → 2253 | green / 1 red = ceiling (sidepanel 2253 > 2245) / smoke green — and the backup golden fixture, whose `local_keys` are legacy-shaped (no `derived_from`), restores and merges under #324 unchanged: the LOAD half of the fixture check passes | **unchanged**; the SIGN half of the legacy-entity check stays the one human row (create an entity under Local and under NIP-07 with no local primary; expect the named refusal). *2026-09-25:* this cell ran two checks together — the legacy-entity SIGN check and the Option C REFUSAL row. Both were run by an agent on 2026-09-24 and #324 merged as `4924ea5`; see the update below |
 | #370 | park; or merge with a four-row walk | 22 commits, +1,872, 15 files; `reader/index.js` +474 of wiring although `annotated-view.js` exists | green / 2 red = ceiling (reader 8741 > 8297) + console ratchet (reader 110 bare calls > 103) / smoke green | **unchanged (park)**; if merged instead, the price is now stated by the guard: the +444 in `index.js` moves into `annotated-view.js` and the seven bare `console.*` calls route through `Utils.log` |
 | #377 | this plan, corrected before merge | carries the R0 net (four slices landed) | — | **merge last**: rebase after the small PRs, union the JOURNAL, regenerate the lock (after #376), re-pin the ceilings and registry at the post-merge state, re-run everything |
 
@@ -1338,6 +1381,92 @@ the repo settings remain admin-only.
 7. *Fold #365* per its row, in a fresh ≤120-line PR.
 8. *Merge `toolchain/r0-net`* (the net) before any further behaviour
    PR, then #374 and #324 register their guard entries on rebase.
+
+**Update 2026-09-25 — what has merged since.** *Provenance:
+INTERPRETATION (2026-09-25, extended 2026-09-26) — an agent re-check
+against `git log origin/main` and the PR records, read-only; the
+2026-09-26 extension adds the merges of #394, #398, #399 and #400, and
+the repository settings and rulesets read from GitHub's API. Nothing
+here is a ruling. The 2026-09-15 table, the "Executed" note and the
+runbook above stay as the record of that day.*
+
+| PR | Merged as | What it settled |
+|---|---|---|
+| #379 | `d139ba5` (2026-09-21) | the R0 net (`toolchain/r0-net`, runbook step 8). It merged BEFORE #374 and #324, so neither was grandfathered: #374 moved its runner into `src/background/llm-jobs.js` and registered its five literals, #324 moved three helpers into `src/sidepanel/format.js`, and no ceiling was raised |
+| #377 | `c848983` | this plan (runbook step 5) |
+| #388 | `a731f1f` | Dependabot: `lightning` in the companion's `uv.lock` |
+| #387 | `891814d` (2026-09-24) | the runtime `pdfjs-dist` 6.2.108 → 6.3.289 bump, recut by the split Dependabot groups. It replaces #376, closed unmerged 2026-09-21 (its dev half landed as #386, `6ea8a13`). The PDF row was run by an agent, PR build against `main` — SMOKE_TEST ledger 2026-09-24 |
+| #389 | `ebb56dd` | the backup fixture's legacy entity given its real shape; `I14` pins that a legacy random-keyed entity loads and signs |
+| #324 | `4924ea5` (2026-09-24) | Option C. The row above ran two checks together; both ran on 2026-09-24, by an agent: the REFUSAL headless on the reader tagger's door, and the legacy-entity SIGN check in node over the real modules (ledger row). That is the creation half of the walk NIP07_IDENTITY_KICKOFF §6 owes, at one door. Not on the record: §6's "one entity-tagged publish under NIP-07", and the other creation doors §6 names — "the claim modal's picker", "the sidepanel import", `createCase`, and "the LLM review's accept-all" |
+| #374 | `90338bf` (2026-09-24) | the long LLM passes as jobs. Rows 20.m/20.n walked by an agent against a stubbed model the same day (ledger). The money row stands: a real paid reduce with no debugger attached is still unobserved |
+| #391 | `0e7237f` | PDF link annotations, found during the #387 walk; the maintainer's soak walk passed (ledger 2026-09-24) |
+| #392 | `a65d4ef` (2026-09-25) | `local_keys` writes become locked merges into fresh storage; the agent's multi-tab browser checks are on the ledger (2026-09-24) |
+| #390 | `88b1c5b` (2026-09-25) | #374's walk-note follow-up (it also recorded the 20.m/20.n ledger row); merged, not open |
+| #393 | `57a3398` (2026-09-25) | the hygiene workflow's `keep` input. The step-6 `--apply` had already used it, dispatched from this PR's branch |
+| #368 | `6ef815a` (2026-09-25) | step 2's last merge: the Instagram post URL is constructed, never read from `og:url`. Its row: the maintainer's first walk was PARTIAL — a reel reached in the Reels viewer (`/reels/<code>/`) fell through to the generic extractor (JOURNAL 2026-09-25) — fixed on the branch and re-walked PASS the same day (ledger) |
+| #395 | `16073bc` (2026-09-25) | R0's MA.6 preconditions: no fixed sleeps left in the walk, every control it drives found by a `SMOKE_ANCHORS` anchor. `ma6` stays advisory until the flip, which was set for 2026-10-05; the maintainer decided it on 2026-09-26 ("flip MA.6"), and it is draft #401, not yet merged |
+| #396 | `1c4fa87` (2026-09-25) | R0's static net: the ESLint ratchet, version lockstep in CI, the packaged-contents assertion and the bundle budget (R0 box ticked) |
+| #397 | `4d2b1aa` (2026-09-25) | step 7, the fold of #365: a 120-line `.claude/skills/governance/SKILL.md`. #365 was closed unmerged the same day, its branch `claude/loving-gauss-k8gsta` kept so the 453-line text stays recoverable |
+| #394 | `a4f859d` (2026-09-26, 00:04Z) | #374's follow-up: the last five single-call LLM passes (hypothesis edges, claim links, the forensic corpus pass, the entity audit, the reader's Quick audit) run as jobs; five `xray:*` message types retired, none added; the job messages answer extension pages only (THREAT_MODEL change row 2026-09-25). Rows LJ.a–LJ.d walked by an agent against a canned model; a real Quick audit in Chrome passed (the maintainer); the Firefox run and LJ.e, a real pass past ~5 minutes with no DevTools, were skipped by the maintainer on 2026-09-26 and stay unobserved (SMOKE_TEST ledger, 2026-09-25, and its "Not yet walked" note) |
+| #398 | `94733e1` (2026-09-26, 00:16Z) | R0's front-door fixes: CHANGELOG `[Unreleased]` rebuilt from the merged PRs, README's version and counts, CLAUDE.md, two code headers (R0 box ticked). B9's remainder — the Settings "(Phase 25)" string, README's phase-numbered Status, the non-empty-`[Unreleased]` CI check — is R6's (`docs/STATUS.md`) |
+| #399 | `90e2da3` (2026-09-26, 00:20Z) | R0's PR template: the four §8 lines, `scripts/pr-body-check.mjs` and its own `PR body` workflow (R0 box ticked). Not a required check; making it one is the maintainer's call |
+| #400 | `7e10bfd` (2026-09-26, 00:23Z) | the entity-list fix that follows #392: every `entities` write re-reads fresh under the Web Lock `xray.entities` and writes nothing on a failed read; one workspace pointer per page (THREAT_MODEL change row 2026-09-25) |
+
+Also merged in the window: #380 (`2ed917c`), #381 (`e4c5307`, CI on
+Node 22), #382 (`f7dcfd7`, the JOURNAL split), #385 (`85e0b9b`), and
+the maintainer's #383/#384 (example case briefs).
+
+**Runbook status.** Steps 2–8 are done; only step 1 is open. In step
+2, #376 was replaced by #387, and #368 merged last, after its stray
+file was removed on the maintainer's go and its Instagram row passed
+on the re-walk. Step 5 is done, not last: #377 merged just
+after #379 on 2026-09-21, three days before #374 and #324 (see the #379
+row). Step 7 is done as #397. **Step 6 is done:** it ran on
+2026-09-25 (Actions run 36171004273, dispatched by the maintainer from
+#393's branch with `keep` = `feat/margin-s1`) and deleted 68 branches —
+66 merged ones (the 65 listed above plus
+`bryanmatthewsimonson-patch-1-1`) and two stale ones, tagged first as
+`archive/feature-phase-9b-metadata-ui-20260529` and
+`archive/claude-kind-hypatia-fu8nqm-20260905` (the log reads "Actions
+(70): 2 tag, 68 delete, 0 issue", then "APPLY — 70 ok").
+`feat/margin-s1` was kept. `git ls-remote origin` on 2026-09-25 shows
+both archive tags and `feat/margin-s1`, and none of the deleted
+branches. **Step 1 is still open.** The settings themselves cannot be
+read from here, but two signs show from outside: `main` still took
+merge commits on 2026-09-21 (#383, #384), and the heads of #368, #393,
+#395, #396 and #397 are still on `origin` after their 2026-09-25
+merges, so "Automatically delete head branches" is evidently off. Open non-Dependabot PRs
+after #397 merged: one, #394 (draft), against the cap of four
+(`docs/STATUS.md`).
+
+*2026-09-26.* **Step 1 is done, so every runbook step is.** The
+settings could be read after all, from GitHub's API (the repository
+record, its rulesets and the rules on `main`); the paragraph above
+inferred them from outside. Squash merging is on, merge commits and
+rebase merging are off, and auto-merge is allowed. An active repository
+ruleset named `main`, created 2026-09-22 00:11Z (four minutes after
+#379 merged), requires a pull request with squash as the only merge
+method, linear history, and the status checks `build + lint + package`
+and `browser smoke` on an up-to-date branch, and it blocks force pushes
+and deletion. So R0's "mark `browser smoke` required" is done too. The
+2026-09-21 merge commits (#383 at 20:42Z, #384 at 21:04Z) came before
+the ruleset, and no merge commit has reached `main` since.
+"Automatically delete head branches", the last setting, read
+`delete_branch_on_merge: false` just after #394 merged and `true` after
+#399 merged; the heads of #398, #399 and #400 were deleted as they
+merged. Sixteen head branches of merged PRs, all merged before the switch, are
+still on `origin` (`git ls-remote origin`, each head matched to its
+PR): those of #368, #393, #394, #395, #396 and #397, and ten older
+ones the step-6 run kept, since none was an ancestor of `main` or more
+than 14 days old — #324, #364, #366, #369, #374 and #390 (one branch),
+#379, #381, #382, #389 and #391. All were squash-merged, so the
+"merged" rule never matches them. They go only when a `branch
+hygiene` run dispatched with `apply=true` finds a tip more than 14
+days old (it archive-tags, then deletes; the first tips cross on
+2026-09-29), or by hand; the weekly cron run only reports. **Open PRs
+after #400 merged:** none, Dependabot included, until #401 (the MA.6
+flip, a draft) opened at 00:28Z. With the `docs/STATUS.md` PR, two
+are open against the cap of four.
 
 
 ---
