@@ -1,6 +1,6 @@
 # The X-Ray Constitution
 
-**Document version:** 1.0.0
+**Document version:** 1.1.0
 **Status:** Normative — supreme
 **Date:** 2026-07-22 (reconciled 2026-08-02, pre-ratification)
 
@@ -625,6 +625,123 @@ names the non-normative tier (`FOUNDING_TRANSCRIPT.md` and its
 supersession log, `TRUTH_INFRASTRUCTURE.md`); Art. 13 Tier 2 names
 the statutes' own amendment organs. No article's operative content
 changed in reconciliation. Ratified by maintainer merge (Art. 14).
+
+**v1.1.0 — 2026-09-26.** First amendment. On 2026-09-26 the maintainer
+answered the six decisions of the governance reconciliation
+(`docs/RESET_PLAN.md` §4.3, D1–D6), each with its default option, and
+D6's lens question with "Yes: allow a lasting cache". Each answer is a
+row of `docs/RULINGS.md` (R-018 to R-025; R-018 to R-023 quote the
+maintainer's own words); that ruling is the rationale for each change
+below. One PR carries every edit. For each weakening, the paragraph
+names the failure mode it accepts.
+
+D1, the never-merge rule (R-018). Art. 6 keeps its core sentence, plus
+"Side-by-side composition is always lawful." Its word arm becomes naming
+guidance ("verdict" stays the name of the truth kind); the lens's own
+list stays in `MORAL_LENS_JURISDICTION_DESIGN.md` §5.2 as guidance. Its
+wire arm leaves Art. 6: Art. 10 already holds never-reuse, and its 30066
+row now reads "reserved — lens, if ever ratified". Red line 4 keeps its
+words and now reaches only the core sentence. The visual rule becomes
+one guidance line in `EPISTEMIC_AUDIT_DESIGN.md` display rule 6: scores
+and stances never share a color scale. The Concord Schedule's Art. 6 row
+matches. Failure modes accepted: a reader may see a stance and a score
+on one surface and confuse them (mitigated by per-family cards and the
+color-scale line); guidance can be ignored where law could not, so a
+screen could call a non-truth judgment a "ruling" or "verdict", and a
+word that lands in a published event cannot be recalled; the export-name
+guard (C2) is deleted, and the `isLicensedEstimate()` check named as its
+replacement checks an estimate's shape, not cross-family computation; a
+later amendment can assign 30066 to the lens, and a lens reading
+published under it could not be recalled.
+
+D2, which summary numbers X-Ray may show (R-019). Art. 1 defines
+"fused". Art. 4.4, Art. 5.4's first sentence and red line 2 now reach
+only fused numbers. Art. 5.2's five conditions stay the license; an
+estimation that fails one is withheld with a visible note,
+`estimate withheld: <failed condition>` (Art. 3), where before it did
+not appear. Art. 5.4's case-headline sentence loses the word "fused",
+so the definition does not narrow that ban. R-019 names the first
+licensed instruments. Failure modes accepted: a labeled, spread-shown
+instrument beside the record can still be read as the verdict by a
+hurried reader (mitigated by the five conditions and by never
+rendering it above the record); a case number, the evidence balance,
+is named before anyone has said what it measures (mitigated by a short
+design before any code).
+
+D3, the two rules that protect people (R-020). Both rules are kept:
+X-Ray never rules a value or an interpretation true or false, and it
+never puts an automatic label on a person. Art. 7 gains one sentence:
+an exposure file (PHILOSOPHY §3.3) is disclosure, not criticism.
+`docs/TRUTH_SYSTEMS.md` H-2 loses the word "permanently"; the rest of
+H-2 stands. It is logged here as well as in that document's own log,
+because the Preamble cites H-1–H-7. Failure modes accepted: the Art. 7
+sentence narrows what red line 5 reaches, and "disclosure" could
+become cover for listing identity facts about a living person; the
+adjudicability gate could later be softened by ordinary amendment
+instead of being blocked by the word.
+
+D4, which written rules overrule the working product (R-021). Below
+this document, Art. 2's doc-governs-code rule now covers only wire
+formats, stored-data shapes and security; elsewhere a conflict between
+behavior and a document is a recorded question for the maintainer, not
+an automatic win for the document. Art. 1's rank sentence and Art. 13's
+Tier-3 line match; Art. 2's capability sentence is unchanged. Art. 9
+and the Concord Schedule make `docs/DISCIPLINES.md` advice; its
+prompt-header check stays, as a lint. DISCIPLINES §15 standard 3 is
+reversed and TRUTH_SYSTEMS H-7 gains a scope line, each logged in its
+own document. Failure modes accepted: a design document can fall behind
+the product without forcing a fix (mitigated by the recorded-question
+rule); a standard written only in DISCIPLINES stops binding anywhere,
+for example its §7 standard 3 and §11 standard 5; a case brief can cite
+a grounded quote nobody read, and grounding checks only that the quote
+exists, not that the model's paraphrase is fair; an onboarding screen
+could be tuned to win sign-ups rather than understanding.
+
+D5, how decisions are recorded and ratified (R-022). Art. 11: the
+maintainer's explicit, recorded instruction approves every change to
+`main` and is the ratifying act; who presses the merge button is
+mechanical; the instruction is recorded in the maintainer's own words,
+on the PR or in the rulings ledger, before the merge; a standing
+instruction counts only as a ledger row that names its class; and
+"maintainer merge" is defined once, in Art. 11, so Art. 13 and Art. 14
+keep their words. Decisions are recorded in the monthly journal files,
+and maintainer rulings also as ledger rows. Failure modes accepted: an
+agent could misread a maintainer message as a ruling or an instruction
+(mitigated by the requirement that the record quotes the maintainer's
+own words); a change inside a class that a standing instruction names
+can merge without anyone reading it (mitigated only by the row naming
+that class in the maintainer's own words).
+
+D6, which documents bind (R-023). Art. 2 now says four documents
+bind: this document; `docs/PHILOSOPHY.md`, within the audit family; the
+rulings ledger; and, once it exists, a one-page index of what a screen
+may and may not do, which states no rule of its own.
+`docs/TRUTH_SYSTEMS.md` and `docs/DISCIPLINES.md` become advice, in the
+non-normative tier. First, the gate that values and interpretations
+are not adjudicable as true/false is lifted into this document as
+Art. 5.6; Art. 5.5 keeps its bridging line, and only its pointer to
+TRUTH_SYSTEMS §3.3 changes. The Preamble and the Concord Schedule
+match. `TRUTH_ADJUDICATION_DESIGN.md` §1 and §5 stop being an organic
+statute; their red lines stay law where this document states them
+(Art. 5.4, Art. 5.6, Art. 7, Art. 12). Failure modes accepted: a
+guidance document can be ignored where a statute could not (mitigated
+by keeping the gate and the bridging line in this document); the
+honest-limits clauses H-1 and H-3–H-7 become advice; so do the bridging
+constraints Art. 5 does not repeat — roster-scoped or history-costly
+inputs only (the defence against fake-account flooding) and
+publication as a signed, disputable measurement; a truth-family rule
+written only in TRUTH_ADJUDICATION stops binding code outside wire
+formats, stored data and security.
+
+Guards (`docs/RESET_PLAN.md` §7 R1, with D1 and D2 taken; C19 of the
+2026-09-05 governance audit). The guards that pinned the Art. 5.2
+condition labels, "refusing them wholesale" and the enforcement formula
+word for word are deleted, so the Concord Schedule's Art. 12 row reads
+"not pinned". Failure mode accepted: rewording one of those clauses no
+longer fails a test.
+
+Ratified by maintainer merge, under Art. 11 and Art. 14 as v1.0.0 wrote
+them: the amended Art. 11 does not ratify its own adoption.
 
 ---
 

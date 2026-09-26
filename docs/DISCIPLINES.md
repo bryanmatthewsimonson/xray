@@ -1,6 +1,6 @@
 # Discipline Standards — best practices derived from first principles
 
-**Document version:** 1.0.0
+**Document version:** 1.1.0
 **Status:** Advice (amended 2026-09-26, R-021); descriptive for
 status columns
 **Governed by:** `docs/CONSTITUTION.md` (Art. 9) — advice, not an
@@ -631,3 +631,18 @@ emitted by `tools/gen-module-prompts.mjs` itself — `module-prompts.js`
 is generated, and a header the generator does not emit dies at the
 next regen. Adopted into the Concord Schedule by maintainer merge
 (CONSTITUTION Art. 9, Art. 14).
+
+**v1.1.0 — 2026-09-26.** This document becomes advice (maintainer
+rulings R-021 and R-023; CONSTITUTION Art. 2, Art. 9 and the Concord
+Schedule are amended the same day). The header, §0 and the §1 status
+vocabulary no longer say the standards bind. The prompt-header check
+in `tests/disciplines.test.mjs` stays, as a lint. §15 standard 3 is
+reversed (R-021): it read "One accept per artifact — bulk credulity is
+not review"; it now says bulk-accept of individually grounded rows is
+lawful, because the grounding is the review. Accepted failure modes: a
+standard that bound only from this document stops binding anywhere
+(for example §7 standard 3 and §11 standard 5); a case brief can cite a
+grounded quote nobody read; grounding checks only that the quote
+exists, not that the model's paraphrase is fair, and bulk accept stores
+that paraphrase as the claim's wording (still tagged as
+model-suggested).

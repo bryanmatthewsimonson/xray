@@ -401,7 +401,8 @@ without the other is the design's named long-term risk.
 ## Project docs (read these for non-trivial work)
 
 - **`docs/CONSTITUTION.md`** — the **supreme normative document**
-  (v1.0.0, drafted 2026-07-22; ratified by maintainer merge, Art. 14).
+  (v1.1.0, drafted 2026-07-22; ratified by maintainer merge, Art. 14;
+  amended 2026-09-26).
   Consult it before any structural,
   normative, scoring, schema, or wire-format change anywhere in the
   project. Citation convention (binding): bare `P<n>` refers only to
@@ -607,7 +608,7 @@ without the other is the design's named long-term risk.
   (FB/IG/TikTok are finicky).
 - **`docs/NIP_DRAFT.md`** — the crowdsourced-metadata wire format.
 - **`docs/PHILOSOPHY.md`** — the **organic statute of the audit
-  family** (v1.2.0, under `docs/CONSTITUTION.md`; the 2026-08-02
+  family** (v1.3.0, under `docs/CONSTITUTION.md`; the 2026-08-02
   amendments removed the standing re-audit cadence, narrowed the P10
   self-dossier clause, and — the §13 concord — seated the family
   under the constitution). Consult it before any structural, scoring,

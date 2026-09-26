@@ -36,6 +36,7 @@ the entry's heading anchor in its monthly file.
 
 ## 2026-09
 
+- **2026-09-26** — [R1 amendment: the six governance rulings enacted](journal/2026-09.md#2026-09-26--r1-amendment-the-six-governance-rulings-enacted) · design, process
 - **2026-09-25** — [The front door, re-verified: CHANGELOG rebuilt from the merge log, and what CLAUDE.md had wrong](journal/2026-09.md#2026-09-25--the-front-door-re-verified-changelog-rebuilt-from-the-merge-log-and-what-claudemd-had-wrong) · process
 - **2026-09-25** — [The PR body contract becomes a check: four lines, the lane rule, and a JOURNAL cite for process changes](journal/2026-09.md#2026-09-25--the-pr-body-contract-becomes-a-check-four-lines-the-lane-rule-and-a-journal-cite-for-process-changes) · design, process
 - **2026-09-25** — [A failed read erased the entity registry: `entities` writes now follow the keystore's discipline](journal/2026-09.md#2026-09-25--a-failed-read-erased-the-entity-registry-entities-writes-now-follow-the-keystores-discipline) · bug, security, pattern

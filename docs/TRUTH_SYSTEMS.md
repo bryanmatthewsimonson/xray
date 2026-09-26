@@ -1,6 +1,6 @@
 # Truth Systems — the comparative foundation
 
-**Document version:** 1.0.0
+**Document version:** 1.1.0
 **Status:** Evidentiary annex to `docs/CONSTITUTION.md`; advice, not
 law (amended 2026-09-26, R-023). The constitution itself keeps two
 of its lines: the bridging line (CONSTITUTION Art. 5.5) and H-2's gate
@@ -729,3 +729,22 @@ invariants, nine subversion modes with residual risks stated, the
 seven-constraint bridging license (§3.3, adopted by CONSTITUTION
 Art. 5.5), seven honest-limits clauses (adopted by the CONSTITUTION
 Preamble).
+
+**v1.1.0 — 2026-09-26.** Three changes, each on a maintainer ruling of
+that date; the CONSTITUTION's v1.1.0 entry records them too. H-2
+(R-020): the word "permanently" is struck; the rest of H-2 stands.
+Accepted failure mode: the adjudicability gate could later be softened
+by ordinary amendment instead of being blocked by the word. H-7
+(R-021): a scope line — its bans cover judgment surfaces; onboarding,
+docs and layout fall outside them. Whether the Network feed stays
+inside is an INTERPRETATION (default: inside), marked in H-7.
+Accepted failure mode: an onboarding screen could be tuned to win
+sign-ups rather than understanding. Status (R-023): this document
+becomes advice; the status line and the §3.3 and §4 lead-ins say so,
+and H-2's gate is lifted into CONSTITUTION Art. 5.6 first. Accepted
+failure modes: a guidance document can be ignored where a statute
+could not; H-1 and H-3–H-7 become advice; so do the §3.3 constraints
+the constitution does not repeat, notably constraint 5 (roster-scoped
+or history-costly inputs only — the defence against fake-account
+flooding) and constraint 7 (published as a signed, disputable
+measurement).

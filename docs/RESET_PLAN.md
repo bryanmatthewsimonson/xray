@@ -669,8 +669,8 @@ looking where the bugs are.
 
 ### R1 — Reconcile governance (week 2; one session, one PR)
 
-- [ ] The ninety-minute session with D1–D6 (§4.3). Output: six ledger
-      rows.
+- [x] The ninety-minute session with D1–D6 (§4.3). Output: six ledger
+      rows. *Answered 2026-09-26: `docs/RULINGS.md` R-018 to R-025.*
 - [ ] One amendment PR: Art. 6 to one sentence; "fused" defined; Art. 2
       narrowed; Art. 7 sentence; Art. 11 amended; Art. 10 30066 row;
       TS H-2 "permanently" struck; PHILOSOPHY §13 entry — each edit
@@ -678,13 +678,19 @@ looking where the bugs are.
       that edit is dropped. If D1/D2 are taken: delete C2, the verbatim
       clause pins and the two dozen banned-word lists; add
       `isLicensedEstimate()` + the schema guard. If D5 is taken: add
-      `// Provenance:` headers and the expiry check. (M.)
+      `// Provenance:` headers and the expiry check. (M.) *Partly done in
+      the R1 amendment PR (2026-09-26): C2, the lens word checks, 12
+      other word lists and the three C19 verbatim clause pins are deleted
+      (its interpretive step S12 asks whether the Art. 3 and Concord
+      spine pins should go too); 24 word lists are kept and wait on the
+      maintainer's answer (S7); the output schema-key guard waits for
+      the first licensed number (S34).*
 - [ ] The corpus reset: four normative documents; guidance re-labelled;
       `docs/archive/` with banners for the EPISTACK cluster, the shipped
       kickoffs (K13, saving the two case-workspace kickoffs as a design
       doc), FOUNDING_TRANSCRIPT, TRUTH_INFRASTRUCTURE. (M; nothing
       deleted.)
-- [ ] #364 merge; #366 merge as the answered record; #365 fold. (S.)
+- [x] #364 merge; #366 merge as the answered record; #365 fold. (S.)
 
 ### R2 — Scope the 1.0 and park the shelf (weeks 2–3)
 
