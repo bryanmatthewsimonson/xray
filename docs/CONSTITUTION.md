@@ -336,6 +336,8 @@ adjudicated — structure, not intent, in every family; living persons
 get published-positions-only reconstruction; and good-faith-wrong is
 never treated as bad-faith.
 
+An exposure file (PHILOSOPHY §3.3) is disclosure, not criticism.
+
 ## Article 8 — Operator accountability
 
 The operator is held to every standard in this document, at the

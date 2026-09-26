@@ -660,7 +660,7 @@ them); H-2's gate is law in CONSTITUTION Art. 5.6.
   remains free. A system that forgot this would need to become a
   coercion engine — a different, worse system.
 - **H-2. Values and interpretations are outside the verdict's
-  jurisdiction, permanently.** The §3.1 firewall is not a v1
+  jurisdiction.** *(Amended 2026-09-26, R-020.)* The §3.1 firewall is not a v1
   limitation to be lifted at scale; it is the boundary between an
   evidence protocol and an inquisition. The system may adjudicate
   what was said and done, and map how named perspectives read the
