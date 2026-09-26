@@ -39,7 +39,7 @@ import { equivalencePubkeys } from '../shared/entity-equivalence.js';
 import { buildFeedFilters, claimCoords, buildJudgmentFilter, assembleFeed } from '../shared/entity-feed.js';
 import { pushEntities, pullEntities, clearRemote, pushRelayList, pullRelayList, normalizeRelayUrl } from '../shared/entity-sync.js';
 import { dedupeReport, recentMerges, DedupeDismissals } from '../shared/entity-health.js';
-import { buildRegistryDigest, validateEntityOps } from '../shared/llm-entity-audit.js';
+import { runEntityAudit } from './entity-audit.js';
 import { assembleEntityDossier } from '../shared/entity-dossier.js';
 import { Storage } from '../shared/storage.js';
 import { listArticles } from '../shared/archive-cache.js';
@@ -1931,9 +1931,16 @@ async function renderHealth() {
         ${mergeHtml}`;
 
     // E2 — the LLM entity audit (ENTITY_CORPUS_DESIGN §3.2). Explicit
-    // click → explicit disclosure → one call → firewall → per-op Accept.
+    // click → explicit disclosure → one call (an LLM job) → firewall →
+    // per-op Accept. The run lives in ./entity-audit.js. No host while
+    // another view is up: a hidden review is not a delivered one, and
+    // returning to Health re-renders it away — the job record stays for
+    // the next identical audit instead.
     $('#xr-entity-audit').addEventListener('click', () =>
-        runEntityAudit({ entities, archiveRecords }).catch((err) => {
+        runEntityAudit({ entities, archiveRecords }, {
+            host: () => (state.view === 'health' ? $('#xr-entity-audit-review') : null),
+            render: renderEntityAuditReview, toast
+        }).catch((err) => {
             toast(err.message || String(err), 'error');
         }));
 
@@ -1965,42 +1972,6 @@ async function renderHealth() {
             }
         });
     });
-}
-
-// E2 — the LLM entity audit run. Gates (llmAssist + key) are checked
-// BEFORE the disclosure so nobody consents into a missing-key error;
-// the disclosure names exactly what leaves the device (the §3.2
-// privacy note: names, types, descriptions, and stored mention
-// snippets — no new class of data). Raw ops go through the
-// validateEntityOps firewall; every mutation is a human Accept here.
-async function runEntityAudit({ entities, archiveRecords }) {
-    const status = () => $('#xr-entity-audit-review');
-    const cfg = await new Promise((resolve) =>
-        chrome.runtime.sendMessage({ type: 'xray:llm:config' }, (r) => resolve(r || {})));
-    if (!cfg.enabled) throw new Error('LLM assist is off. Enable it in Settings → Advanced → LLM assist.');
-    if (!cfg.hasKey) throw new Error('No Anthropic API key set. Add one in Settings → Advanced → LLM assist.');
-
-    const { digest, included, truncated, mentionTextByEntity } =
-        buildRegistryDigest({ entities, articles: archiveRecords });
-    if (!digest.trim()) { toast('Nothing to audit — the registry is empty.'); return; }
-
-    if (!confirm(`Audit ${included} entit${included === 1 ? 'y' : 'ies'} with the LLM?\n\n`
-        + 'This sends entity names, types, descriptions, and stored mention snippets '
-        + '(already-captured article fragments) to the Anthropic API under your key — '
-        + 'no new class of data, but it leaves this device.'
-        + (truncated ? `\n\n${truncated} entit${truncated === 1 ? 'y' : 'ies'} did not fit the size budget and are excluded.` : '')
-        + '\n\nEvery proposal is reviewed here before anything changes.')) return;
-
-    status().innerHTML = '<div class="xr-side__empty">Auditing the registry…</div>';
-    const resp = await new Promise((resolve) =>
-        chrome.runtime.sendMessage({ type: 'xray:llm:entity-audit', request: { digest } }, (r) => resolve(r)));
-    if (!resp || !resp.ok) {
-        status().innerHTML = '';
-        throw new Error((resp && resp.error) || 'Entity audit failed (no response).');
-    }
-
-    const { accepted, rejected } = validateEntityOps(resp.ops, { entities, mentionTextByEntity });
-    renderEntityAuditReview({ accepted, rejected, model: resp.model, entities });
 }
 
 function describeEntityOp(op, nameOf) {

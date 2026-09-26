@@ -15,9 +15,10 @@ globalThis.chrome = globalThis.chrome || {
 };
 
 const {
-    buildHypothesisBlockModel, AUTHORING_STRINGS, suggestStatusLine
+    buildHypothesisBlockModel, AUTHORING_STRINGS, suggestStatusLine, suggestProgressLine, suggestFailureLine
 } = await import('../src/portal/hypothesis-block.js');
 const { buildHypothesisMap } = await import('../src/shared/hypothesis-map.js');
+const { LLM_JOB_LOST_ERROR } = await import('../src/shared/llm-jobs.js');
 
 const CASE_ID = 'entity_00000000000000aa';
 const HASH_A = 'a'.repeat(64);
@@ -121,14 +122,20 @@ function bigModel() {
 
 test('hypothesis-block: no-scoreboard guard — no comparison phrasing or judgment number in ANY rendered string', () => {
     // The model's strings (rich AND truncated shapes), the H.3
-    // authoring copy, and the H.4 status-line composer — everything
-    // the block puts on screen.
+    // authoring copy, and the H.4 status-line composers (the pass runs
+    // as an LLM job since 2026-09-25: progress + failure lines too) —
+    // everything the block puts on screen.
     const strings = [
         ...allStrings(richModel()),
         ...allStrings(bigModel()),
         ...AUTHORING_STRINGS,
         suggestStatusLine({ checked: 12, dropped: 3, rejected: 2, proposals: 7 }),
-        suggestStatusLine({ checked: 1, dropped: 0, rejected: 0, proposals: 1 })
+        suggestStatusLine({ checked: 1, dropped: 0, rejected: 0, proposals: 1 }),
+        suggestProgressLine(0), suggestProgressLine(95),
+        suggestFailureLine({ ok: false, lost: true, swLost: true, error: LLM_JOB_LOST_ERROR }),
+        suggestFailureLine({ ok: false, swLost: true, error: 'lost contact with the service worker while waiting for the call' }),
+        suggestFailureLine({ ok: false, error: 'Case synthesis is off. Enable it in Options → Advanced → Case synthesis.' }),
+        suggestFailureLine(null)
     ];
     assert.ok(strings.length > 10);
     const banned = /\d+\s*%|\d+\s*\/\s*100|more likely|less likely|stronger|weaker|winner|wins\b|leads\b|ahead of|best.supported|top hypothesis|score|probabilit|confidence|likelihood/i;

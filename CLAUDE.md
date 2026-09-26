@@ -108,16 +108,25 @@ extension approves in-context.
 (e.g. `xray:capture`, `xray:capture:transcribe`, `xray:capture:publish`,
 `xray:relay:publish`, `xray:relay:query`, `xray:sign`,
 `xray:youtube:fetchTranscript`, `xray:screenshot:capture`,
-`xray:llm:job:{start,status,find,ack}` — the corpus map / corpus reduce /
-entity-page passes as **jobs** (`shared/llm-jobs.js`: start answers at
-once, the raw result is persisted under the job id before any response
-hop, the page long-polls; a held-open message dies at MV3's 5-minute
-request kill and takes the paid result with it — JOURNAL 2026-09-05),
-`xray:audit:run`, `xray:transcribe:{start,status,
-config,ping,claims}`, `xray:transcribe:direct:{start,status}`, `xray:vision:describe`). When adding a cross-context
+`xray:llm:job:{start,status,find,ack}`, `xray:audit:module`,
+`xray:transcribe:{start,status,config,ping,claims}`,
+`xray:transcribe:direct:{start,status}`, `xray:vision:describe`). When adding a cross-context
 call, add an `xray:*` message rather than reaching across contexts directly.
 **A pass that can run past a few minutes must be a job, never a single
 held-open message** — the transcribe and LLM-job families are the precedents.
+Every single-call LLM pass is a **job** on `xray:llm:job:*`
+(`shared/llm-jobs.js`: start answers at once, the raw result is persisted
+under the job id before any response hop, the page long-polls and acks
+only once it holds the result — persisted, or shown on a visible review
+surface; a held-open message dies at MV3's 5-minute request kill and
+takes the paid result with it — JOURNAL 2026-09-05). The pass table in
+`background/llm-jobs.js` is the allowlist: corpus map / reduce, entity
+page, hypothesis edges, claim links, the forensic corpus pass, the entity
+audit, and the reader's Quick audit (`audit-run`, formerly
+`xray:audit:run`). The job ops answer extension pages only, and the
+worker refuses a request-scoped pass whose scope key does not end in its
+request's hash. A new LLM pass is a pass-table line plus its caller;
+`tests/llm-jobs.test.mjs` names the four per-unit passes still held open.
 
 ### Shared layer (`src/shared/`)
 
@@ -131,8 +140,11 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   userscript-era `publications`/`people`/`organizations`/`keypairs`
   sub-objects are gone (removed 2026-07-01), and captured articles live
   in `archive-cache.js`'s IndexedDB, not here — `entities`/`articleCache`
-  survive only as dead v4-compat stubs (kill candidate K14 in
-  ROAD_TO_1_0). Values are JSON-serialized for export/import
+  survive only as v4-compat stubs. `articleCache` is dead, but
+  `entities` is a null-object default that `entity-model.js` swaps for
+  the real registry at runtime and `event-builder.js` reads when
+  publishing — never delete it as dead (K14 in ROAD_TO_1_0 is blocked
+  on exactly that). Values are JSON-serialized for export/import
   compatibility. Note: the **primary signing identity (Local mode) lives
   under a separate `local_primary_identity` key**, deliberately *outside*
   the per-entity key registry (`local_keys`), so exporting entity keys
@@ -364,12 +376,19 @@ without the other is the design's named long-term risk.
   (`// Standards: <id> — docs/DISCIPLINES.md §n.`) —
   `tests/disciplines.test.mjs` fails any "You are" prompt file without
   one.
-- **`.claude/skills/`** — eight of the nine skills here are the
+- **`.claude/skills/`** — thirteen skills. Eight are the
   **dev-process** disciplines (distinct from DISCIPLINES.md, which
-  governs the disciplines the *product* draws on); the ninth,
-  `xray-capture`, is an operational skill that drives the loaded
-  extension through the claude-in-chrome connector to capture URLs.
-  The disciplines — `product-manager`, `architect`,
+  governs the disciplines the *product* draws on); four more are
+  dev-process skills without a `## Standards` section, so the
+  generated page below leaves them out — `ux-designer` (surface
+  reviews), `seam-and-invariant-check` (a pre-commit checklist),
+  `hand-to-maintainer` (handing manual checks over as runnable steps)
+  and `governance` (a review aid for diffs that touch or invoke the
+  governance corpus — its standards sit under `## Review standards`;
+  it reads the sources, keeps no copy, and never rules); the
+  thirteenth, `xray-capture`, is an operational skill that drives the
+  loaded extension through the claude-in-chrome connector to capture
+  URLs. The disciplines — `product-manager`, `architect`,
   `continuous-improvement`, `automator`, `ecosystem-pm`,
   `verification-engineer`, `security-threat-modeler`,
   `schema-evolution` — are written in the same §0 method. Each produces
@@ -379,7 +398,8 @@ without the other is the design's named long-term risk.
   routing, the shared release-preflight ordering, and the seam map
   (who owns a contested call — e.g. `ecosystem-pm` declares the
   canonical `Wire format:` PR callout). Read the governing skill before
-  a wire change, a schema change, a new surface, or a release tag.
+  a wire change, a schema change, a normative-doc edit, a new surface,
+  or a release tag.
   `docs/discipline-standards.html` renders all eight on one page
   (GENERATED — `npm run docs:disciplines`, drift-guarded by
   `tests/discipline-docs.test.mjs`).
@@ -390,10 +410,14 @@ without the other is the design's named long-term risk.
   §3.3 bridging license (what CONSTITUTION Art. 5.5 adopts), and the
   honest-limits clauses H-1–H-7 (including H-7, the persuasion line:
   make honesty louder, never make loudness a method).
-- **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 28
-  (v0.7.0 tagged 2026-07-16 — the first GitHub Release since v0.5.1; see
-  CONTRIBUTING for the tag-driven release process). Complete and merged:
-  Phases 10 (thin
+- **`docs/ROADMAP.md`** — per-phase scope. Complete through Phase 28;
+  **Phase 29** (store-first publish + the local event store,
+  `docs/EVENT_STORE_DESIGN.md`) is in progress — 29.1, the publish
+  gate behind `storeFirstPublish`, shipped 2026-08-02 (PR #279),
+  29.2–29.6 open. The newest release is v0.8.0 (tagged 2026-07-20);
+  v0.7.0 (tagged 2026-07-16) was the first GitHub Release since v0.5.1
+  — see CONTRIBUTING for the tag-driven release process. Complete and
+  merged: Phases 10 (thin
   claims), 11 (assessments; `docs/ASSESSMENTS_DESIGN.md`), 12 (portal;
   `docs/PORTAL_DESIGN.md`), 13 (epistemic audits, kinds `30056`–`30061`;
   `docs/EPISTEMIC_AUDIT_DESIGN.md`), 14 (forensic findings, kind `30062`;
@@ -437,7 +461,7 @@ without the other is the design's named long-term risk.
   **Phase 28** (corpus intake automation) is COMPLETE: batch URL-list
   import (`url-import.js`), suggest-after-import (parked proposals), and
   the standalone cross-article "Suggest links" pass
-  (`xray:llm:corpus-links`) — every LLM suggestion still human-accepted.
+  (the `corpus-links` LLM job) — every LLM suggestion still human-accepted.
   A **post-28 workflow wave** (2026-07-20, PRs #233–#254) then landed:
   case-bound workspaces (PRs #223–#231), one-step case creation +
   Pre-analyze with the corpus-v4 claims-independent map cache, the
@@ -492,10 +516,15 @@ without the other is the design's named long-term risk.
   to be tailored **maintainer-driven from real casework (COVID first)**.
   The 0.8.0 smoke walk passed (2026-07-20; Phases 11–15
   section walks completed then too), and the Phases 16 and 19 section
-  walks are complete as well — no section walk is outstanding.
+  walks are complete as well. Walks ARE still outstanding — the
+  Transcribe Anywhere section's LT.1–LT.5 and LT.7–LT.14 among them
+  (LT.6 passed 2026-08-15 on the AssemblyAI engine only); the walk
+  ledger in `docs/SMOKE_TEST.md` and its "Not yet walked" list are
+  the record.
 - **`docs/ROAD_TO_1_0.md`** — the **1.0 readiness punch list** (2026-08-09):
-  19 blockers, 8 sequenced tracks, 15 kill candidates awaiting
-  ratification, and an explicit "what 1.0 ships without" list. Produced
+  19 blockers, 8 sequenced tracks, 15 kills (ratified 2026-08-09; its
+  kill list carries each one's execution status), and an explicit
+  "what 1.0 ships without" list. Produced
   by a whole-tree audit in which each `.claude/skills/` discipline ran
   its own Protocol, plus newcomer-UX / group-research / consolidation
   lenses. **Consult it before starting 1.0 work** — it carries the

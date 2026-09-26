@@ -36,6 +36,7 @@ the entry's heading anchor in its monthly file.
 
 ## 2026-09
 
+- **2026-09-25** — [The front door, re-verified: CHANGELOG rebuilt from the merge log, and what CLAUDE.md had wrong](journal/2026-09.md#2026-09-25--the-front-door-re-verified-changelog-rebuilt-from-the-merge-log-and-what-claudemd-had-wrong) · process
 - **2026-09-25** — [The PR body contract becomes a check: four lines, the lane rule, and a JOURNAL cite for process changes](journal/2026-09.md#2026-09-25--the-pr-body-contract-becomes-a-check-four-lines-the-lane-rule-and-a-journal-cite-for-process-changes) · design, process
 - **2026-09-25** — [Instagram's Reels viewer (`/reels/<code>/`) fell through to the generic extractor, and a stale head still named the author](journal/2026-09.md#2026-09-25--instagrams-reels-viewer-reelscode-fell-through-to-the-generic-extractor-and-a-stale-head-still-named-the-author) · bug, capture, wire
 - **2026-09-25** — [The MA.6 walk's two preconditions: condition waits and `data-xr` anchors](journal/2026-09.md#2026-09-25--the-ma6-walks-two-preconditions-condition-waits-and-data-xr-anchors) · design, pattern
