@@ -289,15 +289,32 @@ put back afterwards.
 Mirrors [`docs/CONSTITUTION.md`](docs/CONSTITUTION.md) Art. 11 and
 Art. 13 — the constitution governs where this summary and it disagree.
 
-- **Merge authority.** The maintainer alone merges to `main`. Agents
-  (Claude) author PRs and never merge. A maintainer merge is the
-  ratifying act for any normative change.
+- **Merge authority.** The maintainer's explicit, recorded instruction
+  approves every change to `main` and is the ratifying act for any
+  normative change. Who presses the merge button is mechanical. Agents
+  (Claude) author PRs. The instruction is recorded in the maintainer's
+  own words, on the PR or in [`docs/RULINGS.md`](docs/RULINGS.md),
+  before the merge. A standing instruction counts only as a ledger row,
+  in the maintainer's own words, that names the class of change it
+  covers.
 - **Decision recording.** Every decision that accepts a design, kills
   a feature, or resolves an open question gets a JOURNAL entry
   (appended at the bottom of `docs/journal/YYYY-MM.md`; the index at
   [`docs/JOURNAL.md`](docs/JOURNAL.md) is regenerated) with date and
-  rationale.
+  rationale. A maintainer ruling is also a row in
+  [`docs/RULINGS.md`](docs/RULINGS.md) that quotes the maintainer's own
+  words; the JOURNAL entry cites its R-id instead of restating it.
   Agent–maintainer disagreements are recorded, not silently resolved.
+- **Markers** (RESET_PLAN §4.4 item 1; adopted by R-022). A constraint
+  stated in a design doc, kickoff, PR body, guard-test header or
+  prompt file carries one of three markers:
+  `[RULING: maintainer YYYY-MM-DD R-id]` — the maintainer decided; the
+  R-id is a row in [`docs/RULINGS.md`](docs/RULINGS.md).
+  `[INTERPRETATION: <agent>, YYYY-MM-DD — default: <x>; ask: <one line>]`
+  — an agent's reading, with its suggested default and one question
+  for the maintainer.
+  `[ENGINEERING-FACT: <measured how>]` — something measured.
+  A constraint in those places with no marker is an INTERPRETATION.
 - **Kill-and-revisit.** Kills are recorded with rationale and left
   git-recoverable. A killed plan is not frozen doctrine — inherited
   decisions may be re-argued on merits. Only an explicit red line

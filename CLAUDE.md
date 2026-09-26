@@ -389,6 +389,13 @@ without the other is the design's named long-term risk.
   "JOURNAL YYYY-MM-DD". `.github/workflows/pr-body.yml` runs
   `scripts/pr-body-check.mjs` on every PR — advisory until the
   maintainer makes it a required check.
+- **Markers and rulings** (CONTRIBUTING, "Governance"; RESET_PLAN §4.4
+  item 1; R-022): a constraint stated in a design doc, kickoff, PR body,
+  guard-test header or prompt file carries a `[RULING: …]`,
+  `[INTERPRETATION: …]` or `[ENGINEERING-FACT: …]` marker; one with no
+  marker is an INTERPRETATION. A maintainer ruling is a row in
+  `docs/RULINGS.md` quoting the maintainer's own words; JOURNAL entries
+  cite its R-id instead of restating it.
 
 ## Project docs (read these for non-trivial work)
 
@@ -623,6 +630,10 @@ without the other is the design's named long-term risk.
   (crux; Honor). `docs/PHILOSOPHY.md` governs wherever it touches
   audit surfaces; cites the Truth Systems annex
   (`docs/TRUTH_SYSTEMS.md`) as "TS §n", by relative link.
+- **`docs/VISION.md`** — **non-normative** (CONSTITUTION Art. 2): the
+  maintainer's three design lines (MARGIN_DESIGN §1, 2026-08-28) and,
+  where written, what each requires and does not. It inspires; it
+  never licenses a feature or settles a conflict.
 - **`docs/FOUNDING_TRANSCRIPT.md`** — the founding conversation's
   verbatim source prose (non-normative; PHILOSOPHY.md and the RQ
   decisions govern on conflict). Its supersession log records which

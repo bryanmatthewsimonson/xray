@@ -263,8 +263,8 @@ guards must pass the same test.
    where mechanization is proposed — the automator handoff that
    picks the rung); Draft JOURNAL entry. When a code or CI change is
    recommended, include a single-concern PR plan kept separate from
-   feature work in flight (S9). The maintainer alone merges and
-   thereby ratifies (CONSTITUTION Art. 11) — never auto-apply a
+   feature work in flight (S9). The maintainer's explicit, recorded
+   instruction ratifies (CONSTITUTION Art. 11) — never auto-apply a
    process change.
 
 ## Boundaries

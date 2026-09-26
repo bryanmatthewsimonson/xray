@@ -453,15 +453,24 @@ come back with a new meaning.
 
 ## Article 11 — Governance
 
-**Merge authority.** The maintainer alone merges to `main`. Agents
-author PRs and never merge. A maintainer merge is the ratifying act for
-any normative change.
+**Merge authority.** The maintainer's explicit, recorded instruction
+approves every change to `main` and is the ratifying act for any
+normative change. Who presses the merge button is mechanical. Agents
+author PRs. The instruction is recorded in the maintainer's own words,
+on the PR or in the rulings ledger (`docs/RULINGS.md`), before the
+merge. A standing instruction counts only as a ledger row, in the
+maintainer's own words, that names the class of change it covers. A
+"maintainer merge" (Art. 13, Art. 14) is a merge made on such an
+instruction.
 
 **Decision recording.** Every decision that accepts a design, kills a
-feature, or resolves an open question is recorded in `docs/JOURNAL.md`
-with date and rationale. Agent–maintainer disagreement is recorded, not
-silently resolved — disagreement is data internally too (Art. 4.4
-applied to governance).
+feature, or resolves an open question is recorded in the monthly
+journal files (`docs/journal/YYYY-MM.md`) with date and rationale. A
+maintainer ruling is also a row in the rulings ledger that quotes the
+maintainer's own words; journal entries cite its ruling ID instead of
+restating it. Agent–maintainer disagreement is recorded, not silently
+resolved — disagreement is data internally too (Art. 4.4 applied to
+governance).
 
 **Kill-and-revisit.** A kill is recorded with rationale and left
 git-recoverable. A killed plan is not frozen doctrine: every inherited
