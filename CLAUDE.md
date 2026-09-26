@@ -333,6 +333,18 @@ without the other is the design's named long-term risk.
 - **Commit messages:** imperative present tense; `fix:`/`feat:`/`chore:`/
   `docs:`/`ci:` prefixes, scope in parens when useful
   (`fix(youtube): …`). One concern per PR.
+- **PR bodies** carry RESET_PLAN §8's contract, laid out in
+  `.github/pull_request_template.md`: `Verification layer:`, `Wire
+  format:` (when a wire-lane builder/publisher changed), `Docs:`,
+  `Interpretive steps (n):` (one list item each, with its recommended
+  default), and `Cross-lane: <reason>` when the `src/` edits span lanes
+  (look yours up in `scripts/lanes.mjs`). A `fix:` PR needs a `tests/`
+  diff or a `no-test rationale:` line; a PR touching a process file
+  (`.github/**`, `.claude/skills/**`, `docs/SMOKE_TEST.md`,
+  `CONTRIBUTING.md`, this file) adds a JOURNAL entry or cites one as
+  "JOURNAL YYYY-MM-DD". `.github/workflows/pr-body.yml` runs
+  `scripts/pr-body-check.mjs` on every PR — advisory until the
+  maintainer makes it a required check.
 
 ## Project docs (read these for non-trivial work)
 
@@ -586,6 +598,8 @@ without the other is the design's named long-term risk.
 `src/**/*.js`, `npm run lint:js`, `npm run build`, `npm test`, the
 normalizer parity, `npm run check:version`, `web-ext lint
 --self-hosted`, `web-ext build` + `npm run check:package`, `npm run
-check:budget`; the browser smoke is its own job. A `v*` tag triggers `release.yml`
+check:budget`; the browser smoke is its own job. `pr-body.yml` checks
+each PR's body (`scripts/pr-body-check.mjs`; advisory, re-runs on
+description edits). A `v*` tag triggers `release.yml`
 (builds, packages, creates a GitHub Release with the `.zip`). Get all of
 build + test + lint green locally before pushing.
