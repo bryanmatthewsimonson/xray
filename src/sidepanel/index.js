@@ -1438,7 +1438,7 @@ async function handleImport(file) {
                 try {
                     await EntityModel.importRecord(row);
                     added++;
-                } catch (_) { /* malformed row → skip */ }
+                } catch (err) { if (err && err.name === 'StoreRefusedError') throw err; /* malformed row → skip */ }
             } else {
                 try {
                     await EntityModel.create({
@@ -1455,7 +1455,7 @@ async function handleImport(file) {
                     // swallowing it here ended in a SUCCESS toast over a
                     // zero-row import. Rethrow to the error toast; rows
                     // already imported stay (re-import is idempotent).
-                    if (/local primary identity/.test((err && err.message) || '')) throw err;
+                    if ((err && err.name === 'StoreRefusedError') || /local primary identity/.test((err && err.message) || '')) throw err;
                     /* id collision → skip */
                 }
             }

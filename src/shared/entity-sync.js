@@ -319,7 +319,8 @@ export async function pullEntities({ userPrivkey, relays, timeoutMs = 8000 }) {
     // record's own id>`: a stored record whose keyName says anything
     // else (the reserved `xray:user` sync slot, another entity's slot)
     // is refused — a pull never overwrites a key it does not own.
-    const planned = await Storage.get('entities', {});
+    const ws = await Storage.activeWorkspaceId();   // STRICT plan; keys and rows land in its workspace or nowhere
+    const planned = { ...(await EntityModel.readRecordsStrict()) };
     const winners = [];
     for (const record of records) {
         const local = planned[record.id];
@@ -364,7 +365,7 @@ export async function pullEntities({ userPrivkey, relays, timeoutMs = 8000 }) {
             privateKey: record.keypair.privateKey,
             metadata:   { entityId: record.id, entityType: record.type, entityName: record.name, source: 'sync' },
             created:    record.created || undefined
-        })));
+        })), { workspace: ws });
     } catch (err) {
         out.failed += winners.length;
         Utils.error('pull: installing pulled keys failed — no entity records written', err);
@@ -372,25 +373,12 @@ export async function pullEntities({ userPrivkey, relays, timeoutMs = 8000 }) {
     }
 
     // Phase 4 — the records, merged into a FRESH registry read (the key
-    // write above waited on the lock) with no await between that read
-    // and its write. A record another page made at least as fresh
+    // write above waited on the lock), strict, under the registry lock
+    // (mergePulledRows). A record another page made at least as fresh
     // meanwhile stays; its key was already replaced above, which for a
     // derived key is the same key.
-    const localAll = await Storage.get('entities', {});
-    let changed = false;
-    for (const { record, row } of winners) {
-        const local = localAll[record.id];
-        if (local && (local.updated || 0) >= (record.updated || 0)) {
-            out.unchanged++;
-            continue;
-        }
-        localAll[record.id] = row;
-        changed = true;
-        if (local) out.updated++;
-        else       out.added++;
-    }
-    if (changed) await Storage.set('entities', localAll);
-
+    const merged = await EntityModel.mergePulledRows(winners.map(({ record, row }) => ({ row, updated: record.updated || 0 })), ws);
+    for (const k of ['added', 'updated', 'unchanged']) out[k] += merged[k];
     return out;
 }
 

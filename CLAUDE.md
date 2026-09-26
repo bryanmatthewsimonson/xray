@@ -157,7 +157,51 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   `local_keys` directly but take the same lock via `withKeyStoreLock`. That lock is the Web Lock `xray.local_keys`, a
   cross-page primitive deliberately outside the `xray:*` bus; it refuses
   to run outside an extension origin, and content scripts hold no
-  keystore.
+  keystore. **The entity registry (JOURNAL 2026-09-25)** follows the
+  same contract: every incremental `entities` write goes through
+  `entity-model.js`, a locked read-modify-write of a fresh STRICT read
+  under the Web Lock `xray.entities` (a failed read writes nothing);
+  the wholesale writers (backup restore and merge, workspace reset and
+  removal) write or clear `entities` directly under
+  `withEntityStoreLock`. Restore, reset and removal nest the registry
+  lock inside the keystore lock (never the reverse); merge takes only
+  the registry lock (it never merges `local_keys`). **The workspace
+  pointer: ONE cached pointer per page.** Every read and write — plain
+  and strict `Storage` calls, the locked writes, the keystore Map and
+  `signEvent`, the entity list, the IndexedDB names and the LLM-job
+  scope (`workspace-keys.js` defers to `storage.js`'s cache once it
+  loads) — resolves the workspace through `storage.js`'s cached
+  pointer, which reads a failed pointer read as `'default'` and caches
+  it until the pointer next changes; callers that find the cache empty
+  share ONE read. So a fault misroutes a page consistently (as on
+  main; this and the other residuals are named follow-ups in JOURNAL
+  2026-09-25). The keystore Map serves a key only while the pointer
+  names the workspace the Map was loaded under, so WITHIN ONE
+  `get`/`getAll` call a record is paired only with its own workspace's
+  key. A record held ACROSS a switch gets a refused signature, not a
+  wrong one (`signEvent` refuses a key that does not hold the event's
+  `pubkey`), and the case bundle joins from one `getAll` snapshot and
+  produces no file if the pointer moved at any point. A step of an
+  operation planned in one workspace (entity create / delete,
+  `importRecord` / `importForeign` — which judge "is a key installed?"
+  from a strict `local_keys` read, never the Map — the case-bundle
+  import, the sync pull, key restore) is refused, never redone in
+  another; single-step edits (`update`, `linkAlias`, the publish
+  stamps) still land in whichever workspace is current. The
+  destructive wholesale operations (reset, workspace removal, backup
+  restore / merge / export, the reset's safety backup) first re-read
+  the pointer strictly (`Storage.verifiedWorkspaceId`) and refuse with
+  a `StoreRefusedError` — nothing written or downloaded — when that
+  read fails or disagrees with the cache; then each later step that
+  resolves the workspace through the cache re-verifies first (each
+  database a restore, merge or export fills or dumps, each key the
+  safety backup reads or the reset clears, the storage phase under
+  the locks), except the version pre-checks (`collectDbVersions`,
+  `assertBackupNotNewer`), which open each database through the cache
+  unverified; the removal does not re-check between its deletes; and
+  a reset handed its safety file's `workspace` (Options passes it)
+  refuses any other. Never add a second pointer read to an ordinary
+  path.
 - **`signer.js`** — unified signing façade over Local / NIP-07 /
   NSecBunker, dispatched on `preferences.signing_method`. NIP-07 only works
   where a `nip07Client` is injected (`Signer.configure({ nip07Client })`),

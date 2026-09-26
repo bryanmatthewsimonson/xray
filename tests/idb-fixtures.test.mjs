@@ -37,12 +37,15 @@ await import('fake-indexeddb/auto');
 
 // storage.js (pulled in via backup.js / event-builder.js) touches
 // chrome.storage at module load; stub it first. Callback-style, like the
-// real API — and persisting, because workspace-keys.js reads
-// `active_workspace` from it at EVERY module open.
+// real API — persisting, and delivering change events, because every
+// module open resolves the workspace through storage.js's cached pointer,
+// which re-reads `active_workspace` after a change (JOURNAL 2026-09-25).
 const _stateStore = new Map();
+const _changeListeners = [];
 globalThis.chrome = {
     storage: {
         local: {
+            onChanged: { addListener(fn) { _changeListeners.push(fn); } },
             get(keys, cb) {
                 if (keys === null) { cb(Object.fromEntries(_stateStore)); return; }
                 const out = {};
@@ -54,6 +57,7 @@ globalThis.chrome = {
             set(obj, cb) {
                 for (const [k, v] of Object.entries(obj)) _stateStore.set(k, v);
                 cb && cb();
+                for (const l of _changeListeners) l(Object.fromEntries(Object.keys(obj).map((k) => [k, { newValue: obj[k] }])));
             },
             remove(keys, cb) {
                 for (const k of Array.isArray(keys) ? keys : [keys]) _stateStore.delete(k);
@@ -62,7 +66,7 @@ globalThis.chrome = {
         }
     }
 };
-const setWorkspace = (id) => _stateStore.set('active_workspace', JSON.stringify(id));
+const setWorkspace = (id) => globalThis.chrome.storage.local.set({ active_workspace: JSON.stringify(id) });
 
 const {
     FIXTURE_DIR, readAllDbConstants, fixtureFileName, seedFixture, describeSchema,

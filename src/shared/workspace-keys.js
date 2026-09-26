@@ -66,15 +66,24 @@ export function workspaceDbName(base, wsId) {
     return (!wsId || wsId === 'default') ? base : `${base}::${wsId}`;
 }
 
+/** A STORE-level refusal (nothing written): an importer stops on it by `name`; row-level errors stay plain. */
+export class StoreRefusedError extends Error {
+    constructor(message) { super(message); this.name = 'StoreRefusedError'; }
+}
+
+let pagePointer = null;
+export function usePagePointer(fn) { pagePointer = fn; }
+
 /**
  * The active workspace id, read straight from extension storage —
  * call-time only, no import-time chrome dependency, so the
  * dependency-light IDB cache modules can use it and their Node tests
  * (no chrome stub) fall back to 'default' = the bare DB names they
  * have always used. storage.js keeps its own CACHED copy for hot
- * key-mapping; DB opens are rare enough to read fresh.
+ * key-mapping, and once it loads that cache answers here too: ONE pointer per page (JOURNAL 2026-09-25).
  */
 export async function activeWorkspaceId() {
+    if (pagePointer) return pagePointer();
     try {
         const area = (typeof browser !== 'undefined' && browser.storage)
             ? browser.storage.local

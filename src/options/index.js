@@ -480,7 +480,7 @@ async function restoreEntityKeys() {
     const status = document.getElementById('local-status');
     try {
         await LocalKeyManager.init();
-        const { restored, skipped } = await EntityModel.restoreDerivedKeys();
+        const { restored, skipped, stampFailed } = await EntityModel.restoreDerivedKeys();
         // CW.4: entities derived under a DIFFERENT identity profile are
         // refused, loudly — restoring them here would mint wrong pubkeys.
         const skipNote = skipped.length
@@ -498,8 +498,7 @@ async function restoreEntityKeys() {
             flash(status, `Nothing restored.${skipNote}`, false);
         } else {
             flash(status, `Restored ${restored.length} entity key${restored.length === 1 ? '' : 's'}: `
-                + restored.map((r) => r.name).join(', ') + '.' + unverifiedNote + skipNote,
-                skipped.length === 0);
+                + restored.map((r) => r.name).join(', ') + '.' + unverifiedNote + skipNote + (stampFailed ? ' Recording their origin failed (a storage error), so a later restore will ask again.' : ''), skipped.length === 0 && !stampFailed);
         }
     } catch (e) {
         flash(status, 'Restore failed: ' + (e && e.message), false);
@@ -890,8 +889,9 @@ async function workspaceResetFlow() {
         return;
     }
     try {
-        downloadJson(await workspaceBackup(), `xray-workspace-${new Date().toISOString().slice(0, 10)}.json`);
-        const result = await resetWorkspace();
+        const safety = await workspaceBackup();
+        downloadJson(safety, `xray-workspace-${new Date().toISOString().slice(0, 10)}.json`);
+        const result = await resetWorkspace({ workspace: safety.workspace });   // the file's workspace, or refused
         flash(status, `Fresh workspace: cleared ${result.cleared.length} stores and ${result.databases.length} caches. Reload any open X-Ray pages.`);
         await refreshLocalKeyState();
         await refreshActiveLine();
