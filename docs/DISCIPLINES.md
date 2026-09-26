@@ -1,10 +1,10 @@
 # Discipline Standards — best practices derived from first principles
 
 **Document version:** 1.0.0
-**Status:** Normative for the standards and the index; descriptive for
+**Status:** Advice (amended 2026-09-26, R-021); descriptive for
 status columns
-**Governed by:** `docs/CONSTITUTION.md` (Art. 9) — enters the Concord
-Schedule as an organic statute on adoption
+**Governed by:** `docs/CONSTITUTION.md` (Art. 9) — advice, not an
+organic statute
 **Date:** 2026-07-22
 
 Amendments follow the constitution's Art. 13 (Tier 2 for this
@@ -30,8 +30,8 @@ This document applies that method to every discipline the project
 draws on. For disciplines whose standards are already codified in a
 governing document or in validated code, the section here records the
 derivation and points at the codification. For disciplines not yet
-codified, the section derives the standards directly — they bind from
-this document until a fuller statute exists. Every section carries the
+codified, the section derives the standards directly — they are
+advice until a fuller statute exists. Every section carries the
 same fields, pinned by `tests/disciplines.test.mjs`: **The question**
 (the elicitation), **First principles** (what must be true),
 **Standards** (the derived practices), **Failure mode** (the
@@ -60,8 +60,8 @@ X-Ray).
 | §16 | Operator accountability | `operator` | `docs/CONSTITUTION.md` | codified |
 
 Status vocabulary: **codified** — a governing document or validated
-code carries the standards; **partial** — the standards below bind,
-with some already enforced in code and some not; **gap** — nothing in
+code carries the standards; **partial** — the standards below are
+advice, with some already enforced in code and some not; **gap** — nothing in
 the project enforces this discipline yet; the standards below are the
 specification for building it.
 
@@ -536,7 +536,10 @@ record.
 2. The stance is personal and stays personal: assessments are the
    reader's own, never averaged into a truth-signal; foreign judgments
    render side by side, never merged.
-3. One accept per artifact — bulk credulity is not review.
+3. Bulk-accept of individually grounded rows is lawful — the
+   grounding is the review. *Reversed 2026-09-26 (R-021); this
+   standard read: "One accept per artifact — bulk credulity is not
+   review."*
 4. Declining persists; a declined proposal never nags again.
 5. No one republishes another's work as their own.
 

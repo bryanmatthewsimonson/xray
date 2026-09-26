@@ -415,7 +415,7 @@ without the other is the design's named long-term risk.
   first principles), Art. 13 (three-tier
   amendment). Machine-checked by `tests/constitution-guards.test.mjs`
   — a red guard is a bug or an unratified amendment; keep it green.
-- **`docs/DISCIPLINES.md`** — **Discipline Standards** (organic statute
+- **`docs/DISCIPLINES.md`** — **Discipline Standards** (advice
   under CONSTITUTION Art. 9): fifteen disciplines, each with standards
   **derived from first principles** (§0 documents the method that
   produced PHILOSOPHY.md — the idealized-practitioner question is
@@ -606,7 +606,9 @@ without the other is the design's named long-term risk.
   self-dossier clause, and — the §13 concord — seated the family
   under the constitution). Consult it before any structural, scoring,
   schema, or methodology change to audit surfaces; when code and it
-  conflict, it governs until amended — and amending it to fit reality
+  conflict over a wire format, a stored-data shape or security, it
+  governs until amended; any other conflict is a recorded question for
+  the maintainer (CONSTITUTION Art. 2, R-021) — and amending it to fit reality
   is normal, not sacrilege (the maintainer: this is an experiment in
   modeling reality, not received wisdom). When two of its principles
   conflict, document the tension and cite them by number (e.g. "P9

@@ -4,7 +4,9 @@
 > — *"We also need to have the designer look at the constitution and
 > all governance docs"* — clarified 2026-09-05: the corpus is the thing
 > under review, and it is to be **grounded in design skill, not the
-> other way around.** · **Scope:** `docs/CONSTITUTION.md`,
+> other way around.** (The maintainer's own account of this remark,
+> 2026-09-26, is quoted in `docs/RULINGS.md` R-021.) · **Scope:**
+> `docs/CONSTITUTION.md`,
 > `docs/PHILOSOPHY.md`, `docs/TRUTH_SYSTEMS.md`,
 > `docs/TRUTH_INFRASTRUCTURE.md`, with `docs/DISCIPLINES.md` read for
 > method. The documents are reviewed **as artifacts people must read

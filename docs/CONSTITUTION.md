@@ -96,7 +96,7 @@ estimations are lawful only under the license of Art. 5.
 
 **The constitutional corpus**, in rank order: this document; the organic
 statutes (Art. 2); the design documents; code. Higher rank governs
-lower.
+lower, except that a document governs code only as Art. 2 provides.
 
 **Scope** — this document binds every surface of the project: prompts,
 schemas, UI copy, wire events, documentation, tests, and the operator's
@@ -105,10 +105,14 @@ own published conduct.
 ## Article 2 — Supremacy and the organic statutes
 
 The rank order of Art. 1 is enforced by the doc-governs-code rule,
-generalized from the audit family's practice: where behavior contradicts
-the governing document (as amended), the document governs; deterministic
-implementation details are revisable at will; parse-time firewalls and
-validators are load-bearing law, not style.
+generalized from the audit family's practice. Below this document, the
+rule covers wire formats, stored-data shapes and security only: there,
+where behavior contradicts the governing document (as amended), the
+document governs. Elsewhere, a conflict between behavior and a document
+below this one is a recorded question for the maintainer, not an
+automatic win for the document. Deterministic implementation details
+are revisable at will; parse-time firewalls and validators are
+load-bearing law, not style.
 
 The organic statutes, each supreme within its family and subordinate to
 this document:
@@ -377,8 +381,8 @@ is elicitation scaffolding, never the deliverable); extract what must
 be true for the practice to reliably produce trustworthy output;
 codify it as numbered, checkable standards with red lines and decision
 heuristics; and machine-enforce what can be enforced.
-`docs/DISCIPLINES.md` indexes these derivations and enters the Concord
-Schedule on its adoption. Constraints on any discipline standard:
+`docs/DISCIPLINES.md` indexes these derivations as advice. Constraints
+on any discipline standard:
 
 - **Derived, not decreed.** Every standard shows the first principles
   it follows from; a rule that cannot state its derivation is a
@@ -532,7 +536,7 @@ Three tiers:
   documents — with the failure-mode statement required when weakening
   a norm.
 - **Tier 3 — implementation.** Deterministic implementation details:
-  ordinary PR under doc-governs-code. No ceremony.
+  ordinary PR under Art. 2. No ceremony.
 
 ## Article 14 — Ratification and the Concord Schedule
 
@@ -553,7 +557,7 @@ the guards:
 | Art. 12 | PHILOSOPHY.md §10 (enforcement formula, quoted verbatim) | two-sided quote pin |
 | Organic statute | PHILOSOPHY.md v1.2.0 (audit family) | version + concord sentence pinned |
 | Organic statute | TRUTH_ADJUDICATION_DESIGN.md §1/§5 (truth family) | §-headings pinned |
-| On adoption | docs/DISCIPLINES.md (Art. 9) | enters schedule when merged |
+| Advice | docs/DISCIPLINES.md (Art. 9) | advice, not a statute (amended 2026-09-26) |
 | On adoption | docs/TRUTH_SYSTEMS.md (Preamble, Art. 5.5) | enters schedule when merged |
 
 Concord points enacted with this document's ratification:

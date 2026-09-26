@@ -714,7 +714,11 @@ document's ratification.
   Beyond that line, persuasion is the human work of the tool's users
   — rhetoric, relationship, and time — outside the protocol's
   guarantees, and the protocol is honest enough to say it cannot do
-  that work.
+  that work. *Scope (amended 2026-09-26, R-021):* the line's bans
+  cover judgment surfaces; onboarding, docs and layout fall outside
+  them. The Network feed stays inside. [INTERPRETATION: Claude,
+  2026-09-26 — default: the Network feed stays inside; ask: Do H-7's
+  persuasion bans still cover the Network feed?]
 
 ---
 
