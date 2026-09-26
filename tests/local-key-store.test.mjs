@@ -550,7 +550,8 @@ test('workspace switch with the change event withheld: the write still reads the
     await A.init();
     muteEvents();
     await Storage.setActiveWorkspaceId('wsb');
-    assert.ok(A.getKey('entity:a'), 'precondition: A\'s map still lists workspace-default keys');
+    assert.ok(A.keys.has('entity:a'), 'precondition: A\'s map still holds workspace-default keys…');
+    assert.equal(A.getKey('entity:a'), null, '…but serves none of them while the page is on wsb (JOURNAL 2026-09-25)');
     await A.installDerivedKey('entity:n', TV3.privateKey, {});
     assert.deepEqual(storedNames('ws:wsb:local_keys'), ['entity:n'], 'no default-workspace key leaked into wsb');
     assert.deepEqual(storedNames('local_keys'), ['entity:a']);
@@ -851,8 +852,13 @@ test('writers serialize on the Web Lock "xray.local_keys" when navigator.locks e
         if (saved) Object.defineProperty(globalThis, 'navigator', saved);
         else delete globalThis.navigator;
     }
-    assert.ok(requested.length >= 7, `every write took the lock (saw ${requested.length} requests)`);
-    assert.ok(requested.every((n) => n === 'xray.local_keys'), 'one lock name for every writer on every page');
+    const keyLocks = requested.filter((n) => n === 'xray.local_keys').length;
+    assert.ok(keyLocks >= 7, `every key write took the lock (saw ${keyLocks} requests)`);
+    // EntityModel.create also writes its RECORD under the registry lock
+    // (JOURNAL 2026-09-25) — after its key write, never nested in it:
+    // the mock's single queue would deadlock on a nesting.
+    assert.deepEqual([...new Set(requested)].sort(), ['xray.entities', 'xray.local_keys'],
+        'one keystore lock name for every key writer on every page, plus the registry lock');
     const names = storedNames();
     for (const n of ['entity:a', 'entity:b', 'xray:user', `entity:${ID_MISSING}`]) {
         assert.ok(names.includes(n), `${n} survived`);

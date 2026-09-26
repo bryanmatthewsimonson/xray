@@ -45,10 +45,12 @@
 //      other pages' writes, raw restores, resets and workspace switches.
 // A page's Map is replaced in place (clear/set) — callers and tests
 // hold references to LocalKeyManager.keys.
+// Rules 1–3 serve the entity registry too (STORE_LOCKS); wholesale writers nest keystore → registry.
 
 import { Storage } from './storage.js';
 import { Utils } from './utils.js';
 import { Crypto } from './crypto.js';
+import { StoreRefusedError } from './workspace-keys.js';
 
 const STORE_KEY = 'local_keys';
 // Deliberately NOT `xray:…`: that prefix is the message-bus namespace,
@@ -60,34 +62,38 @@ const LOCK_NAME = 'xray.local_keys';
 // Fallback mutex slot for contexts without navigator.locks (Node's test
 // runner). On globalThis, not in module scope, so two module instances
 // in one realm — the tests' "two pages" — share it.
-const FALLBACK_MUTEX = Symbol.for('xray.local_keys.mutex');
+const fallbackMutex = (name) => Symbol.for(`${name}.mutex`);
+export const STORE_LOCKS = Object.freeze({ [STORE_KEY]: LOCK_NAME, entities: 'xray.entities' });
 const EXTENSION_PROTOCOLS = new Set(['chrome-extension:', 'moz-extension:']);
 const HEX64 = /^[0-9a-f]{64}$/;
 
 let refreshWanted = false;  // a refresh was requested since the loop's last read began
 let refreshLoop = null;     // the running refresh loop, if any
 let watching = false;       // one change listener per module instance
+let mapWs;                  // the workspace the Map was loaded under: it answers for no other
 
 // Rule 3. No location at all (Node's test runner) passes; any location
 // that is not an extension page or worker is refused before a lock is
 // requested.
-function assertExtensionOrigin() {
+function assertExtensionOrigin(what) {
     const loc = globalThis.location;
     if (loc === undefined || loc === null) return;
     const protocol = String(loc.protocol || '');
     if (!EXTENSION_PROTOCOLS.has(protocol)) {
-        throw new Error(`LocalKeyManager: the keystore is written only from extension pages — refused under a ${protocol || 'non-extension'} origin`);
+        throw new StoreRefusedError(`${what} is written only from extension pages — refused under a ${protocol || 'non-extension'} origin`);
     }
 }
 
-async function withKeysLock(fn) {
-    assertExtensionOrigin();
+export async function withStoreLock(name, fn, what = 'LocalKeyManager: the keystore') {
+    if (!Object.values(STORE_LOCKS).includes(name)) throw new Error(`withStoreLock: ${name} is not a store lock`);
+    assertExtensionOrigin(what);
     const locks = (typeof navigator !== 'undefined' && navigator && navigator.locks
         && typeof navigator.locks.request === 'function') ? navigator.locks : null;
-    if (locks) return locks.request(LOCK_NAME, () => fn());
-    const tail = globalThis[FALLBACK_MUTEX] || Promise.resolve();
+    if (locks) return locks.request(name, () => fn());
+    const slot = fallbackMutex(name);
+    const tail = globalThis[slot] || Promise.resolve();
     const run = tail.then(() => fn());
-    globalThis[FALLBACK_MUTEX] = run.then(() => undefined, () => undefined);
+    globalThis[slot] = run.then(() => undefined, () => undefined);
     return run;
 }
 
@@ -101,7 +107,7 @@ async function withKeysLock(fn) {
  * wait on itself forever).
  */
 export function withKeyStoreLock(fn) {
-    return withKeysLock(fn);
+    return withStoreLock(LOCK_NAME, fn);
 }
 
 const isPlainObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -151,6 +157,7 @@ function refresh() {
             try {
                 while (refreshWanted) {
                     refreshWanted = false;
+                    const ws = await Storage.activeWorkspaceId();
                     let stored;
                     try {
                         stored = await Storage.getStrict(STORE_KEY, {});
@@ -159,6 +166,7 @@ function refresh() {
                         continue;
                     }
                     replaceMap(isPlainObject(stored) ? stored : {});
+                    mapWs = ws;
                 }
             } finally {
                 refreshLoop = null;
@@ -208,6 +216,8 @@ function watchStorage() {
     } catch (_) { /* no change events here — init() still loads */ }
 }
 
+export const storeRefusal = (label, why, err) => new StoreRefusedError(`${label}: ${why} — nothing written${err ? ` (${err.message || err})` : ''}`);
+
 // The one write path. Under the lock: read local_keys FRESH, let
 // `apply` change exactly its own names on that object, and write it
 // back (only when `apply` says so). After the lock is released the
@@ -225,32 +235,38 @@ function watchStorage() {
 // other. The pointer is re-checked right before the write (no event can
 // run between that check and the write's own mapping) and the whole
 // read-modify-write is redone if it moved.
-async function mutate(apply) {
-    const result = await withKeysLock(async () => {
+export async function lockedReadModifyWrite({ key, label, what, apply, workspace }) {
+    if (!Object.hasOwn(STORE_LOCKS, key)) throw new Error(`lockedReadModifyWrite: no lock is fixed for ${key}`);
+    return withStoreLock(STORE_LOCKS[key], async () => {
         for (let attempt = 1; ; attempt++) {
             const ws = await Storage.activeWorkspaceId();
+            if (workspace !== undefined && ws !== workspace) throw storeRefusal(label, `planned in workspace "${workspace}", now "${ws}"`);   // never redone there
             let raw;
             try {
-                raw = await Storage.getStrict(STORE_KEY, {});
+                raw = await Storage.getStrict(key, {});
             } catch (err) {
-                throw new Error(`LocalKeyManager: reading local_keys failed — nothing written (${(err && err.message) || err})`);
+                throw storeRefusal(label, `reading ${key} failed`, err);
             }
             if (!isPlainObject(raw)) {
-                throw new Error('LocalKeyManager: stored local_keys is not an object — refusing to overwrite it');
+                throw storeRefusal(label, `stored ${key} is not an object — refusing to overwrite it`);
             }
             const stored = { ...raw };
             const { write, result: out } = apply(stored);
             if (await Storage.activeWorkspaceId() !== ws) {
                 if (attempt < 3) continue;
-                throw new Error('LocalKeyManager: the workspace kept changing during a key write — nothing written');
+                throw storeRefusal(label, 'the workspace kept changing during a write');
             }
             if (write) {
-                const ok = await Storage.set(STORE_KEY, stored);
-                if (ok === false) throw new Error('LocalKeyManager: writing local_keys failed');
+                const ok = await Storage.set(key, stored);
+                if (ok === false) throw storeRefusal(label, `writing ${key} failed`);
             }
             return out;
         }
-    });
+    }, what);
+}
+
+async function mutate(apply, workspace) {
+    const result = await lockedReadModifyWrite({ key: STORE_KEY, label: 'LocalKeyManager', apply, workspace });
     await refresh();
     return result;
 }
@@ -258,7 +274,7 @@ async function mutate(apply) {
 // importKey / installDerivedKey: add under a free name, idempotent for
 // identical material, CONFLICT for different material — judged against
 // the FRESH store, never this page's possibly-stale Map.
-function addIfAbsent(name, keyData, label) {
+function addIfAbsent(name, keyData, label, workspace) {
     return mutate((stored) => {
         const existing = stored[name];
         if (existing) {
@@ -268,7 +284,7 @@ function addIfAbsent(name, keyData, label) {
         stored[name] = keyData;
         Utils.log(label, name, keyData.npub);
         return { write: true, result: keyData };
-    });
+    }, workspace);
 }
 
 export const LocalKeyManager = {
@@ -307,13 +323,13 @@ export const LocalKeyManager = {
      * different key occupies the name — never silently overwrite key
      * material.
      */
-    importKey: async (name, privateKeyHex, metadata = {}) => {
+    importKey: async (name, privateKeyHex, metadata = {}, { workspace } = {}) => {
         if (!HEX64.test(String(privateKeyHex || ''))) {
             throw new Error('importKey: privateKey must be 64 hex chars');
         }
         assertName(name);
         const keyData = buildKeyData(name, privateKeyHex, { ...metadata, imported: true });
-        return addIfAbsent(name, keyData, 'Imported local key:');
+        return addIfAbsent(name, keyData, 'Imported local key:', workspace);
     },
 
     /**
@@ -324,13 +340,13 @@ export const LocalKeyManager = {
      * overwrite key material — but stamped `derived: true` so the
      * restore path can tell recoverable keys from legacy random ones.
      */
-    installDerivedKey: async (name, privateKeyHex, metadata = {}) => {
+    installDerivedKey: async (name, privateKeyHex, metadata = {}, { workspace } = {}) => {
         if (!HEX64.test(String(privateKeyHex || ''))) {
             throw new Error('installDerivedKey: privateKey must be 64 hex chars');
         }
         assertName(name);
         const keyData = buildKeyData(name, privateKeyHex, { ...metadata, derived: true });
-        return addIfAbsent(name, keyData, 'Installed derived key:');
+        return addIfAbsent(name, keyData, 'Installed derived key:', workspace);
     },
 
     /**
@@ -343,7 +359,7 @@ export const LocalKeyManager = {
      * taken from the caller. Every entry is validated before anything
      * is written: one bad entry writes nothing.
      */
-    upsertKeys: async (entries) => {
+    upsertKeys: async (entries, { workspace } = {}) => {
         const list = Array.isArray(entries) ? entries : [];
         const built = list.map((e) => {
             const hex = String((e && e.privateKey) || '').toLowerCase();
@@ -356,19 +372,20 @@ export const LocalKeyManager = {
             for (const keyData of built) stored[keyData.name] = keyData;
             Utils.log('Upserted local keys:', built.map((k) => k.name).join(', '));
             return { write: true, result: built };
-        });
+        }, workspace);
     },
 
-    getKey: (name) => LocalKeyManager.keys.get(name) || null,
+    // Only while the page's pointer names the Map's workspace (JOURNAL 2026-09-25).
+    getKey: (name) => (mapWs === Storage.cachedWorkspaceId() && LocalKeyManager.keys.get(name)) || null,
 
-    listKeys: () => Array.from(LocalKeyManager.keys.values()),
+    listKeys: () => (mapWs === Storage.cachedWorkspaceId() ? Array.from(LocalKeyManager.keys.values()) : []),
 
     /** Delete one name from storage; every other name is kept. */
-    deleteKey: async (name) => mutate((stored) => {
+    deleteKey: async (name, { workspace } = {}) => mutate((stored) => {
         if (!Object.prototype.hasOwnProperty.call(stored, name)) return { write: false };
         delete stored[name];
         return { write: true };
-    }),
+    }, workspace),
 
     // BIP-340 Schnorr sign an unsigned event with a locally-stored key.
     // Returns an event with `id` + `sig` filled in, ready to publish.
@@ -376,6 +393,7 @@ export const LocalKeyManager = {
         const key = LocalKeyManager.getKey(keyName);
         if (!key) throw new Error('Key not found: ' + keyName);
         if (!key.privateKey) throw new Error('Key has no private key material: ' + keyName);
+        if (event.pubkey && event.pubkey !== key.pubkey) throw new Error(`Key mismatch: ${keyName} does not hold the event's pubkey`);   // a record read before a switch
 
         // If the caller hasn't set pubkey on the event, fill it from the
         // stored key. This matches the behavior of NIP-07 signers.

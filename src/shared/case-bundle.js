@@ -21,6 +21,7 @@ import { EntityModel, ENTITY_TYPES } from './entity-model.js';
 import { LocalKeyManager } from './local-key-manager.js';
 import { memberUrlSets } from './case-membership.js';
 import { listArticles } from './archive-cache.js';
+import { StoreRefusedError } from './workspace-keys.js';
 
 export const CASE_BUNDLE_FORMAT = 'xray-case-bundle';
 export const CASE_BUNDLE_VERSION = 1;
@@ -99,14 +100,16 @@ export async function collectCaseEntityIds(caseEntityId, { articles } = {}) {
  * `buildCaseBundleJson` serializes it.
  */
 export async function collectCaseBundle(caseEntityId) {
-    const caseEntity = await EntityModel.get(caseEntityId);
-    if (!caseEntity) throw new Error(`Entity not found: ${caseEntityId}`);
-
+    const ws = await Storage.activeWorkspaceId(), epoch = Storage.workspaceEpoch();
     // NARROW orbit on purpose — the bundle ships private keys (Q2).
     const ids = await collectClaimOrbitEntityIds(caseEntityId);
+    const all = await EntityModel.getAll();   // ONE snapshot: every record joined with its key in one pass
+    if (Storage.workspaceEpoch() !== epoch || Storage.cachedWorkspaceId() !== ws) throw new StoreRefusedError('collectCaseBundle: the workspace changed mid-bundle — no file');   // it ships keys: ONE workspace (JOURNAL 2026-09-25)
+    const caseEntity = all[caseEntityId];
+    if (!caseEntity) throw new Error(`Entity not found: ${caseEntityId}`);
     const entities = [];
     for (const id of ids) {
-        const e = await EntityModel.get(id);
+        const e = all[id];
         if (!e) continue;   // dangling about-ref — claim survives, bundle skips it
         entities.push({
             id:           e.id,
@@ -157,7 +160,8 @@ export async function importCaseBundle(parsed) {
         throw new Error(`Bundle version ${parsed.version} is newer than this X-Ray understands (${CASE_BUNDLE_VERSION})`);
     }
 
-    const existingAll = await Storage.get('entities', {});
+    const ws = await Storage.activeWorkspaceId();   // every key and record lands here, or the import stops
+    const existingAll = await EntityModel.readRecordsStrict();   // before any key; a StoreRefusedError stops the import
     let added = 0, updated = 0, keysInstalled = 0;
     const conflicts = [];   // a DIFFERENT key already installed under this id
     const invalid = [];     // malformed/unimportable rows (bad type, bad key)
@@ -190,9 +194,10 @@ export async function importCaseBundle(parsed) {
                 const before = LocalKeyManager.getKey(keyName);
                 await LocalKeyManager.importKey(keyName, row.privkey, {
                     entityId: row.id, entityName: row.name, entityType: row.type
-                });
+                }, { workspace: ws });
                 if (!before) keysInstalled++;
             } catch (err) {
+                if (err && err.name === 'StoreRefusedError') throw err;
                 const msg = String(err && err.message || err);
                 // Distinguish a genuine same-id-different-key conflict
                 // (kept your key) from a malformed key in the bundle.
@@ -205,9 +210,10 @@ export async function importCaseBundle(parsed) {
 
         try {
             const existed = !!existingAll[row.id];
-            await EntityModel.importRecord(row);   // importRecord re-derives keyName
+            await EntityModel.importRecord(row, { workspace: ws });   // importRecord re-derives keyName
             if (existed) updated++; else added++;
         } catch (err) {
+            if (err && err.name === 'StoreRefusedError') throw err;
             invalid.push(`${row.name}: ${err.message || err}`);
         }
     }

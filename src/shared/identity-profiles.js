@@ -26,6 +26,8 @@
 import { Storage } from './storage.js';
 import { Crypto } from './crypto.js';
 import { withKeyStoreLock } from './local-key-manager.js';
+import { withEntityStoreLock } from './entity-model.js';
+import { StoreRefusedError } from './workspace-keys.js';
 
 const PROFILES_KEY = 'identity_profiles';
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -209,10 +211,12 @@ export const IdentityProfiles = {
  * absent (its module forbids export).
  */
 export async function workspaceBackup() {
-    const snapshot = { format: 'xray-workspace-backup', exported_at: new Date().toISOString(), data: {} };
+    const workspace = await Storage.verifiedWorkspaceId('workspaceBackup');
+    const snapshot = { format: 'xray-workspace-backup', exported_at: new Date().toISOString(), workspace, data: {} };
     const keys = [...WORKSPACE_CLEAR_KEYS, 'preferences', 'local_primary_identity', 'identity_profiles'];
-    for (const key of keys) {
-        snapshot.data[key] = await Storage.get(key, null);
+    for (const key of keys) {   // each read right after a re-check: ONE workspace in the file, or no file
+        if (await Storage.verifiedWorkspaceId('workspaceBackup') !== workspace) throw new StoreRefusedError('workspaceBackup: the workspace changed mid-backup — no file, nothing written');
+        snapshot.data[key] = await Storage.getStrict(key, null);
     }
     return snapshot;
 }
@@ -224,18 +228,21 @@ export async function workspaceBackup() {
  *
  * @returns {{cleared: string[], databases: string[]}}
  */
-export async function resetWorkspace({ idb } = {}) {
+export async function resetWorkspace({ idb, workspace } = {}) {   // `workspace`: the one its safety file holds
+    const ws = await Storage.verifiedWorkspaceId('resetWorkspace');   // JOURNAL 2026-09-25
+    if (workspace !== undefined && workspace !== ws) throw new StoreRefusedError(`resetWorkspace: the safety backup holds workspace "${workspace}", not "${ws}" — nothing written`);
     const cleared = [];
     // The content keys include `local_keys`: clear them under the
     // keystore lock, so a key write in flight on another page cannot
     // land after the reset and put the old keys back (JOURNAL
-    // 2026-09-24). Nothing inside calls a keystore writer.
-    await withKeyStoreLock(async () => {
+    // 2026-09-24), `entities` likewise; nothing inside calls either's writer.
+    await withKeyStoreLock(() => withEntityStoreLock(async () => {
         for (const key of WORKSPACE_CLEAR_KEYS) {
-            await Storage.delete(key);
+            if (await Storage.verifiedWorkspaceId('resetWorkspace').then((now) => now !== ws, () => true)) throw new Error(`resetWorkspace: the workspace changed or became unreadable — ${cleared.length ? `stopped after ${cleared.length} stores` : 'nothing written'}`);
+            if (await Storage.delete(key) === false) throw new Error(`resetWorkspace: clearing ${key} failed after ${cleared.length} of ${WORKSPACE_CLEAR_KEYS.length} stores`);
             cleared.push(key);
         }
-    });
+    }));
     const databases = [];
     const factory = idb || (typeof indexedDB !== 'undefined' ? indexedDB : null);
     if (factory && typeof factory.deleteDatabase === 'function') {
@@ -245,7 +252,6 @@ export async function resetWorkspace({ idb } = {}) {
         // tab holding the DB open completes only when that tab closes —
         // best-effort here, and the options UI tells the user to close
         // other X-Ray tabs.
-        const ws = await Storage.activeWorkspaceId();
         for (const base of [...WORKSPACE_DATABASES, ...DERIVED_CACHE_DATABASES]) {
             const name = workspaceDbName(base, ws);
             try { factory.deleteDatabase(name); databases.push(name); } catch (_) { /* best-effort */ }
@@ -366,7 +372,7 @@ export const Workspaces = {
         // Its `ws:<id>:local_keys` goes too — under the keystore lock,
         // like the reset above, so a key write still in flight for that
         // workspace lands before the delete, never after it.
-        const result = await withKeyStoreLock(() => Storage.removeWorkspaceData(id, { idb }));
+        const result = await withKeyStoreLock(() => withEntityStoreLock(() => Storage.removeWorkspaceData(id, { idb })));
         delete all[id];
         await Storage.set(WORKSPACES_KEY, all);
         return result;
