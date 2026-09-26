@@ -668,13 +668,13 @@ looking where the bugs are.
       GitHub (three open when first written, four once #394 opened
       that afternoon; after #393, #368, #395, #396 and #397 merged and
       #365 closed the same day, one — #394; on 2026-09-26, after #398,
-      #399 and #400 opened and #394, #398 and #399 merged, one — #400,
-      so this page's PR is the second);
+      #399 and #400 opened and all four merged, none, so this page's
+      PR is the only one);
       R0's own checklist state; a pointer in CLAUDE.md. The same slice
       added the 2026-09-25 update to §9.1 (extended 2026-09-26) and
       three agent rows to the walk ledger. Verified by the full
-      CI-equivalent set green after merging `main` at `90e2da3`
-      (#399; `lint:js`, build, `npm test`,
+      CI-equivalent set green after merging `main` at `7e10bfd`
+      (#400; `lint:js`, build, `npm test`,
       `check:version`, `web-ext lint`, `web-ext build` +
       `check:package`, `check:budget`, `npm run smoke`), and by
       re-reading every cited commit, PR and JOURNAL date.*
@@ -1380,11 +1380,10 @@ the repo settings remain admin-only.
 **Update 2026-09-25 — what has merged since.** *Provenance:
 INTERPRETATION (2026-09-25, extended 2026-09-26) — an agent re-check
 against `git log origin/main` and the PR records, read-only; the
-2026-09-26 extension adds #394's, #398's and #399's merges, the open
-PRs, and the repository settings and rulesets read from GitHub's
-API. Nothing here
-is a ruling. The 2026-09-15 table, the "Executed" note and the runbook
-above stay as the record of that day.*
+2026-09-26 extension adds the merges of #394, #398, #399 and #400, and
+the repository settings and rulesets read from GitHub's API. Nothing
+here is a ruling. The 2026-09-15 table, the "Executed" note and the
+runbook above stay as the record of that day.*
 
 | PR | Merged as | What it settled |
 |---|---|---|
@@ -1406,6 +1405,7 @@ above stay as the record of that day.*
 | #394 | `a4f859d` (2026-09-26, 00:04Z) | #374's follow-up: the last five single-call LLM passes (hypothesis edges, claim links, the forensic corpus pass, the entity audit, the reader's Quick audit) run as jobs; five `xray:*` message types retired, none added; the job messages answer extension pages only (THREAT_MODEL change row 2026-09-25). Rows LJ.a–LJ.d walked by an agent against a canned model; a real Quick audit in Chrome passed (the maintainer); the Firefox run and LJ.e, a real pass past ~5 minutes with no DevTools, were skipped by the maintainer on 2026-09-26 and stay unobserved (SMOKE_TEST ledger, 2026-09-25, and its "Not yet walked" note) |
 | #398 | `94733e1` (2026-09-26, 00:16Z) | R0's front-door fixes: CHANGELOG `[Unreleased]` rebuilt from the merged PRs, README's version and counts, CLAUDE.md, two code headers (R0 box ticked). B9's remainder — the Settings "(Phase 25)" string, README's phase-numbered Status, the non-empty-`[Unreleased]` CI check — is R6's (`docs/STATUS.md`) |
 | #399 | `90e2da3` (2026-09-26, 00:20Z) | R0's PR template: the four §8 lines, `scripts/pr-body-check.mjs` and its own `PR body` workflow (R0 box ticked). Not a required check; making it one is the maintainer's call |
+| #400 | `7e10bfd` (2026-09-26, 00:23Z) | the entity-list fix that follows #392: every `entities` write re-reads fresh under the Web Lock `xray.entities` and writes nothing on a failed read; one workspace pointer per page (THREAT_MODEL change row 2026-09-25) |
 
 Also merged in the window: #380 (`2ed917c`), #381 (`e4c5307`, CI on
 Node 22), #382 (`f7dcfd7`, the JOURNAL split), #385 (`85e0b9b`), and
@@ -1438,24 +1438,22 @@ after #397 merged: one, #394 (draft), against the cap of four
 settings could be read after all, from GitHub's API (the repository
 record, its rulesets and the rules on `main`); the paragraph above
 inferred them from outside. Squash merging is on, merge commits and
-rebase merging are off, and auto-merge is allowed. An active
-repository ruleset named `main`, created 2026-09-22 00:11Z (four
-minutes after #379 merged), requires a pull request with squash as the
-only merge method, linear history, and the status checks
-`build + lint + package` and `browser smoke` on an up-to-date branch,
-and it blocks force pushes and deletion. So R0's "mark `browser smoke`
-required" is done too. The 2026-09-21 merge commits (#383 at 20:42Z,
-#384 at 21:04Z) came before the ruleset, and no merge commit has
-reached `main` since. "Automatically delete head branches", the last
-setting, read `delete_branch_on_merge: false` just after #394 merged
-and `true` after #399 merged; the heads of #398 and #399 were deleted
-as they merged. The heads of #368, #393, #394, #395, #396 and #397,
-merged before the switch, are still on `origin` until the 14-day stale
-rule reaches them. **Open non-Dependabot PRs after #399 merged:** one,
-#400 (`claude/xray-audit-refactor-opxk01`, entity records and keys
-kept safe through a failed read or a workspace switch), marked ready
-for review at 00:22Z. No Dependabot PR is open. The `docs/STATUS.md`
-PR, once opened, is the second, against the cap of four.
+rebase merging are off, and auto-merge is allowed. An active repository
+ruleset named `main`, created 2026-09-22 00:11Z (four minutes after
+#379 merged), requires a pull request with squash as the only merge
+method, linear history, and the status checks `build + lint + package`
+and `browser smoke` on an up-to-date branch, and it blocks force pushes
+and deletion. So R0's "mark `browser smoke` required" is done too. The
+2026-09-21 merge commits (#383 at 20:42Z, #384 at 21:04Z) came before
+the ruleset, and no merge commit has reached `main` since.
+"Automatically delete head branches", the last setting, read
+`delete_branch_on_merge: false` just after #394 merged and `true` after
+#399 merged; the heads of #398, #399 and #400 were deleted as they
+merged. The heads of #368, #393, #394, #395, #396 and #397, merged
+before the switch, are still on `origin` until the 14-day stale rule
+reaches them. **Open PRs after #400 merged:** none, Dependabot
+included. The `docs/STATUS.md` PR, once opened, is the only one,
+against the cap of four.
 
 
 ---

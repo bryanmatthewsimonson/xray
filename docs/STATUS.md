@@ -1,7 +1,7 @@
 # X-Ray status
 
 **Hand-maintained until RESET_PLAN R6 generates it. As of 2026-09-26**
-(`main` at `90e2da3`).
+(`main` at `7e10bfd`).
 
 One page for four questions: what still blocks 1.0, which switched-off
 features get checked when (and whether real casework has used them),
@@ -42,7 +42,7 @@ The nineteen blockers of [`ROAD_TO_1_0.md`](ROAD_TO_1_0.md)
 | B15 | Group surfaces show authors as raw hex | open | the reader and the side panel still slice hex keys | R7 (with B14) |
 | B16 | The wire record does not match what the code emits | partly done | 30050–30053 and 9803 reclassified reserved (#317, K1). Still open: no NIP_DRAFT section for 30041 or 30078, no CONSTITUTION Art. 10 rows for kinds 1 and 5, the `x` tag's second meaning unwritten | R2 "Make the kind schedule true"; R3 lane A |
 | B17 | The follows feed drops unreadable events silently; kind 0 / 10002 overwrite blindly | open | `parseFeedEvent` still returns a bare `null` | **no named track** — §10 (WIRE-10) covers only the 10002 half |
-| B18 | No threat model | closed | `docs/THREAT_MODEL.md` added in #316 (`41b8fff`); updated since, most recently by #392 (`a65d4ef`) and #394 (`a4f859d`, 2026-09-26: the stored LLM job records now cover eight passes, not three, and the job messages answer extension pages only) | — |
+| B18 | No threat model | closed | `docs/THREAT_MODEL.md` added in #316 (`41b8fff`); updated since, most recently by #394 (`a4f859d`, 2026-09-26: the stored LLM job records now cover eight passes, not three, and the job messages answer extension pages only) and #400 (`7e10bfd`, 2026-09-26: entity-registry writes locked and read fresh, one workspace pointer per page) | — |
 | B19 | The moral lens sent users to the browser console | closed | its surfaces parked (K3, #318 `e3985c2`, committed 2026-08-09, merged 2026-08-10) | — |
 
 **Added 2026-08-11, outside the nineteen:** NIP-07 silently voided
@@ -139,16 +139,16 @@ merged ones, and two old branches it first archived, not parked —
 `archive/claude-kind-hypatia-fu8nqm-20260905`. `feat/margin-s1` was
 kept. `git ls-remote origin` on 2026-09-25, and again on 2026-09-26,
 shows both archive tags and `feat/margin-s1`, and none of the deleted
-branches. Merged PRs' head branches still pile up, though: the heads of
-#368, #393, #395, #396 and #397 (merged 2026-09-25) and of #394
+branches. Six merged PRs' head branches are left over, though: those
+of #368, #393, #395, #396 and #397 (merged 2026-09-25) and of #394
 (`claude/vibrant-dirac-6hixpt`, merged 2026-09-26) are still on
-`origin`: "Automatically delete head branches" was off when they
-merged. It is on now — the repository API read
+`origin`, because "Automatically delete head branches" was off when
+they merged. It is on now: the repository API read
 `delete_branch_on_merge: false` early on 2026-09-26 and `true` after
-#399 merged, and the heads of #398 and #399 were deleted as they merged
-— so runbook step 1 is done (RESET_PLAN §9.1). The setting does not
-reach back: a squash-merged head is never an ancestor of `main`, so
-only the 14-day stale rule reaches the six left over.
+#399 merged, and the heads of #398, #399 and #400 were deleted as they
+merged. So runbook step 1 is done (RESET_PLAN §9.1). The setting does
+not reach back: a squash-merged head is never an ancestor of `main`, so
+only the 14-day stale rule reaches the six.
 
 ## 4. The open-PR cap
 
@@ -156,15 +156,11 @@ only the 14-day stale rule reaches the six left over.
 at most **four** open non-Dependabot PRs. A new one is not opened
 until one merges or is parked.
 
-**Open on 2026-09-26, after #399 merged** (read from GitHub): one
+**Open on 2026-09-26, after #400 merged** (read from GitHub): no
 non-Dependabot PR and no Dependabot PR. This page's own PR, once
-opened, is the second — **two slots free.**
+opened, is the only one — **three slots free.**
 
-| PR | What | Waiting on |
-|---|---|---|
-| #400 | fix(store): a failed read or a workspace switch no longer erases or cross-wires entity records and keys — the entity-list fix that follows #392 (`claude/xray-audit-refactor-opxk01`; +2,181 / −146, eleven commits, opened 2026-09-25 23:21Z, marked ready for review 2026-09-26 00:22Z) | only the maintainer's merge, and a view of its six interpretive steps: it is up to date with `main` (`21d5ed2` merged #398 and #399), and its CI there is green — both required checks and `PR body` |
-
-**Merged on 2026-09-26**, within sixteen minutes:
+**Merged on 2026-09-26**, within twenty minutes:
 
 - **#394** (`a4f859d`, 00:04Z). The five LLM passes that still held one
   message open across the model call (hypothesis edges, claim links,
@@ -186,10 +182,18 @@ opened, is the second — **two slots free.**
   every PR. It is not a required check (the ruleset still requires
   only `build + lint + package` and `browser smoke`); making it one is
   the maintainer's call.
+- **#400** (`7e10bfd`, 00:23Z): the entity-list fix that follows #392.
+  Every write of the entity records now re-reads them first, under a
+  lock, and writes nothing when that read fails (a failed read used to
+  count as an empty list and erase every other record); each page
+  keeps one workspace pointer, and an operation planned in one
+  workspace is refused rather than finished in another. Verified by
+  unit tests, the browser smoke and a headless two-page harness
+  (#400's body); Firefox not run.
 
 The count went from one open PR to three at 21:11Z on 2026-09-25 (#398
-and #399 opened), to four at 23:21Z (#400), then down to one as the
-three merged. The cap was never exceeded in that window.
+and #399 opened), to four at 23:21Z (#400), then down to none as the
+four merged. The cap was never exceeded in that window.
 
 **Earlier, on 2026-09-25**, three of the four PRs that had filled
 the cap that day merged or closed: #393 (`57a3398`); #368 (`6ef815a`) after its
@@ -204,8 +208,8 @@ to 20:28:06Z (#397 opened ten seconds before #365 closed).
 
 **Waiting to open:** only this page's own branch,
 `toolchain/status-doc`. The entity-list fix the previous refresh knew
-only as a report is now #400, so every line on this page can be
-checked against the record.
+only as a report became #400 and merged, so every line on this page can
+be checked against the record.
 
 **R0's checklist** (RESET_PLAN §7) on 2026-09-26: nine of its ten
 boxes are ticked, two of them on this page's own branch. On `main`: the
