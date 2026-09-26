@@ -88,7 +88,7 @@ Phase 16 ████████████████████  complete 
                                 framing assertions, grounded in each
                                 jurisdiction's own corpus
                                 (docs/MORAL_LENS_JURISDICTION_DESIGN.md).
-                                No wire kind — 30066 left free,
+                                No wire kind — 30066 reserved,
                                 guard-tested; derived view only, behind
                                 the moralLens flag. 16.1–16.4 in one PR;
                                 §Phase 16 smoke-run complete
@@ -1535,7 +1535,9 @@ exactly the text sent, `LENS_PROMPT_VERSION`) and carried in a `provenance`
 block. Gated by a new `moralLens` flag (default off) **plus** the API-key
 consent gate — extended to disclose that jurisdiction definitions and
 authority excerpts leave the device too — and independent of `llmAssist`.
-Kind **`30066` is left free**, machine-checked by the 16.4 guards.
+Kind **`30066` is reserved — lens, if ever ratified** *(amended
+2026-09-26, R-018 — was "left free"; CONSTITUTION Art. 10)*,
+machine-checked by the 16.4 guards.
 
 Three corrections to the source prompt are load-bearing: confidence is a
 **legitimate estimation** (fidelity of reconstruction, admissible under

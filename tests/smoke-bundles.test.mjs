@@ -7,6 +7,8 @@
 // 2026-09-07, VER-5); reading the exported configs removes the parser,
 // and this test removes the remaining way to drift: a new entry point
 // nothing loads, or a loaded bundle nothing builds.
+//
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

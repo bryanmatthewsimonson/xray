@@ -67,8 +67,9 @@ const RAW = new Map(FILES.map((f) => [f, readFileSync(join(FIXTURE_DIR, f), 'utf
 const FIXTURES = new Map(FILES.map((f) => [f, JSON.parse(RAW.get(f))]));
 const nameOf = (f) => `${f.kind}-${f.shape}`;
 
-// Kinds CONSTITUTION Art. 10 lists as retired / reserved / free, plus the
+// Kinds CONSTITUTION Art. 10 lists as retired / reserved, plus the
 // Phase-9a scaffold numbers — none may have a fixture or an emitter.
+// Provenance: R-018, R-014 (seed row, pending)
 const NEVER_EMITTED = [30043, 30067, 30065, 30066, 30050, 30051, 30052, 30053, 9803];
 
 // The builder modules whose `kind:` literals and KIND constants define

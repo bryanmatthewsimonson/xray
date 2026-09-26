@@ -20,6 +20,8 @@
 // pins EXACT per-file occurrence counts rather than mere membership:
 // a NEW raw call added inside an allow-listed file changes its count
 // and fails here, comment noise included in the ledger.
+//
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

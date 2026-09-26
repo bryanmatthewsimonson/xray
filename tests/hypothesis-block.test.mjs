@@ -120,6 +120,7 @@ function bigModel() {
     return buildHypothesisBlockModel(map);
 }
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('hypothesis-block: no-scoreboard guard — no comparison phrasing or judgment number in ANY rendered string', () => {
     // The model's strings (rich AND truncated shapes), the H.3
     // authoring copy, and the H.4 status-line composers (the pass runs

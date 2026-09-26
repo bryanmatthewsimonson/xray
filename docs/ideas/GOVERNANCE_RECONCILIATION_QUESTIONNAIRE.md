@@ -11,6 +11,13 @@ effect until the maintainer's own ruling lands through the proper
 organ (Art. 13) — and "keep, unchanged" is a complete answer to every
 question below.
 
+**Answered 2026-09-26.** The maintainer answered these questions
+through the six decisions of `docs/RESET_PLAN.md` §4.3 (D1–D6). §6
+maps each decision to its questions and records the answers and the
+maintainer's own words verbatim. The rulings are rows R-018 to R-025
+of `docs/RULINGS.md`. This document stays non-normative; it is kept
+as the session's record (Q19).
+
 **Date prepared:** 2026-08-28
 **Method:** the governance discipline's divergence-brief mode
 (`.claude/skills/governance/SKILL.md`, in flight on
@@ -647,6 +654,61 @@ Listed so this questionnaire visibly builds on prior work:
 | The membrane: accept-only incorporation | 2026-07-16 | NETWORK_CLIENT_DESIGN header maintainer decisions + §5 recorded decisions |
 | "Suggest provenance is grounded" — quote-as-search-key contract, with its second-guessable calls recorded | 2026-07-03 | JOURNAL |
 | Margin "server/relay" copy provisional; interpretation flagged and logged for this reconciliation | 2026-08-28 | MARGIN_DESIGN §10 row 6, §12.6 (in flight) |
+
+---
+
+## §6. The session's answers (2026-09-26)
+
+The maintainer answered the six decisions of `docs/RESET_PLAN.md`
+§4.3 on 2026-09-26. The relayed answers are copied verbatim below:
+each "answer" is the label of the option chosen on that decision's
+card, and "in my words" is the maintainer's own text. Each decision
+is a row of `docs/RULINGS.md`.
+
+| Decision | Questions it batches (RESET_PLAN §4.3) | Ruling |
+|---|---|---|
+| D1 | Q1, Q4, Q5, Q14, Q17 | R-018 |
+| D2 | Q3, Q7, Q9 | R-019 |
+| D3 | Q2, Q6, Q13 | R-020, R-024 |
+| D4 | Q8, Q10, Q11 | R-021 |
+| D5 | Q12, Q16, Q18, Q19 | R-022 |
+| D6 | Q15 | R-023, R-025 |
+
+The decision cards name parts that no option reached; they stay
+open: Q2's second half (has casework found statements the
+`interpretation` class wrongly walls off?), Q6's first part
+(confirming Art. 7's intent ban and published-positions-only rule
+for every family), and whether D2's case "evidence balance" is
+Q3 (b)'s probability instrument.
+
+```text
+R1 rulings (drafted 2026-09-26)
+
+D5 — How your decisions get recorded and ratified
+  answer: Plan default: labels, a rulings ledger, the three lines written down, Art. 11 amended
+  in my words: This is the correct direction to make decisions explicit and identify where AI interpretation is defaulted. This is good discipline and ensures that the human maintains control of the project.
+
+D4 — Which written rules overrule the working product
+  answer: Plan default: documents win only where outsiders depend on them
+  in my words: DISCIPLINES was always about advice in the first place. Claude has a habit of overinterpreting things, including the quote "governance docs are to be grounded in the design skill, not the other way around"-- which was my original attempt to state that the governance was becoming unwieldy and needed to give way to design considerations. But Claude misinterpreted that to mean that I don't care about governance as much as design. In fact, it is the over-interpretation and brittle logic that needed to be stopped. My actual preferences were not even being considered due to Claude believing that I had already ruled with ironclad law on a given subject previously. Claude is great at code and bad at judgement.
+
+D6 — Which documents bind, and the lens cache
+  answer: Plan default: four binding documents, the rest advice or archive
+  lens: Yes: allow a lasting cache
+  in my words: This is the correct narrowing of the power of the governance docs, and states explicitly what is binding. Having rulings be explicitly identified seems to be the right approach. This removes ambiguity from Claude while also giving me flexibility. Binding rules have their place, and realtime tradeoff decisions have their place.
+
+D3 — The two rules that protect people
+  answer: Plan default: keep both rules, make small edits at the edges
+  in my words: This is honestly a little too abstract for me to know all of the implications right now. These features need to be exercised for me to get a better sense of how they will evolve and their potential for abuse. But one of the goals of X-Ray is to identify behaviors that are manipulative or deceitful. Keeping track of who says/does such things is critically important. The point is not to avoid judgment--we all judge!--but to do it better.
+
+D1 — The never-merge rule: which parts stay law?
+  answer: Plan default: core sentence as law, rest as guidance
+  in my words: The data itself differentiates what is happening. Let design deal with that rather than Claude's interpretation. Also, there's no point in permanently banning a wire kind that never gets published; It shouldn't exist in that case.
+
+D2 — Which summary numbers X-Ray may show
+  answer: Plan default: define "fused" and name three first numbers
+  in my words: This is such an unimportant question for a feature that is rarely used across a wide range of articles. Estimation and aggregation was the original point of the epistemic audit feature, so the rules needed to be loosened.
+```
 
 ---
 

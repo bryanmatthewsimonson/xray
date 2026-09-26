@@ -1,10 +1,10 @@
 # Truth Systems — the comparative foundation
 
-**Document version:** 1.0.0
-**Status:** Evidentiary annex to `docs/CONSTITUTION.md`; normative for
-the §3.3 bridging constraints and the §4 honest-limits clauses
-(adopted by CONSTITUTION Preamble and Art. 5.5 on this document's
-ratification)
+**Document version:** 1.1.0
+**Status:** Evidentiary annex to `docs/CONSTITUTION.md`; advice, not
+law (amended 2026-09-26, R-023). The constitution itself keeps two
+of its lines: the bridging line (CONSTITUTION Art. 5.5) and H-2's gate
+(CONSTITUTION Art. 5.6).
 **Date:** 2026-07-22
 
 The maintainer's question, verbatim: *"What do all of the systems in
@@ -604,8 +604,8 @@ authority; nothing in the red lines rejects computed measurement of
 the disagreement structure. That is the line, and it is bright.
 
 Diversity-weighted aggregation is therefore admissible — under all
-seven constraints, each load-bearing (CONSTITUTION Art. 5.5 adopts
-this section):
+seven constraints, each load-bearing (advice since 2026-09-26;
+CONSTITUTION Art. 5.5 states the line itself):
 
 1. **Distribution-not-number.** The output is the shape of agreement —
    who ruled what, the spread, cross-prior convergence counts — never
@@ -649,9 +649,9 @@ offers this protocol.
 
 ## §4. Honest limits
 
-The constitutional honesty clauses — "honest at all times" includes
-honest about itself. Adopted by the CONSTITUTION Preamble on this
-document's ratification.
+The honesty clauses — "honest at all times" includes honest about
+itself. Advice since 2026-09-26 (the CONSTITUTION Preamble cites
+them); H-2's gate is law in CONSTITUTION Art. 5.6.
 
 - **H-1. The protocol records; it does not compel.** No signature,
   hash, or verdict forces a single mind to update. Consensus of
@@ -660,7 +660,7 @@ document's ratification.
   remains free. A system that forgot this would need to become a
   coercion engine — a different, worse system.
 - **H-2. Values and interpretations are outside the verdict's
-  jurisdiction, permanently.** The §3.1 firewall is not a v1
+  jurisdiction.** *(Amended 2026-09-26, R-020.)* The §3.1 firewall is not a v1
   limitation to be lifted at scale; it is the boundary between an
   evidence protocol and an inquisition. The system may adjudicate
   what was said and done, and map how named perspectives read the
@@ -714,7 +714,11 @@ document's ratification.
   Beyond that line, persuasion is the human work of the tool's users
   — rhetoric, relationship, and time — outside the protocol's
   guarantees, and the protocol is honest enough to say it cannot do
-  that work.
+  that work. *Scope (amended 2026-09-26, R-021):* the line's bans
+  cover judgment surfaces; onboarding, docs and layout fall outside
+  them. The Network feed stays inside. [INTERPRETATION: Claude,
+  2026-09-26 — default: the Network feed stays inside; ask: Do H-7's
+  persuasion bans still cover the Network feed?]
 
 ---
 
@@ -725,3 +729,22 @@ invariants, nine subversion modes with residual risks stated, the
 seven-constraint bridging license (§3.3, adopted by CONSTITUTION
 Art. 5.5), seven honest-limits clauses (adopted by the CONSTITUTION
 Preamble).
+
+**v1.1.0 — 2026-09-26.** Three changes, each on a maintainer ruling of
+that date; the CONSTITUTION's v1.1.0 entry records them too. H-2
+(R-020): the word "permanently" is struck; the rest of H-2 stands.
+Accepted failure mode: the adjudicability gate could later be softened
+by ordinary amendment instead of being blocked by the word. H-7
+(R-021): a scope line — its bans cover judgment surfaces; onboarding,
+docs and layout fall outside them. Whether the Network feed stays
+inside is an INTERPRETATION (default: inside), marked in H-7.
+Accepted failure mode: an onboarding screen could be tuned to win
+sign-ups rather than understanding. Status (R-023): this document
+becomes advice; the status line and the §3.3 and §4 lead-ins say so,
+and H-2's gate is lifted into CONSTITUTION Art. 5.6 first. Accepted
+failure modes: a guidance document can be ignored where a statute
+could not; H-1 and H-3–H-7 become advice; so do the §3.3 constraints
+the constitution does not repeat, notably constraint 5 (roster-scoped
+or history-costly inputs only — the defence against fake-account
+flooding) and constraint 7 (published as a signed, disputable
+measurement).

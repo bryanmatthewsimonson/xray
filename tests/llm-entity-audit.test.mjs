@@ -47,6 +47,7 @@ const MENTIONS = {
     ent_alias: ['The Diocese']
 };
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('E2: tool schema — pinned name, op enum, no numeric-score keys (P2)', () => {
     const tool = buildEntityAuditTool();
     assert.equal(tool.name, ENTITY_AUDIT_TOOL_NAME);

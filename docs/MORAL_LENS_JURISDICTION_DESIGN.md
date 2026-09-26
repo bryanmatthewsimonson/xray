@@ -13,6 +13,16 @@
 > questions. Where the amendment and the 2026-06-24 text disagree, the
 > amendment governs.
 >
+> **Amended 2026-09-26** (maintainer ruling R-025: "Yes: allow a
+> lasting cache" — the amendment governs). Keeping a lens reading only
+> for the browser session is current behaviour, not a rule. The lens
+> may keep readings on the user's computer like any ordinary feature;
+> building that is its own feature PR. The lens still has no wire kind
+> and publishes nothing. Accepted failure mode: a saved reading could
+> later be mistaken for a judgment record, and unless it is added to
+> the backup exclusion list it would travel inside backups and shared
+> merge-imports.
+>
 > **Phase 16.** Depends on Phase 14.5 (LLM-assist client, merged) and
 > sits on the far side of the Phase-15 truth firewall
 > (`docs/TRUTH_ADJUDICATION_DESIGN.md`). **Derived/advisory only:** no
@@ -195,9 +205,16 @@ audit's 0–100 is** (truth-doc §1: an estimation is legitimate where scope is
 
 This must be stated wherever confidence is surfaced — every confidence
 chip carries the fidelity-not-truth note, and a 16.4 test pins the note
-string next to `LENS_PROMPT_VERSION` so it cannot silently disappear.
+string next to `LENS_PROMPT_VERSION` so it cannot silently disappear
+*(this pin removed 2026-09-26)*.
 
 ### 5.2 Surface framing is **"lens-reading," not a court** — and the names are binding
+
+*Amended 2026-09-26 (R-018) — the amendment governs: the renames and
+the forbidden-substrings list below are naming guidance, not binding on
+code. "Verdict" stays the name of the truth kind. Accepted failure mode:
+a future screen could call a non-truth judgment a "ruling" or "verdict",
+and a word that lands in a published event cannot be recalled.*
 
 The source prompt's "Online Court of Justice / rulings / verdicts /
 opinion" metaphor collides with the truth layer's reserved word
@@ -219,7 +236,8 @@ Naming rules for 16.x implementation:
 - **Forbidden substrings** in Phase 16 exported symbols, storage keys, and
   user-visible strings: `Verdict`, `Ruling`, `Opinion`, `Court`,
   `Integrity`. A 16.4 test greps the parsed §7 output keys and the module
-  export names for `/verdict|ruling|opinion/i`.
+  export names for `/verdict|ruling|opinion/i` *(removed 2026-09-26,
+  R-018)*.
 - **Modules:** `lens-taxonomy.js`, `jurisdiction-model.js`,
   `lens-engine.js`, `lens-schemas.js` (or `moral-lens-*` if a longer
   prefix reads better at 16.1 — pick once, at 16.1).
@@ -313,7 +331,9 @@ against a cherry-picked **full** one. So P5 extends top-to-bottom:
   `chrome.storage.local`, no IndexedDB, no relay pool. A 16.4 guard test
   pins the zero-durable-writes property. A durable "precious" lens cache
   (the `audit-cache.js` posture) is explicitly deferred alongside the wire
-  format.
+  format. *Amended 2026-09-26 (R-025; see the header): session-only is
+  current behaviour, not a rule; a lasting local cache is allowed,
+  separate from any wire kind.*
 - **Provenance.** The §7 output carries `{ model, prompt_version, run_at }`.
   `LENS_PROMPT_VERSION` is exported from the pure prompt module with an
   exact-match pin test (the `CURRENT_MODULE_VERSIONS` "bump alongside the
@@ -337,7 +357,9 @@ against a cherry-picked **full** one. So P5 extends top-to-bottom:
   Refusals surface with their own strings pointing at the right Options
   switch; a guardrail firing is mapped to a distinct refusal state, never
   the generic "Try again."
-- **No wire kind.** Kind **`30066` is left free**, and the deferral is
+- **No wire kind.** Kind **`30066` is reserved — lens, if ever
+  ratified** *(Amended 2026-09-26, R-018 — was "left free"; CONSTITUTION
+  Art. 10)*, and the deferral is
   machine-checked: 16.4 guards assert that no builder emits `30066` and
   that the lens path performs zero durable storage writes. If
   lens-readings ever become shareable that is a separately-designed act
@@ -488,7 +510,8 @@ Branches `claude/phase-16-*`, one PR per slice, stacked on `main`.
 - **16.4 — the test net.** Fixture-driven validator suites over parsed §7
   outputs; fetch-tripwire unit tests proving pre-flight refusals fire
   before any network call; the §5.2 word-reservation pin
-  (`/verdict|ruling|opinion/i` absent from output keys and exports);
+  (`/verdict|ruling|opinion/i` absent from output keys and exports)
+  *(removed 2026-09-26, R-018)*;
   vocabulary-disjointness pins by literal; the no-builder-emits-`30066`
   guard; the zero-durable-writes guard.
 - **(deferred)** publishable wire kind `30066` + NIP framing readings as
@@ -520,9 +543,11 @@ Branches `claude/phase-16-*`, one PR per slice, stacked on `main`.
    This sidesteps the curated-set selection-bias exposure (P5) and the
    copyright problem of shipping corpus excerpts; the smoke test authors
    its jurisdictions via a console block.
-4. **Wire format, if ever — DEFERRED, machine-checked.** `30066` stays
-   free; the 16.4 guards (no builder emits it, zero durable writes) keep
-   the deferral honest. Should demand materialize, the NIP frames readings
+4. **Wire format, if ever — DEFERRED, machine-checked.** `30066` is
+   reserved — lens, if ever ratified *(Amended 2026-09-26, R-018 — was
+   "stays free"; CONSTITUTION Art. 10)*; the 16.4 guards (no builder
+   emits it, zero durable writes) keep the deferral honest. Should
+   demand materialize, the NIP frames readings
    as perspectival reconstructions, never verdicts.
 
 Still genuinely open (non-blocking): persona-corpus capture *tooling* UX,

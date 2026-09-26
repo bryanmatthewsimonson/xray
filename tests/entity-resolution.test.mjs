@@ -92,6 +92,7 @@ test('near-name rung: surname + initial matches persons only, in both directions
     assert.equal(full.length, 0);
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD (Art. 6): no candidate ever carries a numeric field — rungs are labels, not scores', async () => {
     const reg = await registryOf([
         { name: 'Elena Vargas', type: 'person' },

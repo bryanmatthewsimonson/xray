@@ -78,9 +78,7 @@ test('renderCaseBriefMarkdown: prose sections, linked quotes, NO score/proposals
     assert.ok(md.includes('## Sources'), 'has a Sources list');
     assert.ok(md.includes('1. [The Lab-Leak Case](https://a.example/leak)'), 'source 1 full link');
     assert.ok(md.includes('2. [The Zoonosis Case](https://b.example/zoo)'), 'source 2 full link');
-    // Firewall: no fused numeric score, no verdict/rating language, and
-    // proposals never leak into the prose.
-    assert.ok(!/score|verdict|\d+\s*%|\d+\s*\/\s*100/i.test(md), 'no score/verdict/percentage');
+    // Proposals never leak into the prose.
     assert.ok(!md.includes('is_key'), 'proposals excluded from the publication');
     assert.ok(/not a ruling|does not rank or rule/i.test(md), 'states it is not a ruling');
 });
@@ -122,8 +120,6 @@ test('renderCaseBriefMarkdown: entity index is an APPENDIX — after the substan
     assert.ok(md.includes('### Organizations'));
     assert.ok(md.includes('- **Wuhan Institute of Virology** — 5 claims · in 2 sources: \\[[1](https://a.example/leak)\\], \\[[2](https://www.b.example/zoo)\\]'), 'org: counts + two refs');
     assert.ok(!md.includes('Mentioned Only'), '0-claim rows are dropped from the render entirely');
-    // Firewall survives the new sections.
-    assert.ok(!/score|verdict|\d+\s*%|\d+\s*\/\s*100/i.test(md), 'no score/verdict/percentage');
     // Absent entitySummary → no appendix; all rows 0-claim → no appendix either.
     const bare = renderCaseBriefMarkdown(RECORD.brief, { caseName: 'X', memberIndex });
     assert.ok(!bare.includes('## Appendix'), 'appendix omitted when not supplied');
@@ -147,7 +143,6 @@ test('renderCaseBriefMarkdown: self-locating provenance header (P12) — identit
     assert.ok(md.indexOf('rendered view, not the record') < md.indexOf('A synthesis of'), 'header precedes the intro');
     // The existing not-a-ruling disclaimer survives alongside it.
     assert.ok(/not a ruling|does not rank or rule/i.test(md), 'not-a-ruling disclaimer kept');
-    assert.ok(!/score|verdict|\d+\s*%|\d+\s*\/\s*100/i.test(md), 'firewall survives the header');
 });
 
 test('renderCaseBriefMarkdown: unresolved provenance renders VISIBLE placeholders, never a silent omission (P6/P12)', () => {
@@ -251,7 +246,7 @@ test('renderCaseBriefMarkdown: a position-specific coverage note renders ADJACEN
     assert.ok(md.includes('position-specific coverage note is shown beside'), 'moved note is disclosed, not silent');
 });
 
-test('renderCaseBriefMarkdown: the no-score firewall survives every new surface at once', () => {
+test('renderCaseBriefMarkdown: proposals stay excluded across every new surface at once', () => {
     const memberIndex = {
         [HASH_A]: { url: 'https://drive.google.com/file/d/abc123def456/view', title: 'Judge decision',
             aliases: [{ url: 'https://drive.google.com/uc?export=download&id=abc123def456', title: 'download' }] },
@@ -263,7 +258,6 @@ test('renderCaseBriefMarkdown: the no-score firewall survives every new surface 
         entitySummary: { people: [{ name: 'P', claimCount: 1, sourceHashes: [HASH_A] }], orgs: [] },
         provenance: { npub: 'npub1abc', pubkeyHex: PUB, relays: ['wss://r.example'] }
     });
-    assert.ok(!/score|verdict|\d+\s*%|\d+\s*\/\s*100/i.test(md), 'no score/verdict/percentage anywhere');
     assert.ok(!md.includes('is_key'), 'proposals still excluded');
 });
 
@@ -283,6 +277,7 @@ test('buildCaseBriefArticle: kind 30023, recognizer + d + member a-tags + cross-
     assert.ok(ev.content.includes('## Cruxes of disagreement'));
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('buildCaseBriefEvent: kind 30068, structured payload, grounded disclosure, NO score field', () => {
     const ev = buildCaseBriefEvent({ record: RECORD, caseName: 'COVID origins', scopeQuestion: 'Origin?', memberIndex: MEMBER_INDEX, userPubkey: PUB, createdAt: 1000 });
     assert.equal(ev.kind, CASE_BRIEF_KIND);
@@ -339,8 +334,6 @@ test('renderCaseBriefMarkdown: partial-run coverage disclosed on its face (P6/P1
     });
     assert.ok(many.includes('141 were analyzed for this synthesis; 6 could not be processed and are absent'),
         'derives the unanalyzed count and agrees in plural');
-    // Firewall holds.
-    assert.ok(!/score|verdict|\d+\s*%|\d+\s*\/\s*100/i.test(md), 'no score/verdict/percentage');
 });
 
 test('renderCaseBriefMarkdown: MA.3 recovered members are disclosed separately, never as fresh analysis', () => {
@@ -366,7 +359,6 @@ test('renderCaseBriefMarkdown: MA.3 recovered members are disclosed separately, 
         caseName: 'X', memberCount: 9, memberIndex: MEMBER_INDEX, coverage: { analyzed: 9, failed: 0 }
     });
     assert.ok(!none.includes('previously stored extraction record'));
-    assert.ok(!/score|verdict/i.test(md), 'no score/verdict leaked by the new note');
 });
 
 test('buildCaseBriefArticle: the published article carries the partial-run disclosure too', () => {

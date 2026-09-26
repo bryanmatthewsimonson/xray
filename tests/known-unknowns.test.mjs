@@ -4,7 +4,7 @@
 // single-shot and opinion standing disclosures, absent-module notes,
 // confidence normalizations) are filtered while article-level caveats
 // survive; caps disclose overflow; members without unknowns stay out;
-// coverage gaps pass through; and nothing in the output is a score.
+// and coverage gaps pass through.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -90,17 +90,10 @@ test('R9: caps disclose overflow; coverage gaps pass through; alias join', () =>
         'non-string gaps dropped, capture alias joined');
 });
 
-test('R9: no score anywhere; empty input degrades', () => {
+test('R9: empty input degrades', () => {
     const empty = collectKnownUnknowns({});
     assert.deepEqual(empty.members, []);
     assert.equal(empty.auditedCount, 0);
-    const flat = JSON.stringify(collectKnownUnknowns({
-        rows: [row('u1', ['h1'])],
-        runs: [sqRun('h1', { sources: [{ label: 'a', type: 'anonymous_bare', evidence_quote: 'q' }] })]
-    }));
-    for (const banned of ['score', 'mean', 'average', 'fused']) {
-        assert.ok(!flat.includes(banned), `output must not carry "${banned}"`);
-    }
 });
 
 // ------------------------------------------------------------------

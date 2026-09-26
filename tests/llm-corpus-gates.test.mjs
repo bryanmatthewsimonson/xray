@@ -6,6 +6,8 @@
 // green; dropping the llmAssist check would erode the SW-side spend
 // consent. (This file began as tests/llm-suggest-slim.test.mjs; the
 // slim-mode suggest tests retired in UA.3 with runSuggestionPass.)
+//
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
