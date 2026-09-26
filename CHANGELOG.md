@@ -14,7 +14,7 @@ them), **Security**, and **Docs & process**.
 
 Everything merged to `main` since v0.8.0, reconstructed on 2026-09-25
 from the merged pull requests (`git log --first-parent v0.8.0..main`,
-through #397) and the engineering journal (`docs/journal/`). Features
+through #394, merged 2026-09-26) and the engineering journal (`docs/journal/`). Features
 marked default-off stay inert until their flag is turned on.
 
 ### Wire format
@@ -178,6 +178,10 @@ and 9803, a retirement of kinds that were never emitted.
   and lost a paid result. The corpus map, synthesis and entity-page
   passes now run as background jobs that survive a reload and report
   a worker restart plainly (#374, #390).
+- **Five more AI passes could lose a paid result the same way.**
+  Hypothesis edges, claim links, the forensic corpus pass, the
+  entity audit and the reader's Quick audit now run as background
+  jobs too, and the job door answers only X-Ray's own pages (#394).
 - **PDF links were never captured** (#391).
 - **Instagram filed one account's post under another account's
   address.** After in-app navigation the page head can still describe
