@@ -471,7 +471,11 @@ looking where the bugs are.
       devDependency + CI job loading the extension" checkbox — closed.)
       **Owed to the maintainer:** mark the `browser smoke` check
       required in `main`'s branch protection — the workflow cannot set
-      that. Budget: the whole smoke job ≤ 5 minutes wall clock.
+      that. *Done, as read from GitHub's API on 2026-09-26: the
+      repository ruleset `main` (created 2026-09-22 00:11Z) requires
+      `browser smoke` and `build + lint + package` on an up-to-date
+      branch (§9.1's 2026-09-25 update).* Budget: the whole smoke job
+      ≤ 5 minutes wall clock.
 - [ ] **The MA.6 walk required.** It runs in the same job today,
       ADVISORY, anchored on `SMOKE_ANCHORS.extractionBlock` with
       `tests/smoke-selectors.test.mjs` pinning the seam and
@@ -602,7 +606,10 @@ looking where the bugs are.
       auto-merge for devDependencies. (S.) *Status 2026-09-25 (§9.1's
       update of that date): every runbook step is done except step 1,
       the repo settings — auto-delete-on-merge is evidently still off,
-      since the day's merged heads are still on `origin`.*
+      since the day's merged heads are still on `origin`. 2026-09-26:
+      read from GitHub's API, step 1 is done except that one setting
+      (`delete_branch_on_merge: false`); the rules on `main` have been
+      in place since 2026-09-22 (§9.1's update).*
 - [x] **Split the JOURNAL now, not in R6.** *Landed 2026-09-21 as PR
       #382 (`toolchain/journal-split`): `docs/journal/YYYY-MM.md` × 5,
       oldest-first, new entries appended at the bottom; `merge=union`
@@ -641,11 +648,14 @@ looking where the bugs are.
       evidence; the parked shelf (K3, #370); the open-PR cap read from
       GitHub (three open when first written, four once #394 opened
       that afternoon; after #393, #368, #395, #396 and #397 merged and
-      #365 closed the same day, one — #394);
+      #365 closed the same day, one — #394; on 2026-09-26, after #398,
+      #399 and #400 opened and #394 merged, three, so this page's PR
+      is the fourth and fills the cap);
       R0's own checklist state; a pointer in CLAUDE.md. The same slice
-      added the 2026-09-25 update to §9.1 and three agent rows to the
-      walk ledger. Verified by the full CI-equivalent set green after
-      merging `main` at `4d2b1aa` (`lint:js`, build, `npm test`,
+      added the 2026-09-25 update to §9.1 (extended 2026-09-26) and
+      three agent rows to the walk ledger. Verified by the full
+      CI-equivalent set green after merging `main` at `a4f859d`
+      (#394; `lint:js`, build, `npm test`,
       `check:version`, `web-ext lint`, `web-ext build` +
       `check:package`, `check:budget`, `npm run smoke`), and by
       re-reading every cited commit, PR and JOURNAL date.*
@@ -1330,10 +1340,12 @@ the repo settings remain admin-only.
    PR, then #374 and #324 register their guard entries on rebase.
 
 **Update 2026-09-25 — what has merged since.** *Provenance:
-INTERPRETATION (2026-09-25) — an agent re-check against `git log
-origin/main` and the PR records, read-only; nothing here is a ruling.
-The 2026-09-15 table, the "Executed" note and the runbook above stay as
-the record of that day.*
+INTERPRETATION (2026-09-25, extended 2026-09-26) — an agent re-check
+against `git log origin/main` and the PR records, read-only; the
+2026-09-26 extension adds #394's merge, the open PRs, and the
+repository settings and rulesets read from GitHub's API. Nothing here
+is a ruling. The 2026-09-15 table, the "Executed" note and the runbook
+above stay as the record of that day.*
 
 | PR | Merged as | What it settled |
 |---|---|---|
@@ -1352,6 +1364,7 @@ the record of that day.*
 | #395 | `16073bc` (2026-09-25) | R0's MA.6 preconditions: no fixed sleeps left in the walk, every control it drives found by a `SMOKE_ANCHORS` anchor. `ma6` stays advisory; the flip is the maintainer's, due 2026-10-05 |
 | #396 | `1c4fa87` (2026-09-25) | R0's static net: the ESLint ratchet, version lockstep in CI, the packaged-contents assertion and the bundle budget (R0 box ticked) |
 | #397 | `4d2b1aa` (2026-09-25) | step 7, the fold of #365: a 120-line `.claude/skills/governance/SKILL.md`. #365 was closed unmerged the same day, its branch `claude/loving-gauss-k8gsta` kept so the 453-line text stays recoverable |
+| #394 | `a4f859d` (2026-09-26, 00:04Z) | #374's follow-up: the last five single-call LLM passes (hypothesis edges, claim links, the forensic corpus pass, the entity audit, the reader's Quick audit) run as jobs; five `xray:*` message types retired, none added; the job messages answer extension pages only (THREAT_MODEL change row 2026-09-25). Rows LJ.a–LJ.d walked by an agent against a canned model; a real Quick audit in Chrome passed (the maintainer); the Firefox run and LJ.e, a real pass past ~5 minutes with no DevTools, were skipped by the maintainer on 2026-09-26 and stay unobserved (SMOKE_TEST ledger, 2026-09-25, and its "Not yet walked" note) |
 
 Also merged in the window: #380 (`2ed917c`), #381 (`e4c5307`, CI on
 Node 22), #382 (`f7dcfd7`, the JOURNAL split), #385 (`85e0b9b`), and
@@ -1379,6 +1392,28 @@ merge commits on 2026-09-21 (#383, #384), and the heads of #368, #393,
 merges, so "Automatically delete head branches" is evidently off. Open non-Dependabot PRs
 after #397 merged: one, #394 (draft), against the cap of four
 (`docs/STATUS.md`).
+
+*2026-09-26.* **Step 1 is done except one setting.** The settings could
+be read after all, from GitHub's API (the repository record, its
+rulesets and the rules on `main`); the paragraph above inferred them
+from outside. Squash merging is on, merge commits and rebase merging
+are off, and auto-merge is allowed. An active repository ruleset named
+`main`, created 2026-09-22 00:11Z (four minutes after #379 merged),
+requires a pull request with squash as the only merge method, linear
+history, and the status checks `build + lint + package` and
+`browser smoke` on an up-to-date branch, and it blocks force pushes and
+deletion. So R0's "mark `browser smoke` required" is done too. The
+2026-09-21 merge commits (#383 at 20:42Z, #384 at 21:04Z) came before
+the ruleset, and no merge commit has reached `main` since. The one
+setting left is "Automatically delete head branches", which reads off
+(`delete_branch_on_merge: false`): the heads of #368, #393, #395, #396,
+#397 and #394 are still on `origin`. **Open non-Dependabot PRs after
+#394 merged:** three, all drafts — #398 (`toolchain/front-door`, the
+front-door fixes), #399 (`toolchain/pr-body-checks`, the PR template
+and its body checks) and #400 (`claude/xray-audit-refactor-opxk01`,
+entity records and keys kept safe through a failed read or a workspace
+switch). No Dependabot PR is open. The `docs/STATUS.md` PR, once
+opened, is the fourth and fills the cap.
 
 
 ---

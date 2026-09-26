@@ -1,7 +1,7 @@
 # X-Ray status
 
-**Hand-maintained until RESET_PLAN R6 generates it. As of 2026-09-25**
-(`main` at `4d2b1aa`).
+**Hand-maintained until RESET_PLAN R6 generates it. As of 2026-09-26**
+(`main` at `a4f859d`).
 
 One page for four questions: what still blocks 1.0, which switched-off
 features get checked when (and whether real casework has used them),
@@ -9,8 +9,10 @@ what is parked, and how many pull requests may be open at once. Every
 line names where its evidence lives, so any line can be checked and
 refreshed by re-reading that source.
 
-*Provenance: INTERPRETATION (2026-09-25) — an agent's reading of the
-tree, `git log origin/main`, the PR records and `docs/journal/`.
+*Provenance: INTERPRETATION (2026-09-25, refreshed 2026-09-26) — an
+agent's reading of the tree, `git log origin/main`, the PR records, the
+repository settings and rulesets as GitHub's API reports them, and
+`docs/journal/`.
 Nothing here is a ruling. Where a line and the tree disagree, the tree
 wins; fix the line.*
 
@@ -30,8 +32,8 @@ The nineteen blockers of [`ROAD_TO_1_0.md`](ROAD_TO_1_0.md)
 | B5 | `rules/csp-strip.json` strips page security (CSP) on every site | open | rule 1 still has no domain condition | R7 security item (§10) |
 | B6 | NIP-07 signed replies were not verified | closed | #316 (`41b8fff`, 2026-08-09); real-signer walk PASS, ledger 2026-08-11 | — |
 | B7 | No store listing or other installable channel; the zip is unpruned | open | no store listing or signed build. Besides the companion, `webExt.ignoreFiles` now excludes only the smoke output, Chrome's `_metadata/` and `eslint.config.mjs` (#396, `1c4fa87`); nothing on B7's prune list is dropped. CI now asserts the zip's contents (`npm run check:package`, #396): today's leaks — `tests/`, `docs/`, `tools/`, `scripts/`, the source maps, the `src/` tree and more — are pinned shrink-only in `KNOWN_LEAKS` (`scripts/check-package.mjs`), so a new leak is red, but none is removed yet | R4 "First run"; decision §11-6 |
-| B8 | No runnable release gate; no verification record | partly done | walk ledger since #320 (`a3a8e02`, 2026-08-10); browser smoke in CI since #379 (`d139ba5`, 2026-09-21); version lockstep, the packaged-contents assertion and a bundle budget in `ci.yml` since #396 (`1c4fa87`, 2026-09-25). The MA.6 walk's preconditions for going required are met (#395, `16073bc`), but it still runs `--advisory=ma6` — the flip is the maintainer's, due 2026-10-05. Still open: SMOKE_TEST not split into a short gate (no `docs/GATE.md`); CI runs one companion test file (the normalizer parity), not its key-hygiene tests (`test_server_keys.py`) | R0 (the MA.6 flip), R6 (`GATE.md`), R7 (the gate on the shipped zip); the companion's key-hygiene tests: unowned |
-| B9 | The front door misstates what shipped | partly done | `release.yml` now refuses an empty CHANGELOG section (#318, JOURNAL 2026-08-09). Still wrong on `main`: README "v0.7.0" and "2100 tests", CHANGELOG `[Unreleased]` "Nothing yet", Settings "(Phase 25)". The fix is pushed as the branch `toolchain/front-door` (three commits); no PR is open for it | R0 "Fix the front-door lies" |
+| B8 | No runnable release gate; no verification record | partly done | walk ledger since #320 (`a3a8e02`, 2026-08-10); browser smoke in CI since #379 (`d139ba5`, 2026-09-21) and, as read 2026-09-26, a required check on `main` (with `build + lint + package`) under the repository ruleset `main` (created 2026-09-22 00:11Z); version lockstep, the packaged-contents assertion and a bundle budget in `ci.yml` since #396 (`1c4fa87`, 2026-09-25). The MA.6 walk's preconditions for going required are met (#395, `16073bc`), but it still runs `--advisory=ma6` — the flip is the maintainer's, due 2026-10-05. Still open: SMOKE_TEST not split into a short gate (no `docs/GATE.md`); CI runs one companion test file (the normalizer parity), not its key-hygiene tests (`test_server_keys.py`) | R0 (the MA.6 flip), R6 (`GATE.md`), R7 (the gate on the shipped zip); the companion's key-hygiene tests: unowned |
+| B9 | The front door misstates what shipped | partly done | `release.yml` now refuses an empty CHANGELOG section (#318, JOURNAL 2026-08-09). Still wrong on `main`: README "v0.7.0" and "2100 tests", CHANGELOG `[Unreleased]` "Nothing yet", Settings "(Phase 25)". The fix is open as draft PR #398 (`toolchain/front-door`), not merged | R0 "Fix the front-door lies" |
 | B10 | Three features reachable only through DevTools | open | still no Settings control for `reviewCoordination`, `storeFirstPublish`, `extractionAnalysisPublishing` | R2 "Flags" |
 | B11 | Flag registry noise; the guide's flag table is wrong | partly done | eight dead flags retired (#317, `bd0396d`). The guide no longer lists them but omits four live flags (`aiVision`, `directCloudTranscription`, `storeFirstPublish`, `extractionAnalysisPublishing`); no flag ledger, no guard | R2 "Flags"; R6 |
 | B12 | Publish fires on one click; disclosures arrive as toasts | open | the reader's Publish button still calls `publish()` directly | R4 "Publish pre-flight" |
@@ -40,7 +42,7 @@ The nineteen blockers of [`ROAD_TO_1_0.md`](ROAD_TO_1_0.md)
 | B15 | Group surfaces show authors as raw hex | open | the reader and the side panel still slice hex keys | R7 (with B14) |
 | B16 | The wire record does not match what the code emits | partly done | 30050–30053 and 9803 reclassified reserved (#317, K1). Still open: no NIP_DRAFT section for 30041 or 30078, no CONSTITUTION Art. 10 rows for kinds 1 and 5, the `x` tag's second meaning unwritten | R2 "Make the kind schedule true"; R3 lane A |
 | B17 | The follows feed drops unreadable events silently; kind 0 / 10002 overwrite blindly | open | `parseFeedEvent` still returns a bare `null` | **no named track** — §10 (WIRE-10) covers only the 10002 half |
-| B18 | No threat model | closed | `docs/THREAT_MODEL.md` added in #316 (`41b8fff`); updated since, most recently by #374 and #392 | — |
+| B18 | No threat model | closed | `docs/THREAT_MODEL.md` added in #316 (`41b8fff`); updated since, most recently by #392 (`a65d4ef`) and #394 (`a4f859d`, 2026-09-26: the stored LLM job records now cover eight passes, not three, and the job messages answer extension pages only) | — |
 | B19 | The moral lens sent users to the browser console | closed | its surfaces parked (K3, #318 `e3985c2`, committed 2026-08-09, merged 2026-08-10) | — |
 
 **Added 2026-08-11, outside the nineteen:** NIP-07 silently voided
@@ -135,13 +137,16 @@ merged ones, and two old branches it first archived, not parked —
 `archive/feature-phase-9b-metadata-ui-20260529` (RESET_PLAN §9) and
 `claude/kind-hypatia-fu8nqm` (#373's squash-merged branch) as
 `archive/claude-kind-hypatia-fu8nqm-20260905`. `feat/margin-s1` was
-kept. `git ls-remote origin` on 2026-09-25 shows both archive tags and
-`feat/margin-s1`, and none of the deleted branches. Merged PRs' head
-branches still pile up, though: the heads of #368, #393, #395, #396
-and #397, all merged 2026-09-25, are still on `origin`, so "Automatically
-delete head branches" (runbook step 1) is evidently off. A squash-merged
-head is never an ancestor of `main`, so only the 14-day stale rule
-reaches it.
+kept. `git ls-remote origin` on 2026-09-25, and again on 2026-09-26,
+shows both archive tags and `feat/margin-s1`, and none of the deleted
+branches. Merged PRs' head branches still pile up, though: the heads of
+#368, #393, #395, #396 and #397 (merged 2026-09-25) and of #394
+(`claude/vibrant-dirac-6hixpt`, merged 2026-09-26) are still on
+`origin`, because "Automatically delete head branches" is off — the
+repository API reads `delete_branch_on_merge: false` (2026-09-26). It
+is the one part of runbook step 1 still open (RESET_PLAN §9.1). A
+squash-merged head is never an ancestor of `main`, so only the 14-day
+stale rule reaches it.
 
 ## 4. The open-PR cap
 
@@ -149,15 +154,35 @@ reaches it.
 at most **four** open non-Dependabot PRs. A new one is not opened
 until one merges or is parked.
 
-**Open on 2026-09-25, after #397 merged** (read from GitHub): one
-non-Dependabot PR, no Dependabot — **three slots free.**
+**Open on 2026-09-26, after #394 merged** (read from GitHub): three
+non-Dependabot PRs, all drafts, and no Dependabot PR. This page's own
+PR, once opened, is the fourth: **the cap is then full**, and no other
+PR opens until one of the four merges or is parked.
 
 | PR | What | Waiting on |
 |---|---|---|
-| #394 | fix(llm): the last five single-call LLM passes run as jobs — #374's follow-up (draft, +1,836 / −239, two commits, opened 2026-09-25) | the maintainer's dispositions on its security review's asks (the review and its fixes are in the PR), the three human rows it hands over (a real Quick audit in Chrome, the same in Firefox, and a pass running past ~5 minutes whenever that happens naturally), then leaving draft. Against today's `main` it conflicts in `docs/SMOKE_TEST.md` only, the walk ledger (`git merge-tree`) |
+| #398 | docs(front-door): README, CHANGELOG, CLAUDE.md and two headers corrected against the tree — B9 and R0's "Fix the front-door lies" (`toolchain/front-door`; draft, +483 / −46, six commits, opened 2026-09-25 21:11Z) | leaving draft, and the maintainer's view of its five interpretive steps. CI is green on its head, but the head is one commit behind `main` (#394) and the ruleset requires an up-to-date branch, so it needs a merge of `main` first |
+| #399 | ci(toolchain): the PR-body checks, the lane rule and JOURNAL presence — R0's "PR template" (`toolchain/pr-body-checks`; draft, +1,579 / −8, five commits, opened 2026-09-25 21:11Z) | the same as #398 (six interpretive steps; one commit behind `main`). Its new `PR body` check is advisory; making it required is the maintainer's call |
+| #400 | fix(store): a failed read or a workspace switch no longer erases or cross-wires entity records and keys — the entity-list fix that follows #392 (`claude/xray-audit-refactor-opxk01`; draft, +2,182 / −146, ten commits, opened 2026-09-25 23:21Z) | leaving draft, and the maintainer's view of its six interpretive steps. Up to date with `main`, CI green on its head |
 
-**Merged or closed on 2026-09-25**, three of the four that filled the
-cap earlier that day: #393 (`57a3398`); #368 (`6ef815a`) after its
+**Merged on 2026-09-26:** #394 (`a4f859d`, 00:04Z). The five LLM passes
+that still held one message open across the model call (hypothesis
+edges, claim links, the forensic corpus pass, the entity audit and the
+reader's Quick audit) now run as jobs, so none can lose a paid result
+when Chrome stops the service worker mid-call. Five `xray:*` message
+types were retired and none added, and the job messages now answer
+extension pages only (THREAT_MODEL, change row 2026-09-25). Its three
+hand checks (SMOKE_TEST ledger, 2026-09-25): a real Quick audit in
+Chrome passed on the rerun (the maintainer). The same audit in Firefox,
+and a real pass running past ~5 minutes with no DevTools attached, were
+skipped by the maintainer on 2026-09-26. Both stay unobserved, listed
+under SMOKE_TEST's "Not yet walked" (row LJ.e and the Firefox sender
+check). The count went from one open PR to three at 21:11Z on
+2026-09-25 (#398, #399), to four at 23:21Z (#400), and back to three
+when #394 merged, so the cap was never exceeded in that window.
+
+**Earlier, on 2026-09-25**, three of the four PRs that had filled
+the cap that day merged or closed: #393 (`57a3398`); #368 (`6ef815a`) after its
 Instagram row, whose first walk was PARTIAL and whose re-walk on the
 fixed branch passed (SMOKE_TEST ledger, 2026-09-25); #365, closed
 unmerged and folded into #397 (`4d2b1aa`, the 120-line governance
@@ -167,22 +192,20 @@ The cap was exceeded twice that day, briefly: five were open from
 19:58Z to 20:03Z (#395 opened before #393 merged) and from 20:27:56Z
 to 20:28:06Z (#397 opened ten seconds before #365 closed).
 
-**Waiting to open** (pushed branches, no PR yet): this page's own
-branch `toolchain/status-doc`, `toolchain/pr-body-checks` (the PR
-template's body checks) and `toolchain/front-door` (B9). An
-entity-list fix following #392 is reported in progress, but nothing of
-it is on `origin` or GitHub yet — the one line on this page not
-checkable against the record. With #394 open, the three pushed
-branches fit; the entity fix would be a fifth, so it waits until one
-of them merges or is parked.
+**Waiting to open:** only this page's own branch,
+`toolchain/status-doc`, which takes the fourth slot. The entity-list
+fix the previous refresh knew only as a report is now #400, so every
+line on this page can be checked against the record.
 
-**R0's checklist** (RESET_PLAN §7) on 2026-09-25: six of its ten
-boxes are ticked — the browser smoke in CI (`pages` required); ESLint
+**R0's checklist** (RESET_PLAN §7) on 2026-09-26: six of its ten
+boxes are ticked — the browser smoke in CI (`pages` required; the
+`browser smoke` check itself required on `main` by the ruleset, which
+settles that box's "owed to the maintainer" line); ESLint
 minimal with CI's version lockstep, packaged-contents assertion and
 bundle budget (#396); the golden fixtures; the structure guard; the
 JOURNAL split; and this page (ticked on its own branch). Open: the MA.6
 walk going required (its preconditions met by #395; the flip is the
-maintainer's, due 2026-10-05), branch and PR triage (only runbook step
-1, the repo settings, remains — §9.1's 2026-09-25 update), the PR
-template (`toolchain/pr-body-checks`) and the front-door fixes
-(`toolchain/front-door`).
+maintainer's, due 2026-10-05), branch and PR triage (of runbook step
+1, the repo settings, only "Automatically delete head branches" is
+left — §9.1's 2026-09-25 update), the PR template (#399) and the
+front-door fixes (#398).
