@@ -619,18 +619,53 @@ looking where the bugs are.
       still resolves. It is the one file thirty of the forty-five
       open-PR pairs conflict on; nothing else in the reset can run in
       parallel until it moves. (S.)
-- [ ] **PR template** gains the four body lines of §8 and loses the
+- [x] **PR template** gains the four body lines of §8 and loses the
       Firefox checkbox until Firefox parity is a stated goal; the CI
       PR-body checks and the JOURNAL-presence check for process-file PRs
       land with it. (S; T4's "PR template gains verification-layer and
       wire-format sections" checkbox is ticked and the template has
-      neither.)
+      neither.) *Built 2026-09-25 on `toolchain/pr-body-checks` (PR
+      pending; JOURNAL entry of that date): the template carries the
+      four §8 lines, an optional `Cross-lane:` and no Firefox box;
+      `scripts/pr-body-check.mjs` checks them, the lane rule over
+      `scripts/lanes.mjs` (§8's table as data; 41 `src/` files no row
+      names are listed UNASSIGNED, not guessed), `fix:` → `tests/` or
+      `no-test rationale:`, and a JOURNAL entry or cite on process-file
+      PRs, with the size cap a warning only; its own `pr-body.yml`
+      (`edited` re-runs it without re-running CI), read-only, the body
+      never interpolated, NOT a required check. Run against #390, #368
+      and #365: all three fail, as expected of pre-contract bodies.
+      Re-run after #393, #368, #395, #396 and #397 merged, on the
+      four whose bodies were written to the contract (#368's predates
+      it): #395, #396 and #397 pass every rule; #393 fails only
+      journal-presence (a `hygiene.yml` input with no JOURNAL entry or
+      cite). Verified by 23 tests in `tests/pr-body-check.test.mjs`
+      and 39 negative controls that each turned it red.*
 - [ ] **`docs/STATUS.md`** (hand-maintained until R6 generates it): the
       1.0 blocker list; every default-off flag with its check date and
       last casework evidence; the parked shelf; the open PR cap. (S.)
-- [ ] **Fix the front-door lies now** (README version and counts,
-      CHANGELOG reconstruction from merged PR titles, esbuild header,
-      api-interceptor header, CLAUDE.md's four wrong claims). (S; B9.)
+- [x] **Fix the front-door lies now** *Built 2026-09-25 on
+      `toolchain/front-door` (PR pending; JOURNAL entry of that date):
+      CHANGELOG `[Unreleased]` rebuilt from all 129 first-parent
+      merges since v0.8.0 (through #397, main at `4d2b1aa`), grouped,
+      with a `Wire format` list taken from the `NIP_DRAFT.md` diff
+      plus #368's tag-value change on Instagram kind-30023 captures;
+      README's version, zip name, Node floor and counts; the esbuild
+      header and the api-interceptor activation paragraph
+      (comment-only); CLAUDE.md's claims — three of the audit's four
+      still wrong (the test count had already been fixed; the skills
+      sentence re-counted after #397's governance skill: thirteen),
+      plus the kill-ratification status and the `Storage.entities`
+      "dead stub". Verified by a two-way PR-number check (129/129,
+      none extra), a diff showing the released CHANGELOG sections
+      byte-identical, and every claim re-measured on the merged tree;
+      `options.html`'s "Phase 25" string and B9's remaining
+      "`[Unreleased]` must be non-empty" CI check stay out of scope
+      (B9, not this item; release.yml's awk step already fails on an
+      empty section, #318).* Original scope:
+      README version and counts, CHANGELOG reconstruction from merged
+      PR titles, esbuild header, api-interceptor header, CLAUDE.md's
+      four wrong claims. (S; B9.)
 
 ### R1 — Reconcile governance (week 2; one session, one PR)
 

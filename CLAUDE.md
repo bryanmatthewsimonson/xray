@@ -140,8 +140,11 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   userscript-era `publications`/`people`/`organizations`/`keypairs`
   sub-objects are gone (removed 2026-07-01), and captured articles live
   in `archive-cache.js`'s IndexedDB, not here — `entities`/`articleCache`
-  survive only as dead v4-compat stubs (kill candidate K14 in
-  ROAD_TO_1_0). Values are JSON-serialized for export/import
+  survive only as v4-compat stubs. `articleCache` is dead, but
+  `entities` is a null-object default that `entity-model.js` swaps for
+  the real registry at runtime and `event-builder.js` reads when
+  publishing — never delete it as dead (K14 in ROAD_TO_1_0 is blocked
+  on exactly that). Values are JSON-serialized for export/import
   compatibility. Note: the **primary signing identity (Local mode) lives
   under a separate `local_primary_identity` key**, deliberately *outside*
   the per-entity key registry (`local_keys`), so exporting entity keys
@@ -374,6 +377,18 @@ without the other is the design's named long-term risk.
 - **Commit messages:** imperative present tense; `fix:`/`feat:`/`chore:`/
   `docs:`/`ci:` prefixes, scope in parens when useful
   (`fix(youtube): …`). One concern per PR.
+- **PR bodies** carry RESET_PLAN §8's contract, laid out in
+  `.github/pull_request_template.md`: `Verification layer:`, `Wire
+  format:` (when a wire-lane builder/publisher changed), `Docs:`,
+  `Interpretive steps (n):` (one list item each, with its recommended
+  default), and `Cross-lane: <reason>` when the `src/` edits span lanes
+  (look yours up in `scripts/lanes.mjs`). A `fix:` PR needs a `tests/`
+  diff or a `no-test rationale:` line; a PR touching a process file
+  (`.github/**`, `.claude/skills/**`, `docs/SMOKE_TEST.md`,
+  `CONTRIBUTING.md`, this file) adds a JOURNAL entry or cites one as
+  "JOURNAL YYYY-MM-DD". `.github/workflows/pr-body.yml` runs
+  `scripts/pr-body-check.mjs` on every PR — advisory until the
+  maintainer makes it a required check.
 
 ## Project docs (read these for non-trivial work)
 
@@ -405,12 +420,19 @@ without the other is the design's named long-term risk.
   (`// Standards: <id> — docs/DISCIPLINES.md §n.`) —
   `tests/disciplines.test.mjs` fails any "You are" prompt file without
   one.
-- **`.claude/skills/`** — eight of the nine skills here are the
+- **`.claude/skills/`** — thirteen skills. Eight are the
   **dev-process** disciplines (distinct from DISCIPLINES.md, which
-  governs the disciplines the *product* draws on); the ninth,
-  `xray-capture`, is an operational skill that drives the loaded
-  extension through the claude-in-chrome connector to capture URLs.
-  The disciplines — `product-manager`, `architect`,
+  governs the disciplines the *product* draws on); four more are
+  dev-process skills without a `## Standards` section, so the
+  generated page below leaves them out — `ux-designer` (surface
+  reviews), `seam-and-invariant-check` (a pre-commit checklist),
+  `hand-to-maintainer` (handing manual checks over as runnable steps)
+  and `governance` (a review aid for diffs that touch or invoke the
+  governance corpus — its standards sit under `## Review standards`;
+  it reads the sources, keeps no copy, and never rules); the
+  thirteenth, `xray-capture`, is an operational skill that drives the
+  loaded extension through the claude-in-chrome connector to capture
+  URLs. The disciplines — `product-manager`, `architect`,
   `continuous-improvement`, `automator`, `ecosystem-pm`,
   `verification-engineer`, `security-threat-modeler`,
   `schema-evolution` — are written in the same §0 method. Each produces
@@ -420,7 +442,8 @@ without the other is the design's named long-term risk.
   routing, the shared release-preflight ordering, and the seam map
   (who owns a contested call — e.g. `ecosystem-pm` declares the
   canonical `Wire format:` PR callout). Read the governing skill before
-  a wire change, a schema change, a new surface, or a release tag.
+  a wire change, a schema change, a normative-doc edit, a new surface,
+  or a release tag.
   `docs/discipline-standards.html` renders all eight on one page
   (GENERATED — `npm run docs:disciplines`, drift-guarded by
   `tests/discipline-docs.test.mjs`).
@@ -431,10 +454,14 @@ without the other is the design's named long-term risk.
   §3.3 bridging license (what CONSTITUTION Art. 5.5 adopts), and the
   honest-limits clauses H-1–H-7 (including H-7, the persuasion line:
   make honesty louder, never make loudness a method).
-- **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 28
-  (v0.7.0 tagged 2026-07-16 — the first GitHub Release since v0.5.1; see
-  CONTRIBUTING for the tag-driven release process). Complete and merged:
-  Phases 10 (thin
+- **`docs/ROADMAP.md`** — per-phase scope. Complete through Phase 28;
+  **Phase 29** (store-first publish + the local event store,
+  `docs/EVENT_STORE_DESIGN.md`) is in progress — 29.1, the publish
+  gate behind `storeFirstPublish`, shipped 2026-08-02 (PR #279),
+  29.2–29.6 open. The newest release is v0.8.0 (tagged 2026-07-20);
+  v0.7.0 (tagged 2026-07-16) was the first GitHub Release since v0.5.1
+  — see CONTRIBUTING for the tag-driven release process. Complete and
+  merged: Phases 10 (thin
   claims), 11 (assessments; `docs/ASSESSMENTS_DESIGN.md`), 12 (portal;
   `docs/PORTAL_DESIGN.md`), 13 (epistemic audits, kinds `30056`–`30061`;
   `docs/EPISTEMIC_AUDIT_DESIGN.md`), 14 (forensic findings, kind `30062`;
@@ -533,10 +560,15 @@ without the other is the design's named long-term risk.
   to be tailored **maintainer-driven from real casework (COVID first)**.
   The 0.8.0 smoke walk passed (2026-07-20; Phases 11–15
   section walks completed then too), and the Phases 16 and 19 section
-  walks are complete as well — no section walk is outstanding.
+  walks are complete as well. Walks ARE still outstanding — the
+  Transcribe Anywhere section's LT.1–LT.5 and LT.7–LT.14 among them
+  (LT.6 passed 2026-08-15 on the AssemblyAI engine only); the walk
+  ledger in `docs/SMOKE_TEST.md` and its "Not yet walked" list are
+  the record.
 - **`docs/ROAD_TO_1_0.md`** — the **1.0 readiness punch list** (2026-08-09):
-  19 blockers, 8 sequenced tracks, 15 kill candidates awaiting
-  ratification, and an explicit "what 1.0 ships without" list. Produced
+  19 blockers, 8 sequenced tracks, 15 kills (ratified 2026-08-09; its
+  kill list carries each one's execution status), and an explicit
+  "what 1.0 ships without" list. Produced
   by a whole-tree audit in which each `.claude/skills/` discipline ran
   its own Protocol, plus newcomer-UX / group-research / consolidation
   lenses. **Consult it before starting 1.0 work** — it carries the
@@ -606,6 +638,8 @@ without the other is the design's named long-term risk.
 `src/**/*.js`, `npm run lint:js`, `npm run build`, `npm test`, the
 normalizer parity, `npm run check:version`, `web-ext lint
 --self-hosted`, `web-ext build` + `npm run check:package`, `npm run
-check:budget`; the browser smoke is its own job. A `v*` tag triggers `release.yml`
+check:budget`; the browser smoke is its own job. `pr-body.yml` checks
+each PR's body (`scripts/pr-body-check.mjs`; advisory, re-runs on
+description edits). A `v*` tag triggers `release.yml`
 (builds, packages, creates a GitHub Release with the `.zip`). Get all of
 build + test + lint green locally before pushing.
