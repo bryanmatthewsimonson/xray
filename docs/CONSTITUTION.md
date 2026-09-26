@@ -303,21 +303,10 @@ is. Lifted 2026-09-26 from `TRUTH_ADJUDICATION_DESIGN.md` §3.1 and
 
 ## Article 6 — The never-merge firewall
 
-The signal families of Art. 1 answer different questions: what do I
-think of it; how well was it made; what maneuvers does it perform; is
-it true; how would a named perspective read it; what does the corpus
-contain. **Composition is lawful; fusion is not.** A verdict may cite a
-forensic finding as evidence; a dossier renders every family side by
-side. But no number or state in one family may be computed *from*
+No number or state in one signal family (Art. 1) may be computed *from*
 another family's judgment such that the reader can no longer tell which
-family is speaking, and consumers MUST NOT merge them.
-
-The firewall's linguistic arm: the reserved vocabulary (Verdict,
-Ruling, Opinion, Court, Integrity) belongs to the truth family and
-never appears in other families' exports, storage keys, or UI strings.
-The firewall's wire arm: kind 30066 stays free, kind 30065 stays
-reserved, and retired kinds are never reused (Art. 10). Both arms are
-guard-tested.
+family is speaking, and consumers MUST NOT merge them. Side-by-side
+composition is always lawful.
 
 ## Article 7 — Targets of criticism
 
@@ -437,7 +426,7 @@ The project's obligations to strangers consuming its events:
 | 30062 | active | forensic findings |
 | 30063, 30064 | active | verdicts, integrity findings |
 | 30065 | reserved | precedent (unimplemented) |
-| 30066 | free | permanently unassigned — the lens has no wire kind |
+| 30066 | reserved | lens, if ever ratified |
 | 30067 | retired | fact sheets — never reuse |
 | 30043 | retired | evidence — never reuse |
 | 30068, 30069 | active | CaseBrief, OwnedKeys |
@@ -567,8 +556,8 @@ the guards:
 | Art. 4.4 | CASE_DOSSIER_DESIGN.md §2 "No case-level score, ever" | text pinned |
 | Art. 5.1 | TRUTH_ADJUDICATION_DESIGN.md §1 (the spine, quoted verbatim) | two-sided quote pin |
 | Art. 5.3 | MORAL_LENS_JURISDICTION_DESIGN.md §5.1 | heading pinned |
-| Art. 6 | EPISTEMIC_AUDIT_DESIGN.md firewall; MORAL_LENS §5.2 reserved words | lens-guards |
-| Art. 12 | PHILOSOPHY.md §10 (enforcement formula, quoted verbatim) | two-sided quote pin |
+| Art. 6 | EPISTEMIC_AUDIT_DESIGN.md firewall | not pinned (amended 2026-09-26) |
+| Art. 12 | PHILOSOPHY.md §10 (enforcement formula, quoted verbatim) | not pinned (amended 2026-09-26) |
 | Organic statute | PHILOSOPHY.md v1.2.0 (audit family) | version + concord sentence pinned |
 | Design document | TRUTH_ADJUDICATION_DESIGN.md §1/§5 | not a statute (amended 2026-09-26) |
 | Advice | docs/DISCIPLINES.md (Art. 9) | advice, not a statute (amended 2026-09-26) |

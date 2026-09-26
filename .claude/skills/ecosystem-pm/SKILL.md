@@ -161,8 +161,7 @@ all?
    the Phase-15 verdict kinds 30063/30064 carry no 0–100 score and
    no knowability ceiling, audit kinds carry no stance or rating,
    and no amendment moves one family's numeric vocabulary into
-   another. The constitution-guards vocabulary grep is extended to
-   cover the new kind in the same PR.
+   another.
 9. **Local-vs-wire, argued and recorded.** Every design states,
    before implementation starts, whether its artifact is local-only
    or wire-published, with rationale. Local-only is the default; a
@@ -244,8 +243,7 @@ as everything else.
    the same PR.
 5. Check NIP-convention conformance per Standard 4, plus the
    Standard 7 time-series constraint on audit-like kinds.
-6. Check the Art. 6 firewall per Standard 8, including the
-   vocabulary-guard extension.
+6. Check the Art. 6 firewall per Standard 8.
 7. Check replaceable-event citizenship on any 0/3/10002 publish
    path and verify-on-ingest on any new relay read.
 8. Check NIP_DRAFT parity per Standard 3; on retirement, check all

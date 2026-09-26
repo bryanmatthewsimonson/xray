@@ -233,7 +233,8 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   state) in `extraction-publish.js`; and the opt-in NIP-02 follow-list
   mirror (kind `3`) in `follow-publish.js`. The moral lens (Phase 16) and the case
   dossier / graph / hypothesis-map / counterfactual (Phases 20 + 26) are
-  derived views with **no wire kind** (`30066` stays free, guard-tested).
+  derived views with **no wire kind** (`30066` reserved — lens, if ever
+  ratified; guard-tested, never emitted).
   **Wire-format changes in any of these have compatibility
   consequences for anyone consuming X-Ray events — call them out
   explicitly.**
@@ -272,9 +273,8 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   allowed, R-025, but not built),
   `reader/lens-section.js` (pure HTML renderers). One `xray:lens:read`
   call per jurisdiction; gated by `moralLens` + the API key,
-  independent of `llmAssist`. **No wire kind** — 30066 stays free and
-  the 16.4 guards machine-check it; "Verdict/Ruling/Opinion/Court/
-  Integrity" never appear in lens exports, storage keys, or UI strings.
+  independent of `llmAssist`. **No wire kind** — 30066 is reserved
+  (CONSTITUTION Art. 10) and the 16.4 guards machine-check it.
 - Also: `nostr-client.js` (relay pool, used from background),
   `archive-cache.js` (IndexedDB + paywall reconstruction),
   `llm-jobs.js` (the LLM job runner + page client — the long

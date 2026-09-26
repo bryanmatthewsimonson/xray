@@ -1073,8 +1073,16 @@ surface:
    identity (model/pipeline/human), run date, `ceiling-source`.
 5. **Disagreement renders side-by-side** ("scored 67 by A, 84 by B"),
    never averaged — the derived AuditorDisagreement view.
-6. **Firewall in the UI:** audit blocks and assessment blocks never
-   visually merge, sum, or share a color scale.
+6. **Firewall in the UI:** *(Amended 2026-09-26, R-018 — guidance, not
+   law; was "audit blocks and assessment blocks never visually merge,
+   sum, or share a color scale". Accepted failure mode: a reader may
+   see a stance and a score on one surface and confuse them.)* Scores
+   and stances never share a color scale.
+
+   *(Amended 2026-09-26, R-018 — guidance, not law; was CONSTITUTION
+   Art. 6's word arm.)* Verdict, Ruling, Opinion, Court and Integrity
+   name truth-family things; other families avoid them in names,
+   storage keys and screen text.
 
 **Surfaces** (sketch level; the badge is a *proposed new* surface — the
 v1 trust-badge UI was removed in the Phase 0/10 reframes, and the
