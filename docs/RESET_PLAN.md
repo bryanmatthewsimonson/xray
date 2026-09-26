@@ -469,13 +469,13 @@ looking where the bugs are.
       Measured: CI job 81 s on the first cut; the run 20.7 s locally
       after the review round.* (VERI-02; B8 and T4's "Playwright
       devDependency + CI job loading the extension" checkbox — closed.)
-      **Owed to the maintainer:** mark the `browser smoke` check
+      **Owed to the maintainer** (*done, as read from GitHub's API on
+      2026-09-26: the repository ruleset `main`, created 2026-09-22
+      00:11Z, requires `browser smoke` and `build + lint + package` on
+      an up-to-date branch — §9.1's 2026-09-25 update*): mark the
+      `browser smoke` check
       required in `main`'s branch protection — the workflow cannot set
-      that. *Done, as read from GitHub's API on 2026-09-26: the
-      repository ruleset `main` (created 2026-09-22 00:11Z) requires
-      `browser smoke` and `build + lint + package` on an up-to-date
-      branch (§9.1's 2026-09-25 update).* Budget: the whole smoke job
-      ≤ 5 minutes wall clock.
+      that. Budget: the whole smoke job ≤ 5 minutes wall clock.
 - [ ] **The MA.6 walk required.** It runs in the same job today,
       ADVISORY, anchored on `SMOKE_ANCHORS.extractionBlock` with
       `tests/smoke-selectors.test.mjs` pinning the seam and
