@@ -214,6 +214,12 @@ words), then the answer chosen and the maintainer's words, verbatim.
 
       > Nothing merges without my approval.
 
+    - **Revised 2026-09-28, in the maintainer's words** (a chat reply to the agent's note on Art. 11's wording):
+
+      > You're right, I changed my mind. I want the flexibility to be able to have Claude merge as you go, or otherwise operate on standing instructions.
+
+      Q1b therefore ends at S1's default: a standing instruction counts only as a ledger row, in the maintainer's own words, that names the class of change it covers, and the risk sentence stays in the v1.1.0 log. No standing-instruction row is recorded yet.
+
   - **Q7 (S8), Your go-ahead:** Is your go-ahead valid when it is quoted in your own words, on the PR or in the ledger, before the merge, including when an agent quotes your chat on the PR?
     - **Answer chosen (verbatim):** OK: yes, as described
     - **In the maintainer's words:**

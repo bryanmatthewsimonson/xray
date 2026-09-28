@@ -294,7 +294,9 @@ Art. 13 — the constitution governs where this summary and it disagree.
   normative change. Who presses the merge button is mechanical. Agents
   (Claude) author PRs. The instruction is recorded in the maintainer's
   own words, on the PR or in [`docs/RULINGS.md`](docs/RULINGS.md),
-  before the merge. A standing instruction does not count.
+  before the merge. A standing instruction counts only as a ledger row,
+  in the maintainer's own words, that names the class of change it
+  covers.
 - **Decision recording.** Every decision that accepts a design, kills
   a feature, or resolves an open question gets a JOURNAL entry
   (appended at the bottom of `docs/journal/YYYY-MM.md`; the index at
