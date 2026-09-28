@@ -471,8 +471,8 @@ approves every change to `main` and is the ratifying act for any
 normative change. Who presses the merge button is mechanical. Agents
 author PRs. The instruction is recorded in the maintainer's own words,
 on the PR or in the rulings ledger (`docs/RULINGS.md`), before the
-merge. A standing instruction does not count. A "maintainer merge"
-(Art. 13, Art. 14) is a merge made on such an instruction.
+merge. A "maintainer merge" (Art. 13, Art. 14) is a merge made on
+such an instruction. A standing instruction does not count.
 
 **Decision recording.** Every decision that accepts a design, kills a
 feature, or resolves an open question is recorded in the monthly
