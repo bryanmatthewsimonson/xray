@@ -472,7 +472,7 @@ looking where the bugs are.
       **Owed to the maintainer:** mark the `browser smoke` check
       required in `main`'s branch protection — the workflow cannot set
       that. Budget: the whole smoke job ≤ 5 minutes wall clock.
-- [ ] **The MA.6 walk required.** It runs in the same job today,
+- [x] **The MA.6 walk required.** It ran in the same job,
       ADVISORY, anchored on `SMOKE_ANCHORS.extractionBlock` with
       `tests/smoke-selectors.test.mjs` pinning the seam and
       `tests/smoke-bundles.test.mjs` pinning the bundle set. Flip
@@ -498,7 +498,13 @@ looking where the bugs are.
       8/8 more after rebasing onto #390, 3/3 under CPU contention and
       8/8 after the review fix, plus six negative controls and a
       slow-Accept positive control. The box stays open: the flip is
-      the maintainer's, on 2026-10-05.*
+      the maintainer's, on 2026-10-05.* *Flipped 2026-09-26 on the
+      maintainer's word ("flip MA.6"; JOURNAL of that date):
+      `--advisory=ma6` deleted from `ci.yml`. The criterion was read
+      from the CI logs, not the job status (an advisory red leaves the
+      job green): 22 of 22 runs of the condition-wait walk green
+      (2026-09-25 19:58 → 2026-09-26 00:22 UTC, `ma6` 2.1–3.5 s), 0
+      red, and the 5 runs of the old walk just before them green too.*
 - [x] **ESLint minimal** *Built 2026-09-25 on `toolchain/ci-net` (PR
       #396; JOURNAL entry of that date): four `ci.yml` build-job
       steps in the §8 order. `npm run lint:js` runs `eslint.config.mjs`
