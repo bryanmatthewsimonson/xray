@@ -20,9 +20,10 @@ updates:
     groups:
       # Split by dependency type so a runtime bump (readability, pdfjs-dist,
       # turndown — they ship inside the bundles) never rides in the same PR
-      # as a devDependency bump: the dev group auto-merges on green
-      # (.github/workflows/dependabot-automerge.yml), the runtime group is
-      # reviewed by a human with the browser smoke and a PDF capture.
+      # as a devDependency bump. Every Dependabot PR waits for the
+      # maintainer's own merge (the auto-merge workflow was removed,
+      # JOURNAL 2026-09-26); the runtime group is also checked with the
+      # browser smoke and a PDF capture.
       npm-dev-minor-and-patch:
         dependency-type: "development"
         update-types:
