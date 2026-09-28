@@ -471,10 +471,8 @@ approves every change to `main` and is the ratifying act for any
 normative change. Who presses the merge button is mechanical. Agents
 author PRs. The instruction is recorded in the maintainer's own words,
 on the PR or in the rulings ledger (`docs/RULINGS.md`), before the
-merge. A standing instruction counts only as a ledger row, in the
-maintainer's own words, that names the class of change it covers. A
-"maintainer merge" (Art. 13, Art. 14) is a merge made on such an
-instruction.
+merge. A standing instruction does not count. A "maintainer merge"
+(Art. 13, Art. 14) is a merge made on such an instruction.
 
 **Decision recording.** Every decision that accepts a design, kills a
 feature, or resolves an open question is recorded in the monthly
@@ -701,16 +699,13 @@ D5, how decisions are recorded and ratified (R-022). Art. 11: the
 maintainer's explicit, recorded instruction approves every change to
 `main` and is the ratifying act; who presses the merge button is
 mechanical; the instruction is recorded in the maintainer's own words,
-on the PR or in the rulings ledger, before the merge; a standing
-instruction counts only as a ledger row that names its class; and
-"maintainer merge" is defined once, in Art. 11, so Art. 13 and Art. 14
-keep their words. Decisions are recorded in the monthly journal files,
-and maintainer rulings also as ledger rows. Failure modes accepted: an
-agent could misread a maintainer message as a ruling or an instruction
-(mitigated by the requirement that the record quotes the maintainer's
-own words); a change inside a class that a standing instruction names
-can merge without anyone reading it (mitigated only by the row naming
-that class in the maintainer's own words).
+on the PR or in the rulings ledger, before the merge;
+a standing instruction does not count; and "maintainer merge" is
+defined once, in Art. 11, so Art. 13 and Art. 14 keep their words.
+Decisions are recorded in the monthly journal files, and maintainer
+rulings also as ledger rows. Failure mode accepted: an agent could
+misread a maintainer message as a ruling or an instruction (mitigated
+by the requirement that the record quotes the maintainer's own words).
 
 D6, which documents bind (R-023). Art. 2 now says four documents
 bind: this document; `docs/PHILOSOPHY.md`, within the audit family; the

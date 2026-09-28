@@ -58,7 +58,11 @@ default option on all six, and answered D6's separate lens question
 are also kept in `docs/ideas/GOVERNANCE_RECONCILIATION_QUESTIONNAIRE.md`
 §6. Under "Applies to", each row quotes the plan's text for the
 chosen option (for R-024 and R-025, also the decision card's text);
-those are not the maintainer's words.
+those are not the maintainer's words. On 2026-09-26 the maintainer
+also answered the fourteen before-merge questions of PR #403. Under
+"Before-merge answers (2026-09-26, PR #403)", a row quotes each
+question as the PR's questions page put it (not the maintainer's
+words), then the answer chosen and the maintainer's words, verbatim.
 
 ### R-018 — The never-merge rule: which parts stay law? (D1)
 
@@ -77,6 +81,24 @@ those are not the maintainer's words.
 - **Supersedes:** the earlier text that this PR amends under this ruling, as listed in the D1 paragraph of the 2026-09-26 entry in the `docs/CONSTITUTION.md` amendment log and in the other amendment-log entries and dated notes in this PR that cite R-018.
 - **Pinned by:** `tests/constitution-guards.test.mjs` 'guard: the Art. 10 kind schedule matches the code — retired and reserved kinds unemitted'; `tests/lens-guards.test.mjs` 'guard: no builder in src/ emits kind 30066, and no constant reserves it'; `tests/wire-fixtures.test.mjs` NEVER_EMITTED; `tests/extraction-publish.test.mjs` 'GUARD: kind 30070 is the ONLY kind this module emits (no mirror, no twin)' (its never-30065/30066/30067 half). No test pins Art. 6's wording.
 - **Record:** `docs/ideas/GOVERNANCE_RECONCILIATION_QUESTIONNAIRE.md` §6; JOURNAL 2026-09-26.
+- **Before-merge answers (2026-09-26, PR #403):**
+  - **Q5 (S5), Kind 30066:** Should the constitution keep a row reserving event kind 30066 for the lens?
+    - **Answer chosen (verbatim):** OK: keep the reserved row and its risk sentence
+    - **In the maintainer's words:**
+
+      > Moral lenses are merely out of focus right now while bug fixes and other features are focused on. They will be reinstated so we need to keep the wire kind reserved.
+
+  - **Q6b (S6), The deleted lens word checks:** Should any of the deleted lens word checks come back as tests?
+    - **Answer chosen (verbatim):** OK: no, none comes back
+    - **In the maintainer's words:**
+
+      > These are words for features. They're useful inasmuch as they describe which feature they refer to. But the product continues to evolve.
+
+  - **Q11 (S12), Word-for-word pins:** Should this PR also delete the two word-for-word test pins the 2026-09-05 governance audit said to keep: Art. 3's "never its removal" sentence, and Art. 5.1's core sentence, checked in both documents?
+    - **Answer chosen (verbatim):** OK: no, keep those two
+    - **In the maintainer's words:**
+
+      > Doesn't matter that much.
 
 ### R-019 — Which summary numbers X-Ray may show (D2)
 
@@ -95,6 +117,24 @@ those are not the maintainer's words.
 - **Supersedes:** the earlier text that this PR amends under this ruling, as listed in the D2 paragraph of the 2026-09-26 entry in the `docs/CONSTITUTION.md` amendment log and in the other amendment-log entries and dated notes in this PR that cite R-019.
 - **Pinned by:** a unit test of `isLicensedEstimate()` (`tests/estimate.test.mjs`); no product output is checked yet.
 - **Record:** `docs/ideas/GOVERNANCE_RECONCILIATION_QUESTIONNAIRE.md` §6; JOURNAL 2026-09-26.
+- **Before-merge answers (2026-09-26, PR #403):**
+  - **Q6a (S7), The 24 kept word lists:** May the 24 kept word-list tests stay until 2026-12-25?
+    - **Answer chosen (verbatim):** OK: they stay until 2026-12-25
+    - **In the maintainer's words:**
+
+      > I don't know why there is anything banning words at all within X-Ray. That's counterproductive to the goals of the project, which is about truth and accuracy and research. Words have definitions for a reason, therefore they should be allowed to be used where the definition fits. That does not exempt any user from being required to be disciplined and be held to the same standards.
+
+  - **Q6c (S7), Agent-picked person-label words:** In four of the kept lists, an agent picked the words it judged to be person labels (such as "liar" and "credibility") and tied them to your ruling R-020, so those words never expire. Do those marks stand?
+    - **Answer chosen (verbatim):** OK: the marks stand
+    - **In the maintainer's words:**
+
+      > Opinions are opinions. This is not relevant until the product is actually used.
+
+  - **Q10 (S11), Where "fused" is defined:** Should "fused" be defined once, in Art. 1, for the three places that use it (Art. 4.4, Art. 5.4 and red line 2)?
+    - **Answer chosen (verbatim):** OK: once, in Art. 1
+    - **In the maintainer's words:**
+
+      > This doesn't matter that much.
 
 ### R-020 — The two rules that protect people (D3)
 
@@ -113,6 +153,12 @@ those are not the maintainer's words.
 - **Supersedes:** the earlier text that this PR amends under this ruling, as listed in the D3 paragraph of the 2026-09-26 entry in the `docs/CONSTITUTION.md` amendment log and in the other amendment-log entries and dated notes in this PR that cite R-020.
 - **Pinned by:** `tests/truth-taxonomy.test.mjs` 'truth-taxonomy: the firewall — interpretation and stated-value are never truth-adjudicable'; `tests/truth-verdict-model.test.mjs` 'verdict: THE FIREWALL — no verdict on interpretation or stated-value'; `tests/truth-builders.test.mjs` '30063: the firewall holds on the wire — build AND parse' (its build half; its read-side null half pins the behaviour R-020 replaces in a later PR) and '30063 mirror: labels the claim coordinate, never a pubkey'; `tests/entity-dossier.test.mjs` 'dossier: grade-word string guard — no scores, grades, or liar-class labels anywhere' (its person-label words); `tests/entity-page-publish.test.mjs` 'markdown: no judgment vocabulary — the §3.5 wire posture', `tests/entity-page.test.mjs` 'digest: deterministic, capped, key-first, distributions-only — and no banned vocabulary' and `tests/entity-profile.test.mjs` 'profile about: no judgment vocabulary, ever (§3.5 on the wire hardest of all)' (their person-label words).
 - **Record:** `docs/ideas/GOVERNANCE_RECONCILIATION_QUESTIONNAIRE.md` §6; JOURNAL 2026-09-26.
+- **Before-merge answers (2026-09-26, PR #403):**
+  - **Q4 (S4), The Art. 7 sentence:** Which sentence goes into Art. 7?
+    - **Answer chosen (verbatim):** OK: "An exposure file (PHILOSOPHY §3.3) is disclosure, not criticism."
+    - **In the maintainer's words:**
+
+      > Abundant accurate information is the goal. Sometimes that requires disclosure of critical details. All of this is based on existing public data anyway, so this is not an issue.
 
 ### R-021 — Which written rules overrule the working product (D4)
 
@@ -131,6 +177,12 @@ those are not the maintainer's words.
 - **Supersedes:** the earlier text that this PR amends under this ruling, as listed in the D4 paragraph of the 2026-09-26 entry in the `docs/CONSTITUTION.md` amendment log and in the other amendment-log entries and dated notes in this PR that cite R-021.
 - **Pinned by:** `tests/disciplines.test.mjs` 'guard: every "You are" prompt file carries a registered Standards header' (the prompt-header lint that stays). No test pins Art. 2's wording.
 - **Record:** `docs/ideas/GOVERNANCE_RECONCILIATION_QUESTIONNAIRE.md` §6; JOURNAL 2026-09-26.
+- **Before-merge answers (2026-09-26, PR #403):**
+  - **Q2 (S2), The constitution's own force:** Should the constitution itself still overrule the working product automatically?
+    - **Answer chosen (verbatim):** OK: yes, the constitution still wins
+    - **In the maintainer's words:**
+
+      > We still need governing docs to avoid breaking important rules. The main thing these amendments fix is Claude's misinterpretations.
 
 ### R-022 — How the maintainer's decisions get recorded and ratified (D5)
 
@@ -149,6 +201,24 @@ those are not the maintainer's words.
 - **Supersedes:** the earlier text that this PR amends under this ruling, as listed in the D5 paragraph of the 2026-09-26 entry in the `docs/CONSTITUTION.md` amendment log and in the other amendment-log entries and dated notes in this PR that cite R-022.
 - **Pinned by:** the ruling-ID check added in this PR. No test pins Art. 11's wording.
 - **Record:** `docs/ideas/GOVERNANCE_RECONCILIATION_QUESTIONNAIRE.md` §6; JOURNAL 2026-09-26.
+- **Before-merge answers (2026-09-26, PR #403):**
+  - **Q1 (S1), Dependabot:** May any class of change merge without your click? If yes, write one line in your own words naming it, for example "Dependabot dev-tool and CI-action updates may merge when the checks pass".
+    - **Answer chosen (verbatim):** OK: nothing merges without my click
+    - **In the maintainer's words:**
+
+      > It is important for me to review everything before it merges.
+
+  - **Q1b (S1), The risk sentence for standing instructions:** Does this drafted risk sentence say what you accept: "a change inside a class that a standing instruction names can merge without anyone reading it"?
+    - **Answer chosen (verbatim):** Something else — I'll say it below
+    - **In the maintainer's words:**
+
+      > Nothing merges without my approval.
+
+  - **Q7 (S8), Your go-ahead:** Is your go-ahead valid when it is quoted in your own words, on the PR or in the ledger, before the merge, including when an agent quotes your chat on the PR?
+    - **Answer chosen (verbatim):** OK: yes, as described
+    - **In the maintainer's words:**
+
+      > Yes, I am allowed to instruct an agent to merge.
 
 ### R-023 — Which documents bind, and the lens cache (D6)
 
@@ -167,6 +237,24 @@ those are not the maintainer's words.
 - **Supersedes:** the earlier text that this PR amends under this ruling, as listed in the D6 paragraph of the 2026-09-26 entry in the `docs/CONSTITUTION.md` amendment log and in the other amendment-log entries and dated notes in this PR that cite R-023.
 - **Pinned by:** none.
 - **Record:** `docs/ideas/GOVERNANCE_RECONCILIATION_QUESTIONNAIRE.md` §6; JOURNAL 2026-09-26.
+- **Before-merge answers (2026-09-26, PR #403):**
+  - **Q3 (S3), TRUTH_ADJUDICATION:** Should TRUTH_ADJUDICATION §1 and §5 stay a fifth binding document?
+    - **Answer chosen (verbatim):** OK: no, four documents bind
+    - **In the maintainer's words:**
+
+      > Truth adjudication is a writeup for a product feature, like PHILOSOPHY.md. Claude's misinterpretation made it something more, although that was not without its usefulness.
+
+  - **Q8 (S9), The screen-rules page:** Should the one-page list of what a screen may and may not do only point to rules written elsewhere, rather than hold rules of its own?
+    - **Answer chosen (verbatim):** OK: it only points
+    - **In the maintainer's words:**
+
+      > This is all theoretical until it is actually used.
+
+  - **Q9 (S10), When the ledger and another document disagree:** When a ledger row and PHILOSOPHY or a design document disagree, which wins? And does adding or correcting a ledger row need an amendment ceremony?
+    - **Answer chosen (verbatim):** OK: neither wins automatically
+    - **In the maintainer's words:**
+
+      > Allows me to continue to rule while using governing docs as guidelines.
 
 ### R-024 — Integrity findings (kind 30064) keep no label copy (a kind-1985 mirror event), as a default (D3)
 

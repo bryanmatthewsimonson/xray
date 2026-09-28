@@ -680,11 +680,11 @@ looking where the bugs are.
       `isLicensedEstimate()` + the schema guard. If D5 is taken: add
       `// Provenance:` headers and the expiry check. (M.) *Partly done in
       the R1 amendment PR (2026-09-26): C2, the lens word checks, 12
-      other word lists and the three C19 verbatim clause pins are deleted
-      (its interpretive step S12 asks whether the Art. 3 and Concord
-      spine pins should go too); 24 word lists are kept and wait on the
-      maintainer's answer (S7); the output schema-key guard waits for
-      the first licensed number (S34).*
+      other word lists and the three C19 verbatim clause pins are deleted;
+      the Art. 3 and Concord spine pins stay (S12)
+      [RULING: maintainer 2026-09-26 R-018]; 24 word lists are kept until
+      2026-12-25 (S7) [RULING: maintainer 2026-09-26 R-019]; the output
+      schema-key guard waits for the first licensed number (S34).*
 - [ ] The corpus reset: four normative documents; guidance re-labelled;
       `docs/archive/` with banners for the EPISTACK cluster, the shipped
       kickoffs (K13, saving the two case-workspace kickoffs as a design
