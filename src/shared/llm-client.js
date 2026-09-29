@@ -21,9 +21,10 @@ import { Utils } from './utils.js';
 import { loadFlags, isEnabled } from './metadata/feature-flags.js';
 import { createSseParser, createMessageAssembler } from './llm-stream.js';
 import {
-    ANTHROPIC_API_URL, ANTHROPIC_VERSION, resolveModel, outputBudget,
+    ANTHROPIC_API_URL, ANTHROPIC_MODELS_URL, ANTHROPIC_VERSION, resolveModel,
+    outputBudget as clampToModel, newerThanRoster,
     withToolChoice, toolNudgeText,
-    LLM_KEY_STORAGE, LLM_MODEL_STORAGE
+    LLM_KEY_STORAGE, LLM_MODEL_STORAGE, LLM_DISCOVERED_MODELS_STORAGE
 } from './llm-prompts.js';
 import {
     AUDIT_TOOL_NAME, STANDING_SINGLE_SHOT_CAVEAT, opinionStandingCaveat, STANDING_OPINION_CAVEAT,
@@ -129,6 +130,17 @@ function storageGetRaw(keys) {
     });
 }
 
+function storageSetRaw(obj) {
+    return new Promise((resolve) => {
+        try {
+            const area = (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local)
+                || (typeof browser !== 'undefined' && browser.storage && browser.storage.local);
+            if (!area) return resolve(false);
+            area.set(obj, () => resolve(true));
+        } catch (_) { resolve(false); }
+    });
+}
+
 /** Read the secret key. Returns '' when unset. Never logged by callers. */
 async function readApiKey() {
     const res = await storageGetRaw([LLM_KEY_STORAGE]);
@@ -136,9 +148,79 @@ async function readApiKey() {
     return typeof raw === 'string' ? raw.trim() : '';
 }
 
+// The newer models (refreshDiscoveredModels) as the last readModel()
+// found them stored: the only models whose output ceiling the roster
+// cannot supply. Every pass reads its model, then its budget, with no
+// await between, so the two always see the same list.
+let discoveredModels = [];
+
 async function readModel() {
-    const res = await storageGetRaw([LLM_MODEL_STORAGE]);
-    return resolveModel(res[LLM_MODEL_STORAGE]);
+    const res = await storageGetRaw([LLM_MODEL_STORAGE, LLM_DISCOVERED_MODELS_STORAGE]);
+    const stored = res[LLM_DISCOVERED_MODELS_STORAGE];
+    discoveredModels = newerThanRoster(stored && stored.models);
+    return resolveModel(res[LLM_MODEL_STORAGE], discoveredModels);
+}
+
+/** A pass's `max_tokens`: its cap, clamped to the model's ceiling —
+ *  for a discovered model, the ceiling the Models API reported. */
+function outputBudget(passCap, modelId) {
+    return clampToModel(passCap, modelId, discoveredModels);
+}
+
+// One small GET; a hung request must not leave the Options status
+// waiting on it.
+const MODELS_TIMEOUT_MS = 20000;
+
+/**
+ * List the models the saved key can call (Anthropic's Models API) and
+ * store the ones newer than the roster (JOURNAL 2026-09-29). Sends only
+ * the key, and gives the page the model list, never the key. A failure
+ * stores nothing, so a pass keeps resolving a choice already made.
+ *
+ * @returns {Promise<{ok:true, models:Array} | {ok:false, error:string, status?:number}>}
+ */
+export async function refreshDiscoveredModels() {
+    const apiKey = await readApiKey();
+    if (!apiKey) return { ok: false, error: 'No Anthropic API key set.' };
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), MODELS_TIMEOUT_MS);
+    let json;
+    try {
+        // One page: limit=1000 covers every model the API has ever listed.
+        const resp = await fetch(`${ANTHROPIC_MODELS_URL}?limit=1000`, {
+            method: 'GET',
+            headers: {
+                'x-api-key': apiKey,
+                'anthropic-version': ANTHROPIC_VERSION,
+                'anthropic-dangerous-direct-browser-access': 'true'
+            },
+            signal: controller.signal
+        });
+        if (!resp.ok) {
+            let bodyText = '';
+            try { bodyText = await resp.text(); } catch (_) { /* ignore */ }
+            return { ok: false, status: resp.status, error: mapHttpError(resp.status, bodyText) };
+        }
+        json = await resp.json();
+    } catch (err) {
+        return {
+            ok: false,
+            error: err && err.name === 'AbortError'
+                ? 'The Anthropic model list timed out.'
+                : 'Could not read the Anthropic model list (network error or unreadable reply).'
+        };
+    } finally { clearTimeout(timer); }
+
+    // A reply without the list is a changed API, not an empty account:
+    // keep the stored list rather than drop a choice the user made.
+    if (!json || !Array.isArray(json.data)) {
+        return { ok: false, error: 'The Anthropic model list came back in an unexpected shape.' };
+    }
+    const models = newerThanRoster(json.data);
+    await storageSetRaw({ [LLM_DISCOVERED_MODELS_STORAGE]: { fetched_at: new Date().toISOString(), models } });
+    Utils.log('[X-Ray LLM] newer models listed:', models.map((m) => m.id));
+    return { ok: true, models };
 }
 
 /**

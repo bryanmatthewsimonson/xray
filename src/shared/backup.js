@@ -52,7 +52,7 @@ import { withKeyStoreLock } from './local-key-manager.js';
 import { withEntityStoreLock } from './entity-model.js';
 import { Storage } from './storage.js';
 import { WORKSPACE_CONTENT_KEYS, workspaceDbName, StoreRefusedError } from './workspace-keys.js';
-import { LLM_KEY_STORAGE } from './llm-prompts.js';
+import { LLM_KEY_STORAGE, LLM_DISCOVERED_MODELS_STORAGE } from './llm-prompts.js';
 import { isLlmJobKey } from './llm-jobs.js';
 import {
     TRANSCRIBER_TOKEN_STORAGE, ASSEMBLYAI_KEY_STORAGE, DEEPGRAM_KEY_STORAGE
@@ -126,7 +126,11 @@ export const CREDENTIAL_STORAGE_KEYS = Object.freeze([
 // excluded because backups TRAVEL: error text can carry URLs the user
 // never chose to export, and a diagnostic aid must stay on the machine
 // that produced it.
-const EXCLUDED_STORAGE_KEYS = [...CREDENTIAL_STORAGE_KEYS, 'workspaces', 'active_workspace', 'xray:diagnostics'];
+// The newer-models list (JOURNAL 2026-09-29) is derived from ONE key's
+// Anthropic account: restored elsewhere it would offer models that
+// install's key may not reach, and the next refresh rebuilds it anyway.
+const EXCLUDED_STORAGE_KEYS = [...CREDENTIAL_STORAGE_KEYS, 'workspaces', 'active_workspace', 'xray:diagnostics',
+    LLM_DISCOVERED_MODELS_STORAGE];
 
 // LLM job records (`xray:llm-job:*`, shared/llm-jobs.js) are excluded
 // as a PREFIX class: each is a transient hand-off of raw model output

@@ -28,6 +28,7 @@ import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/su
 import { handleScreenshotCapture } from '../shared/screenshot.js';
 import { runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, getCorpusConfig, runExtractPass, runVisionPass, getVisionConfig } from '../shared/llm-client.js';
 import { respondLlmJob } from './llm-jobs.js';
+import { respondLlmModels } from './llm-models.js';
 import { putSessionArticle } from '../shared/session-articles.js';
 import { getSourceDocument } from '../shared/archive-cache.js';
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prompts.js';
@@ -726,6 +727,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         );
         return true; // async sendResponse
     }
+
+    // Options → worker: the models the saved key's Anthropic account
+    // lists that are newer than the built-in roster (the Models API,
+    // JOURNAL 2026-09-29). Extension pages only — checked in
+    // ./llm-models.js with the LLM-job door's own test.
+    if (message.type === 'xray:llm:models') return respondLlmModels(sendResponse, sender);
 
     // Reader page → worker: run ONE jurisdiction's lens reading
     // (Phase 16). Same home as Suggest/Audit (SW outside page CSP, key

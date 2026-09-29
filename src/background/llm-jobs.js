@@ -62,8 +62,9 @@ const OPS = Object.freeze({
 
 /** A sender is an extension page when its URL is on this extension's
  *  own origin — the test the capture handoff uses (index.js). A content
- *  script's sender carries the web page's URL. */
-function fromExtensionPage(sender) {
+ *  script's sender carries the web page's URL. Shared with the
+ *  xray:llm:models door (./llm-models.js). */
+export function fromExtensionPage(sender) {
     try {
         return !!(sender && typeof sender.url === 'string'
             && sender.url.startsWith(chrome.runtime.getURL('')));

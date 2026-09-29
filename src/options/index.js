@@ -18,9 +18,10 @@ import {
 import { deriveCompanionState } from '../shared/companion-status.js';
 import { formatBuildInfo, getBuildInfo } from '../shared/build-info.js';
 import {
-    LLM_MODELS, DEFAULT_LLM_MODEL, resolveModel, LLM_KEY_STORAGE, LLM_MODEL_STORAGE,
+    DEFAULT_LLM_MODEL, LLM_KEY_STORAGE, LLM_MODEL_STORAGE, LLM_DISCOVERED_MODELS_STORAGE,
     LLM_SUGGEST_KINDS_STORAGE, SUGGEST_KIND_LABELS, normalizeSuggestKinds
 } from '../shared/llm-prompts.js';
+import { setupModelPicker, refreshModelPicker } from './llm-models.js';
 import { importAuditJson } from '../shared/audit/import.js';
 import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
 import { listRuns, listPredictions, listResolutions } from '../shared/audit/audit-cache.js';
@@ -87,7 +88,7 @@ function storageClearExtension() {
         'local_primary_identity', 'xr_signing_state',
         // Phase 14.5: the LLM-assist secret key + model preference. The
         // key is a secret, so "erase all" must clear it too.
-        LLM_KEY_STORAGE, LLM_MODEL_STORAGE,
+        LLM_KEY_STORAGE, LLM_MODEL_STORAGE, LLM_DISCOVERED_MODELS_STORAGE,   // + the key's model list
         // Cloud transcription keys are secrets under the same rule; the
         // engine preference goes with them — and so does the companion
         // auth token (review finding: it was the one stored secret
@@ -1379,10 +1380,8 @@ async function loadAdvanced() {
     // + model live under their own chrome.storage.local keys. We never
     // load the key VALUE back into the DOM — only whether one is set.
     document.getElementById('pref-llm-assist').checked = isEnabled('llmAssist');
-    populateLlmModels();
-    const savedModel = resolveModel(await llmRawGet(LLM_MODEL_STORAGE));
-    document.getElementById('pref-llm-model').value = savedModel;
     const hasKey = (await llmRawGet(LLM_KEY_STORAGE)).length > 0;
+    await setupModelPicker({ saved: await llmRawGet(LLM_MODEL_STORAGE), hasKey });
     const keyStatus = document.getElementById('llm-key-status');
     if (keyStatus) {
         keyStatus.textContent = hasKey
@@ -1566,6 +1565,7 @@ async function saveAdvanced() {
     const typedKey = (keyField.value || '').trim();
     if (typedKey) {
         await llmRawSet(LLM_KEY_STORAGE, typedKey);
+        refreshModelPicker();   // a new key may reach a different account
         keyField.value = '';
         const keyStatus = document.getElementById('llm-key-status');
         if (keyStatus) keyStatus.textContent = 'A key is saved on this device.';
@@ -1582,17 +1582,6 @@ async function saveAdvanced() {
     await llmRawSet(LLM_SUGGEST_KINDS_STORAGE, checkedKinds);
 
     flash(document.getElementById('advanced-status'), 'Saved.');
-}
-
-function populateLlmModels() {
-    const sel = document.getElementById('pref-llm-model');
-    if (!sel || sel.options.length > 0) return;
-    for (const m of LLM_MODELS) {
-        const opt = document.createElement('option');
-        opt.value = m.id;
-        opt.textContent = m.label;
-        sel.appendChild(opt);
-    }
 }
 
 // Companion service status — the live panel above the transcription

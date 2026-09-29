@@ -290,7 +290,7 @@ test('rule 3: DOM globals in src/shared — per-module count ceilings and bundle
 const HANDLERS_BACKGROUND = [
     'xray:openEntities', 'xray:openPortal', 'xray:openNetwork', 'xray:openCaptureTips', 'xray:pdf:open',
     'xray:reader:open', 'xray:capture:getPubkey', 'xray:capture:publish', 'xray:llm:extract',
-    'xray:audit:module', 'xray:llm:config', 'xray:lens:read', 'xray:vision:describe', 'xray:vision:config',
+    'xray:audit:module', 'xray:llm:config', 'xray:llm:models', 'xray:lens:read', 'xray:vision:describe', 'xray:vision:config',
     'xray:lens:config',
     // corpus-map / corpus-reduce / entity-page became xray:llm:job:* (#374); audit:run, forensic-corpus,
     // entity-audit, hypothesis-edges, corpus-links followed (JOURNAL 2026-09-05 and its 2026-09-25 addendum)
@@ -312,7 +312,8 @@ const NON_MESSAGE_LITERALS = [
     'xray:diagnostics',                  // shared/diagnostics.js:25; backup.js:121,125
     'xray:flags',                        // shared/metadata/feature-flags.js:11,21 + readers
     'xray:lensread',                     // session prefix — shared/lens-engine.js:339
-    'xray:llm:key', 'xray:llm:model', 'xray:llm:suggest_kinds',   // shared/llm-prompts.js:100,101,145
+    'xray:llm:key', 'xray:llm:model', 'xray:llm:suggest_kinds',   // shared/llm-prompts.js:116,117,258
+    'xray:llm:discovered_models',        // shared/llm-prompts.js:149 (the account's newer models, JOURNAL 2026-09-29)
     'xray:lmstudio:url', 'xray:lmstudio:model',                    // shared/transcriber-client.js:43,44
     'xray:options:backup-report',        // options/index.js:1163
     'xray:transcribe:job',               // prefix — reader/transcribe-flow.js:19
@@ -392,7 +393,7 @@ test('rule 4: message registry — two listeners, closed literal set, every send
 
 // Rule 5 — ARCH-2. wc -l today. Extract, never raise.
 const LINE_CEILINGS = {
-    'src/content/index.js': 282,   'src/background/index.js': 1888, 'src/options/index.js': 1994,
+    'src/content/index.js': 282,   'src/background/index.js': 1888, 'src/options/index.js': 1983,
     'src/sidepanel/index.js': 2245, 'src/reader/index.js': 8297,    'src/portal/index.js': 1500,
     'src/network/index.js': 836
 };

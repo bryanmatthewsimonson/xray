@@ -108,7 +108,7 @@ extension approves in-context.
 (e.g. `xray:capture`, `xray:capture:transcribe`, `xray:capture:publish`,
 `xray:relay:publish`, `xray:relay:query`, `xray:sign`,
 `xray:youtube:fetchTranscript`, `xray:screenshot:capture`,
-`xray:llm:job:{start,status,find,ack}`, `xray:audit:module`,
+`xray:llm:job:{start,status,find,ack}`, `xray:llm:models`, `xray:audit:module`,
 `xray:transcribe:{start,status,config,ping,claims}`,
 `xray:transcribe:direct:{start,status}`, `xray:vision:describe`). When adding a cross-context
 call, add an `xray:*` message rather than reaching across contexts directly.

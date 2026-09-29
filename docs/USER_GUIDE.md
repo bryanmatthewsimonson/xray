@@ -157,7 +157,9 @@ synthesis** brief, the **cross-article link** suggester, the batch
 sweeps, the **entity audit**, and the **entity page**. Every one needs an **Anthropic API key**,
 set in **Settings → Advanced → LLM assist**, *and* its own feature flag
 (§2.5): the flag reveals the control, the key lets it run. You can also
-pick the model (Claude Fable, Opus, Sonnet or Haiku). The key is stored in its own
+pick the model (Claude Fable, Opus, Sonnet or Haiku); with a key saved, the list
+also shows newer Claude models your Anthropic account offers, under
+**Newer — not yet verified with X-Ray**. The key is stored in its own
 secret slot, is never logged or exported, and no article text leaves the
 device until **both** gates are satisfied. Every result is a draft you
 review — nothing auto-saves or auto-publishes. `[SCREENSHOT-04]`
