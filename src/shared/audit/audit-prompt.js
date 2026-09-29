@@ -146,7 +146,7 @@ function moduleToolSchema(name) {
 }
 
 /**
- * The single forced tool. Its input is one object per module under
+ * The single tool. Its input is one object per module under
  * `modules`, each conforming to its findings schema. The aggregate is
  * computed in code, never asked of the model.
  */

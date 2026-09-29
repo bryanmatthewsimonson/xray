@@ -461,12 +461,15 @@ test('resolveModel defaults unknown ids to the latest capable model', () => {
     assert.equal(resolveModel('claude-sonnet-4-6'), 'claude-sonnet-4-6');
 });
 
-test('the model picker offers Opus 5, Fable 5 and Sonnet 5, and every id resolves', async () => {
+test('the model picker offers Fable 5.1, Opus 5.5 and Sonnet 5.5 beside their predecessors, and every id resolves', async () => {
     const { LLM_MODELS } = await import('../src/shared/llm-prompts.js');
     const ids = LLM_MODELS.map((m) => m.id);
+    // The predecessors stay: dropping one would silently reset every
+    // user who picked it to the default.
     assert.deepEqual(ids, [
-        'claude-fable-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-opus-4-7',
-        'claude-sonnet-5', 'claude-sonnet-4-6', 'claude-haiku-4-5'
+        'claude-fable-5-1', 'claude-fable-5',
+        'claude-opus-5-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-opus-4-7',
+        'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-sonnet-4-6', 'claude-haiku-4-5'
     ]);
     // The default is chosen for the dominant workload (long-form
     // transcripts, where input price dominates), not by roster position.

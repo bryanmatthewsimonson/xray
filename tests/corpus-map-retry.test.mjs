@@ -120,3 +120,51 @@ test('the double-encoded shape still repairs LOSSLESSLY with no second call', as
     assert.equal(res.ok, true);
     assert.equal(sentPayloads.length, 1, 'lossless repair must stay free');
 });
+
+// Claude Fable 5.1, Opus 5.5 and Sonnet 5.5 reject a forced tool, so on
+// them the map runs with `auto` (tests/llm-tool-choice.test.mjs). The
+// repair round must stay on `auto` too, and echo the answer's thinking
+// block with its signature: those models think by default, and the
+// API rejects an unsigned thinking block.
+const { LLM_MODEL_STORAGE } = await import('../src/shared/llm-client.js');
+function armOn(model, queue) {
+    arm(queue);
+    _store[LLM_MODEL_STORAGE] = model;
+}
+
+test('on a model that rejects forcing, the repair round stays on auto and echoes the signed thinking block', async () => {
+    armOn('claude-opus-5-5', [
+        { content: [{ type: 'thinking', thinking: '', signature: 'SIG-M' }, toolUse(BAD_MISSING_POSITION, 'tu_9')] },
+        { content: [toolUse(GOOD)] }
+    ]);
+    const res = await runCorpusMapPass({ member_id: 'm', memberText: 'BODY' });
+    assert.equal(res.ok, true, `expected the repaired answer to serve (got: ${res.error || 'ok'})`);
+    assert.equal(sentPayloads.length, 2);
+
+    const [first, retry] = sentPayloads;
+    assert.deepEqual(retry.tool_choice, { type: 'auto', disable_parallel_tool_use: true });
+    assert.equal(retry.system, first.system, 'the prefix the thinking block was made in stays byte-identical');
+    const assistantTurn = retry.messages.find((m) => m.role === 'assistant');
+    const thinking = assistantTurn.content.find((b) => b.type === 'thinking');
+    assert.equal(thinking && thinking.signature, 'SIG-M');
+    const resultTurn = retry.messages[retry.messages.length - 1];
+    assert.equal(resultTurn.content[0].tool_use_id, 'tu_9');
+});
+
+test('prose, then a bad extract, then a good one: the repair continues the follow-up conversation in order', async () => {
+    armOn('claude-opus-5-5', [
+        { stop_reason: 'end_turn', content: [{ type: 'text', text: 'Here is my reading of the article.' }] },
+        { content: [toolUse(BAD_MISSING_POSITION, 'tu_7')] },
+        { content: [toolUse(GOOD)] }
+    ]);
+    const res = await runCorpusMapPass({ member_id: 'm', memberText: 'BODY' });
+    assert.equal(res.ok, true, `expected the third answer to serve (got: ${res.error || 'ok'})`);
+    assert.equal(sentPayloads.length, 3, 'one follow-up turn, then one repair round');
+
+    const third = sentPayloads[2];
+    assert.deepEqual(third.messages.map((m) => m.role), ['user', 'assistant', 'user', 'assistant', 'user']);
+    assert.equal(third.messages[1].content[0].text, 'Here is my reading of the article.');
+    assert.match(third.messages[2].content, /emit_corpus_extract/, 'the follow-up turn asked for the tool');
+    assert.equal(third.messages[3].content[0].id, 'tu_7');
+    assert.equal(third.messages[4].content[0].tool_use_id, 'tu_7');
+});

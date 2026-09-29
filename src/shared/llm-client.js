@@ -22,6 +22,7 @@ import { loadFlags, isEnabled } from './metadata/feature-flags.js';
 import { createSseParser, createMessageAssembler } from './llm-stream.js';
 import {
     ANTHROPIC_API_URL, ANTHROPIC_VERSION, resolveModel, outputBudget,
+    withToolChoice, toolNudgeText,
     LLM_KEY_STORAGE, LLM_MODEL_STORAGE
 } from './llm-prompts.js';
 import {
@@ -268,6 +269,43 @@ async function postMessages(payload, apiKey, { signal, salvage = false, onProgre
 }
 
 /**
+ * POST a one-tool pass. The pass's tool (`payload.tools[0]`) is required
+ * the way the model accepts (withToolChoice): forced where the roster
+ * allows it, `auto` everywhere else. `auto` does not guarantee the call,
+ * so an `auto` reply that ends its turn without the tool gets ONE
+ * follow-up turn asking for it — never after a cut-off or a refusal,
+ * which the caller reports as they are, and never twice.
+ *
+ * Returns what postMessages returns; a success also carries `messages`,
+ * the conversation the answer replied to, for a caller that continues
+ * it (the map pass's repair round). A failure never does: failures are
+ * persisted by the job runner and shown to the user, and the messages
+ * hold the article.
+ */
+async function postToolCall(payload, apiKey, opts = {}) {
+    const toolName = payload.tools[0].name;
+    const req = withToolChoice(payload, toolName);
+    const res = await postMessages(req, apiKey, opts);
+    if (!res.ok) return res;
+    const skipped = req.tool_choice.type === 'auto'
+        && res.data.stop_reason === 'end_turn'
+        && extractToolInput(res.data, toolName) === null;
+    if (!skipped) return { ...res, messages: req.messages };
+
+    Utils.log('[X-Ray LLM] reply skipped the tool; one follow-up turn:', toolName);
+    const content = Array.isArray(res.data.content) ? res.data.content : [];
+    const messages = [
+        ...req.messages,
+        // The reply goes back whole: its thinking blocks are tied to
+        // the conversation that produced them.
+        ...(content.length ? [{ role: 'assistant', content }] : []),
+        { role: 'user', content: toolNudgeText(toolName) }
+    ];
+    const res2 = await postMessages({ ...req, messages }, apiKey, opts);
+    return res2.ok ? { ...res2, messages } : res2;
+}
+
+/**
  * A model-side safety guardrail declining the request is its OWN state,
  * never the generic "malformed output" error (the lens pass's §6 rule,
  * generalized here). Claude Fable 5 runs classifiers that can decline —
@@ -297,7 +335,7 @@ export function refusalResult(data, what) {
 }
 
 /**
- * Pull a forced tool's `input` out of a Messages response, by tool name.
+ * Pull a pass's tool `input` out of a Messages response, by tool name.
  * Returns the input object, or null if no matching tool_use was found.
  * Exported for unit tests (no network involved).
  */
@@ -352,7 +390,6 @@ export async function runEntityAuditPass(req = {}) {
         max_tokens: outputBudget(MAX_ENTITY_AUDIT_OUTPUT_TOKENS, model),
         system: buildEntityAuditSystemPrompt(),
         tools: [tool],
-        tool_choice: { type: 'tool', name: tool.name },
         messages: [{ role: 'user', content: buildEntityAuditUserPrompt(digest) }]
     };
     Utils.log('[X-Ray LLM] entity audit pass:', { model, chars: digest.length });
@@ -360,7 +397,7 @@ export async function runEntityAuditPass(req = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), ENTITY_AUDIT_TIMEOUT_MS);
     let res;
-    try { res = await postMessages(payload, apiKey, { signal: controller.signal }); }
+    try { res = await postToolCall(payload, apiKey, { signal: controller.signal }); }
     finally { clearTimeout(timer); }
     if (!res.ok) return res;
     const data = res.data;
@@ -402,14 +439,13 @@ export async function runForensicCorpusPass(req = {}) {
         max_tokens: outputBudget(MAX_FORENSIC_OUTPUT_TOKENS, model),
         system: buildForensicCorpusSystemPrompt(),
         tools: [tool],
-        tool_choice: { type: 'tool', name: tool.name },
         messages: [{ role: 'user', content: buildForensicCorpusUserPrompt(bundle) }]
     };
     Utils.log('[X-Ray LLM] forensic corpus pass:', { model, chars: bundle.length });
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FORENSIC_TIMEOUT_MS);
     let res;
-    try { res = await postMessages(payload, apiKey, { signal: controller.signal }); }
+    try { res = await postToolCall(payload, apiKey, { signal: controller.signal }); }
     finally { clearTimeout(timer); }
     if (!res.ok) return res;
     const data = res.data;
@@ -426,7 +462,7 @@ export async function runForensicCorpusPass(req = {}) {
 
 
 /**
- * Run one user-invoked epistemic-audit pass: a single forced tool call
+ * Run one user-invoked epistemic-audit pass: a single tool call
  * that scores all eight dimensions, assembled into the canonical
  * scorer-export shape the reader feeds to importAuditJson. The aggregate
  * is computed in code, never taken from the model.
@@ -479,7 +515,6 @@ export async function runAuditPass(req = {}) {
         max_tokens: outputBudget(MAX_AUDIT_OUTPUT_TOKENS, model),
         system,
         tools: [tool],
-        tool_choice: { type: 'tool', name: tool.name },
         messages: [{ role: 'user', content: userContent }]
     };
 
@@ -491,7 +526,7 @@ export async function runAuditPass(req = {}) {
     const timer = setTimeout(() => controller.abort(), AUDIT_TIMEOUT_MS);
     let res;
     try {
-        res = await postMessages(payload, apiKey, { signal: controller.signal });
+        res = await postToolCall(payload, apiKey, { signal: controller.signal });
     } finally {
         clearTimeout(timer);
     }
@@ -583,7 +618,6 @@ export async function runAuditModulePass(req = {}) {
         max_tokens: outputBudget(MAX_MODULE_OUTPUT_TOKENS, model),
         system: buildModuleSystemPrompt(name, { url: req.articleUrl || '', title: req.articleTitle || '' }),
         tools: [tool],
-        tool_choice: { type: 'tool', name: tool.name },
         messages: [{ role: 'user', content: buildAuditUserPrompt({ articleText: markdown }) + corpusSection }]
     };
 
@@ -596,7 +630,7 @@ export async function runAuditModulePass(req = {}) {
     const timer = setTimeout(() => controller.abort(), MODULE_TIMEOUT_MS);
     let res;
     try {
-        res = await postMessages(payload, apiKey, { signal: controller.signal });
+        res = await postToolCall(payload, apiKey, { signal: controller.signal });
     } finally {
         clearTimeout(timer);
     }
@@ -697,7 +731,6 @@ export async function runCorpusMapPass(req = {}) {
         max_tokens: outputBudget(MAX_MAP_OUTPUT_TOKENS, model),
         system: buildMapSystemPrompt(),
         tools: [tool],
-        tool_choice: { type: 'tool', name: tool.name },
         messages: [{ role: 'user', content: buildMapUserPrompt({
             memberText, memberMeta: req.memberMeta || {}
         }) }]
@@ -712,7 +745,7 @@ export async function runCorpusMapPass(req = {}) {
     // and those passes keep the honest failure. A cut-off call is
     // otherwise a total loss: fully paid, unparseable, discarded.
     try {
-        res = await postMessages(payload, gate.apiKey, { signal: controller.signal, salvage: true });
+        res = await postToolCall(payload, gate.apiKey, { signal: controller.signal, salvage: true });
     } finally { clearTimeout(timer); }
     if (!res.ok) return { ...res, member_id: req.member_id };
 
@@ -752,10 +785,13 @@ export async function runCorpusMapPass(req = {}) {
             Utils.log('Corpus map: invalid extract shape, one repair round:', detail);
             const toolUseBlock = ((data && data.content) || []).find(
                 (b) => b && b.type === 'tool_use' && b.name === tool.name);
+            // Continue the conversation that produced this answer — after
+            // a follow-up turn it is longer than the first request, and
+            // the answer's thinking blocks are tied to it.
             const retryPayload = {
                 ...payload,
                 messages: [
-                    ...payload.messages,
+                    ...res.messages,
                     { role: 'assistant', content: data.content },
                     { role: 'user', content: [{
                         type: 'tool_result', tool_use_id: toolUseBlock ? toolUseBlock.id : '',
@@ -770,7 +806,7 @@ export async function runCorpusMapPass(req = {}) {
             const c2 = new AbortController();
             const t2 = setTimeout(() => c2.abort(), CORPUS_MAP_TIMEOUT_MS);
             let res2;
-            try { res2 = await postMessages(retryPayload, gate.apiKey, { signal: c2.signal, salvage: true }); }
+            try { res2 = await postToolCall(retryPayload, gate.apiKey, { signal: c2.signal, salvage: true }); }
             catch (_) { res2 = { ok: false }; }
             finally { clearTimeout(t2); }
             const data2 = res2 && res2.ok ? res2.data : null;
@@ -840,14 +876,13 @@ export async function runCorpusReducePass(req = {}) {
         max_tokens: outputBudget(MAX_REDUCE_OUTPUT_TOKENS, model),
         system: buildReduceSystemPrompt({ caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '' }),
         tools: [tool],
-        tool_choice: { type: 'tool', name: tool.name },
         messages: [{ role: 'user', content: buildReduceUserPrompt({ dossierDigest: req.dossierDigest || '', extracts }) }]
     };
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), CORPUS_REDUCE_TIMEOUT_MS);
     let res;
-    try { res = await postMessages(payload, gate.apiKey, { signal: controller.signal }); }
+    try { res = await postToolCall(payload, gate.apiKey, { signal: controller.signal }); }
     finally { clearTimeout(timer); }
     if (!res.ok) return res;
 
@@ -889,7 +924,6 @@ export async function runEntityPagePass(req = {}) {
             caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || ''
         }),
         tools: [tool],
-        tool_choice: { type: 'tool', name: tool.name },
         messages: [{ role: 'user', content: buildEntityPageUserPrompt({
             entityDigest: req.entityDigest || '', extracts
         }) }]
@@ -898,7 +932,7 @@ export async function runEntityPagePass(req = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), CORPUS_REDUCE_TIMEOUT_MS);
     let res;
-    try { res = await postMessages(payload, gate.apiKey, { signal: controller.signal }); }
+    try { res = await postToolCall(payload, gate.apiKey, { signal: controller.signal }); }
     finally { clearTimeout(timer); }
     if (!res.ok) return res;
 
@@ -936,7 +970,6 @@ export async function runHypothesisEdgePass(req = {}) {
         max_tokens: outputBudget(MAX_HYPOTHESIS_EDGE_OUTPUT_TOKENS, model),
         system: buildHypothesisEdgeSystemPrompt({ caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '' }),
         tools: [tool],
-        tool_choice: { type: 'tool', name: tool.name },
         messages: [{ role: 'user', content: buildHypothesisEdgeUserPrompt({
             dossierDigest: req.dossierDigest || '', hypotheses
         }) }]
@@ -945,7 +978,7 @@ export async function runHypothesisEdgePass(req = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), CORPUS_REDUCE_TIMEOUT_MS);
     let res;
-    try { res = await postMessages(payload, gate.apiKey, { signal: controller.signal }); }
+    try { res = await postToolCall(payload, gate.apiKey, { signal: controller.signal }); }
     finally { clearTimeout(timer); }
     if (!res.ok) return res;
 
@@ -983,7 +1016,6 @@ export async function runClaimLinksPass(req = {}) {
         max_tokens: outputBudget(MAX_CLAIM_LINKS_OUTPUT_TOKENS, model),
         system: buildClaimLinksSystemPrompt({ caseName: req.caseName || '', scopeQuestion: req.scopeQuestion || '' }),
         tools: [tool],
-        tool_choice: { type: 'tool', name: tool.name },
         messages: [{ role: 'user', content: buildClaimLinksUserPrompt({
             claims, existing: Array.isArray(req.existing) ? req.existing : []
         }) }]
@@ -992,7 +1024,7 @@ export async function runClaimLinksPass(req = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), CORPUS_REDUCE_TIMEOUT_MS);
     let res;
-    try { res = await postMessages(payload, gate.apiKey, { signal: controller.signal }); }
+    try { res = await postToolCall(payload, gate.apiKey, { signal: controller.signal }); }
     finally { clearTimeout(timer); }
     if (!res.ok) return res;
 
@@ -1075,7 +1107,6 @@ export async function runVisionPass(req = {}) {
         max_tokens: outputBudget(MAX_VISION_OUTPUT_TOKENS, model),
         system: buildVisionSystemPrompt(),
         tools: [tool],
-        tool_choice: { type: 'tool', name: tool.name },
         messages: [{ role: 'user', content: buildVisionUserContent({
             imageBase64, mediaType: req.mediaType,
             alt: req.alt || '', captionText: req.captionText || '',
@@ -1090,7 +1121,7 @@ export async function runVisionPass(req = {}) {
     const timer = setTimeout(() => controller.abort(), VISION_TIMEOUT_MS);
     let res;
     try {
-        res = await postMessages(payload, apiKey, { signal: controller.signal });
+        res = await postToolCall(payload, apiKey, { signal: controller.signal });
     } finally {
         clearTimeout(timer);
     }
@@ -1235,7 +1266,6 @@ export async function runLensPass(req = {}) {
             living: treatAsLiving(jurisdiction)
         }),
         tools: [tool],
-        tool_choice: { type: 'tool', name: tool.name },
         messages: [{
             role: 'user',
             content: buildLensUserPrompt({
@@ -1254,7 +1284,7 @@ export async function runLensPass(req = {}) {
     const timer = setTimeout(() => controller.abort(), LENS_TIMEOUT_MS);
     let res;
     try {
-        res = await postMessages(payload, apiKey, { signal: controller.signal });
+        res = await postToolCall(payload, apiKey, { signal: controller.signal });
     } finally {
         clearTimeout(timer);
     }
@@ -1345,7 +1375,6 @@ export async function runExtractPass(req = {}) {
         max_tokens: outputBudget(MAX_EXTRACT_OUTPUT_TOKENS, model),
         system: buildExtractSystemPrompt(mode),
         tools: [buildExtractTool()],
-        tool_choice: { type: 'tool', name: EXTRACT_TOOL_NAME },
         messages: [{ role: 'user', content: buildExtractUserContent(pdfBase64) }]
     };
 
@@ -1356,7 +1385,7 @@ export async function runExtractPass(req = {}) {
     const timer = setTimeout(() => controller.abort(), EXTRACT_TIMEOUT_MS);
     let res;
     try {
-        res = await postMessages(payload, apiKey, { signal: controller.signal });
+        res = await postToolCall(payload, apiKey, { signal: controller.signal });
     } finally {
         clearTimeout(timer);
     }

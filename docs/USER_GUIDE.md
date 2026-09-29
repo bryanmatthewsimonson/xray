@@ -157,7 +157,7 @@ synthesis** brief, the **cross-article link** suggester, the batch
 sweeps, the **entity audit**, and the **entity page**. Every one needs an **Anthropic API key**,
 set in **Settings → Advanced → LLM assist**, *and* its own feature flag
 (§2.5): the flag reveals the control, the key lets it run. You can also
-pick the model (Fable 5 / Sonnet 5 / Opus). The key is stored in its own
+pick the model (Claude Fable, Opus, Sonnet or Haiku). The key is stored in its own
 secret slot, is never logged or exported, and no article text leaves the
 device until **both** gates are satisfied. Every result is a draft you
 review — nothing auto-saves or auto-publishes. `[SCREENSHOT-04]`
@@ -169,7 +169,9 @@ plus a reduce — and the per-article analyses are **cached** under a
 content-only key, so every surface shares one reading: a Suggest click,
 a Pre-analyze, an analyze-after-import, a case Analyze, and an entity
 page all reuse the same cached extract, and an article is paid for
-once, ever. You pay your own Anthropic bill; X-Ray never proxies.
+once, ever. On Claude Fable 5.1, Opus 5.5 and Sonnet 5.5, a reply that skips
+X-Ray's answer format costs one more call asking for it. You pay your
+own Anthropic bill; X-Ray never proxies.
 
 ### 2.5 Feature flags
 

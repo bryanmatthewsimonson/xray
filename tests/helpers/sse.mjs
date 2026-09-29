@@ -32,6 +32,20 @@ export function sseEventsFor(message = {}) {
         } else if (block && block.type === 'text') {
             events.push({ type: 'content_block_start', index, content_block: { type: 'text', text: '' } });
             events.push({ type: 'content_block_delta', index, delta: { type: 'text_delta', text: block.text || '' } });
+        } else if (block && block.type === 'thinking') {
+            // The API opens a thinking block empty, streams its text, and
+            // sends the signature as its own delta — never in the start
+            // frame (Anthropic's streaming docs, "Streaming with extended
+            // thinking": thinking_delta events, then one signature_delta
+            // before content_block_stop). A stub that put the signature in
+            // the start frame would hide a dropped one.
+            events.push({ type: 'content_block_start', index, content_block: { type: 'thinking', thinking: '' } });
+            if (block.thinking) {
+                events.push({ type: 'content_block_delta', index, delta: { type: 'thinking_delta', thinking: block.thinking } });
+            }
+            if (block.signature) {
+                events.push({ type: 'content_block_delta', index, delta: { type: 'signature_delta', signature: block.signature } });
+            }
         } else {
             events.push({ type: 'content_block_start', index, content_block: { ...(block || {}) } });
         }
