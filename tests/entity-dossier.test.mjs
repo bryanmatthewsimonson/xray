@@ -170,6 +170,7 @@ test('dossier: judgments — distributions only, integrity ROUTED not inlined, n
     }
 });
 
+// Provenance: R-020 (person_grade, credibility, trustworth, liar, truthfulness_rating, reputation_score); the rest: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('dossier: grade-word string guard — no scores, grades, or liar-class labels anywhere', async () => {
     _stateStore.clear();
     const opts = baseOptions({

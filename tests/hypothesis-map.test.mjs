@@ -353,6 +353,7 @@ test('hypothesis-map: deterministic — same inputs deepEqual', () => {
     assert.deepEqual(build(input), build(input));
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('hypothesis-map: §6 grep guard — no fused-number key anywhere, no allowlist', () => {
     const h1 = hyp('hyp_00000000000000ab', 'Zoonotic');
     const h2 = hyp('hyp_00000000000000cd', 'Lab origin');

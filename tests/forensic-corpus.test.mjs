@@ -93,6 +93,7 @@ test('FA.2: anchors join claims by conservative containment, per URL — never a
     assert.equal(byClaim.c1[0].maneuver, 'nonresponsive-answer');
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('FA.3: the subject rollup counts structure — and can never carry a score (Rule 1 pin)', async () => {
     const { forensicSubjectRollup } = await import('../src/shared/forensic-corpus.js');
     const roll = forensicSubjectRollup({ findings: [
@@ -108,6 +109,7 @@ test('FA.3: the subject rollup counts structure — and can never carry a score 
     }
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('FA.1: no intent/honesty field exists in the tool schema (Rule 1, structural)', async () => {
     const { buildForensicCorpusTool } = await import('../src/shared/forensic-corpus.js');
     const json = JSON.stringify(buildForensicCorpusTool().input_schema).toLowerCase();

@@ -1,7 +1,6 @@
 // CA.3 tests — the corpus epistemics rollup (CORPUS_AUDIT_KICKOFF §4).
-// Distributions only: the structural pin asserts NO mean/average field
-// can exist in the output (§10.1/.9), the join honors the
-// captureArticleHash alias, and ordering puts the weak end first.
+// The join honors the captureArticleHash alias, and ordering puts the
+// weak end first.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -45,16 +44,7 @@ test('CA.3: rollup — alias join, lowest-first order, module ranges, honest cov
     assert.equal(roll.modules[0].module, 'source_architecture');
 });
 
-test('CA.3: NO mean/average field can exist anywhere in the rollup (§10.1/.9 structural pin)', () => {
-    const roll = corpusAuditRollup({
-        rows: [row('https://x/a', ['h1']), row('https://x/b', ['h2'])],
-        runs: [run('h1', 70), run('h2', 40)]
-    });
-    const json = JSON.stringify(roll);
-    for (const banned of ['mean', 'average', 'avg', 'corpus_score', 'fused']) {
-        assert.ok(!json.toLowerCase().includes(banned), `forbidden aggregate "${banned}" in the rollup`);
-    }
-    // And empty input degrades to an honest zero, not a fabricated range.
+test('CA.3: empty input degrades to an honest zero, not a fabricated range', () => {
     const empty = corpusAuditRollup({ rows: [], runs: [] });
     assert.deepEqual({ audited: empty.audited, unaudited: empty.unaudited, scoreRange: empty.scoreRange },
         { audited: 0, unaudited: 0, scoreRange: null });

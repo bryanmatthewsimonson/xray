@@ -37,6 +37,7 @@ function collectKeys(node, out = new Set()) {
     return out;
 }
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('corpus-links: the tool schema has no numeric-scoring slot', () => {
     const tool = buildClaimLinksTool();
     assert.equal(tool.name, CLAIM_LINKS_TOOL_NAME);

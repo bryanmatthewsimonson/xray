@@ -25,6 +25,7 @@ const HASH_B = 'b'.repeat(64);
 
 // ---- guard rails on the tool schema (kickoff §3.1/§3.3) --------------------
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('page tool: no typed-field or numeric slots — the fact layer cannot return here', () => {
     const tool = EP.buildEntityPageTool();
     const json = JSON.stringify(tool.input_schema);
@@ -77,6 +78,7 @@ const claim = (id, extra = {}) => ({
     is_key: !!extra.is_key, created: extra.created || 100
 });
 
+// Provenance: R-020 (credibility); the rest: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('digest: deterministic, capped, key-first, distributions-only — and no banned vocabulary', () => {
     const d = fixtureDossier();
     const claims = [claim('claim_b', { created: 200 }), claim('claim_a', { is_key: true, created: 300 })];

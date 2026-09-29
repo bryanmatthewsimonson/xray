@@ -603,6 +603,7 @@ const HELD_OPEN_PASSES = Object.freeze({
     runExtractPass: 'xray:llm:extract — one archived PDF (Phase 18 C5)'
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD: the worker\'s pass table IS the allowlist — one function per allowlisted pass, nothing extra either way', () => {
     const table = passTable();
     assert.ok(Object.keys(table).length >= 3, 'sanity: the parser sees the table');
@@ -611,6 +612,7 @@ test('GUARD: the worker\'s pass table IS the allowlist — one function per allo
     assert.equal(new Set(Object.values(table)).size, Object.keys(table).length, 'one function per pass');
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD: every run*Pass the LLM client exports is a JOB, or a NAMED held-open exception', () => {
     const exported = [...strip(read('src/shared/llm-client.js')).matchAll(/export async function (run\w+Pass)\s*\(/g)]
         .map((m) => m[1]);
@@ -627,6 +629,7 @@ test('GUARD: every run*Pass the LLM client exports is a JOB, or a NAMED held-ope
     }
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD: no job pass rides a held-open message in the service worker', () => {
     // The dispatch chain stays in index.js (the structure guard derives
     // the message registry from it); the runner and its pass table live
@@ -702,6 +705,7 @@ const ADDENDUM_CONSUMERS = Object.freeze({
     'src/reader/quick-audit.js': null
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD: no page sends a retired single-message type — not as a send, not as any string literal', () => {
     const offenders = [];
     for (const f of srcFiles()) {
@@ -713,6 +717,7 @@ test('GUARD: no page sends a retired single-message type — not as a send, not 
     assert.deepEqual(offenders, []);
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD: every job consumer uses the job client, names an allowlisted pass, and releases its record', () => {
     const callers = srcFiles().filter((f) => f !== 'src/shared/llm-jobs.js' && /\brunLlmJob\(\{/.test(strip(read(f))));
     assert.ok(callers.length >= 4, 'sanity: the scan sees runLlmJob call sites');
@@ -733,6 +738,7 @@ test('GUARD: every job consumer uses the job client, names an allowlisted pass, 
     assert.deepEqual([...driven].sort(), [...LLM_JOB_PASSES].sort(), 'an allowlisted pass has no page-side consumer');
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD: the 2026-09-25 consumers scope by CONTENT (id + prompt version + request hash) and time from the record', () => {
     assert.equal(Object.keys(ADDENDUM_CONSUMERS).length, LLM_JOB_REQUEST_SCOPED.length, 'one consumer per request-scoped pass');
     for (const [rel, version] of Object.entries(ADDENDUM_CONSUMERS)) {
@@ -748,6 +754,7 @@ test('GUARD: the 2026-09-25 consumers scope by CONTENT (id + prompt version + re
     }
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD: the reader never reads ingestAuditResult as a boolean (it is tri-state, and \'failed\' is truthy), and only the import decides it', () => {
     // A truthiness read on the Thorough path would clear the resumable
     // module draft after a FAILED import — paid modules, gone.
@@ -767,6 +774,7 @@ test('GUARD: the reader never reads ingestAuditResult as a boolean (it is tri-st
     assert.ok(!classified.includes('refreshAuditStatus('), 'the audit-panel repaint sits inside the import classification');
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD: #374\'s long-poll surfaces time the job from the record', () => {
     // The two long-poll surfaces show elapsed time — anchored to the
     // record, never a page-local clock (a reload restarted it at 0).
@@ -775,6 +783,7 @@ test('GUARD: #374\'s long-poll surfaces time the job from the record', () => {
     }
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD: every portal/side-panel job consumer flags a dropped channel (lastError) as swLost, not as the worker\'s refusal', () => {
     // runLlmJob retries a poll only when the transport says the channel
     // DROPPED (`!resp || resp.swLost`). A helper that turns lastError
@@ -792,6 +801,7 @@ test('GUARD: every portal/side-panel job consumer flags a dropped channel (lastE
     }
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD (copy): the synthesis failure names the stage that re-runs and that the reduce re-bills', () => {
     const src = read('src/portal/synthesis-block.js');
     assert.ok(!src.includes('make the retry cheap'), 'the misleading "retry cheap" copy is back');
@@ -802,6 +812,7 @@ test('GUARD (copy): the synthesis failure names the stage that re-runs and that 
     assert.match(src, /extracts are cached/);
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD: job records are a backup-excluded prefix class', () => {
     assert.ok(isLlmJobKey(`${LLM_JOB_KEY_PREFIX}corpus-map:x`));
     assert.ok(!isLlmJobKey('xray:llm:key'));

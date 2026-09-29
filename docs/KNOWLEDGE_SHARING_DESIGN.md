@@ -31,6 +31,17 @@
 > and entity-anchored follow sets still never publish; (3) §10 gains
 > the kind-3 mirror and the `xray/review` kind-1985 label vocabulary
 > (both additive; still zero new wire kinds).
+>
+> **Amendment (2026-09-26, R-019):** "no aggregation" in the
+> constraints above no longer bars an aggregate that CONSTITUTION
+> Art. 5 licenses and that is not fused (CONSTITUTION Art. 1, v1.1.0).
+> [INTERPRETATION: Claude, 2026-09-26 — default: the note covers any
+> aggregate Art. 5 licenses that is not fused; ask: Should this note
+> reach only the three numbers R-019 names?]
+> The rest of that line stands; the amendment governs where they
+> disagree. Accepted failure mode: a labeled, spread-shown number
+> beside the record can still be read as the verdict by a hurried
+> reader.
 
 X-Ray's goal here: make it easy to **share** captured knowledge, let
 strangers **reference the same entities** so the shared corpus

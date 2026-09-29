@@ -66,6 +66,16 @@ primitive; this design is **composition, not new capture**.
    force: a fused "case strength" number is how a case folder becomes
    an orthodoxy machine. The honest headline is a *distribution*
    (§3.1), not a number.
+   *(Amended 2026-09-26, R-019 — the amendment governs: CONSTITUTION
+   Art. 1 now defines "fused", and R-019 names two case-level numbers
+   as licensed instruments: a corpus mean + range + n, beside the
+   subject dossier's existing one, and a labeled "evidence balance"
+   rendered beside — never above — the header (§3.1). The evidence
+   balance has no method yet; a short design comes before any code. A
+   case-probability as a case's headline or verdict stays forbidden
+   (CONSTITUTION Art. 5.4). Accepted failure mode: a labeled,
+   spread-shown number beside the record can still be read as the
+   verdict by a hurried reader.)*
 3. **Every summary is a door, not a wall.** Each level of the inverted
    pyramid links to the level below; nothing renders that cannot be
    clicked through to its verbatim, content-addressed support.

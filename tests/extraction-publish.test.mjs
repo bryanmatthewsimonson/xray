@@ -202,6 +202,7 @@ test('a hostile/malformed event cannot smuggle endorsement onto an unreviewed ro
 
 // ---- 4. structural firewall + refusals -------------------------------------
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD: no judgment-surface tags and no numeric slot', () => {
     const ev = EP.buildExtractionAnalysisEvent({
         record: record({
@@ -236,6 +237,7 @@ test('GUARD: no judgment-surface tags and no numeric slot', () => {
     }
 });
 
+// Provenance: R-018 (30065, 30066, 30067 never referenced); the rest: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD: kind 30070 is the ONLY kind this module emits (no mirror, no twin)', async () => {
     const { readFile } = await import('node:fs/promises');
     const { join } = await import('node:path');
@@ -252,6 +254,7 @@ test('GUARD: kind 30070 is the ONLY kind this module emits (no mirror, no twin)'
     }
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD: the publish boundary REFUSES a record whose key does not pin a text', () => {
     // A url:<sha16> fallback key names a URL, not a text — its `x` would
     // be a fabricated content hash.
@@ -432,6 +435,7 @@ test('publishing is OPT-IN: the flag defaults off', async () => {
 // local publish ledger keys on `confirmed`, never `successful`.
 // Guarded by literal because the surface is DOM-bound and the invariant
 // is exactly the kind each new publish site forgets.
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD: the publish surface stamps only on a CONFIRMED relay OK', async () => {
     const { readFile } = await import('node:fs/promises');
     const { join } = await import('node:path');

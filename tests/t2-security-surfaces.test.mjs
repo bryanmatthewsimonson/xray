@@ -67,6 +67,7 @@ test('B5: the NIP-07 bridge stays web-accessible (restored after a field break)'
         'the MAIN-world bridge must stay declared — removing it broke NIP-07 detection in the field');
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('B18: the threat model exists and covers every asset class', () => {
     const tm = read('docs', 'THREAT_MODEL.md');
     for (const asset of ['local_primary_identity', 'local_keys', 'capture pattern']) {
@@ -78,6 +79,7 @@ test('B18: the threat model exists and covers every asset class', () => {
     assert.match(tm, /G1|G2|G3/, 'and enumerates them');
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('B18: every third-party network destination has a named boundary row', () => {
     // A threat model goes stale by OMISSION, not by contradiction: a new
     // egress path that nobody adds a row for reads, to a later reviewer,

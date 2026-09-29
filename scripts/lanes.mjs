@@ -231,6 +231,7 @@ export const UNASSIGNED = Object.freeze([
     'src/shared/entity-health.js',
     'src/shared/entity-profile.js',
     'src/shared/entity-sync.js',
+    'src/shared/estimate.js',
     'src/shared/evidence-linker.js',
     'src/shared/forensic-corpus.js',
     'src/shared/forensic-model.js',

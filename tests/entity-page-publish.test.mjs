@@ -75,6 +75,7 @@ test('markdown: deterministic; carries lead, key facts with quotes, sections, di
     assert.match(md, /2 captured sources; 3 quotes machine-checked, 1 dropped/);
 });
 
+// Provenance: R-020 (credibility, trustworth, liar); the rest: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('markdown: no judgment vocabulary — the §3.5 wire posture', () => {
     const md = renderEntityPageMarkdown(fixtureRecord(), { entityName: 'W.H.O.', keyClaims: KEY_CLAIMS });
     for (const banned of ['verdict', 'credibility', 'trustworth', 'liar', 'probability']) {

@@ -17,6 +17,10 @@ project-wide law). The non-derivation note above stands — this document
 and `PHILOSOPHY.md` are siblings under the constitution, not derivations
 of one another.
 
+**Amended 2026-09-26** (R-023 — the amendment governs): §1 and §5 are
+no longer an organic statute; this is a design document under
+`docs/CONSTITUTION.md` (Art. 2).
+
 **Depends on Phase 14** (`docs/CRIMINOLOGY_DESIGN.md`, forensic findings
 `30062`, the `forensicPublishing` flag) landing on `main` first — this layer
 composes `30062` as a raw signal and takes the **next disjoint wire kinds**

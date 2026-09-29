@@ -14,6 +14,9 @@
 //     the suite fails).
 //   - The named gap stays honest: accounting is the one full gap
 //     until its standards are built.
+//
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
+// A test with its own Provenance line below is pinned by that line instead.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -110,6 +113,7 @@ async function* walkJs(dir) {
     }
 }
 
+// Provenance: R-021
 test('guard: every "You are" prompt file carries a registered Standards header', async () => {
     const sharedRoot = join(repoRoot, 'src', 'shared');
     let promptFiles = 0;

@@ -46,6 +46,7 @@ test('profile about: the 24.3 maintainer line leads when a maintainer npub is gi
     assert.match(lines[0], /not the subject posting/, 'the honest-labeling clause rides');
 });
 
+// Provenance: R-020 (credib, liar, trustworth); the rest: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('profile about: no judgment vocabulary, ever (§3.5 on the wire hardest of all)', () => {
     const about = buildProfileAbout(fixtureDossier(), { maintainerNpub: 'npub1x' });
     for (const banned of ['verdict', 'ruling', 'score', 'credib', 'liar', 'trustworth']) {

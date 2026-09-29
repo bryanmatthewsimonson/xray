@@ -36,6 +36,7 @@ the entry's heading anchor in its monthly file.
 
 ## 2026-09
 
+- **2026-09-26** — [R1 amendment: the six governance rulings enacted](journal/2026-09.md#2026-09-26--r1-amendment-the-six-governance-rulings-enacted) · design, process
 - **2026-09-26** — [Dependabot auto-merge turned off: nothing merges without the maintainer's click](journal/2026-09.md#2026-09-26--dependabot-auto-merge-turned-off-nothing-merges-without-the-maintainers-click)
 - **2026-09-26** — [MA.6 walk made required: the flip criterion read from the logs](journal/2026-09.md#2026-09-26--ma6-walk-made-required-the-flip-criterion-read-from-the-logs) · design, process
 - **2026-09-25** — [STATUS.md: what counts as a check date, and as casework](journal/2026-09.md#2026-09-25--statusmd-what-counts-as-a-check-date-and-as-casework) · design

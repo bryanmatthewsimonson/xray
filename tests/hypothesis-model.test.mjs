@@ -125,6 +125,7 @@ test('hypothesis-edge: getForCase joins via the case\'s hypotheses and excludes 
     assert.deepEqual(list.map((e) => e.id), [kept.id]);
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('hypothesis-model: no score-bearing and no wire-publish field on either record', async () => {
     resetState();
     const h = await seedHypothesis();

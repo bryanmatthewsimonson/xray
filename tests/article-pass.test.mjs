@@ -517,6 +517,7 @@ test('claimProposalsFromExtract: text falls back to the quote; empty quotes drop
 
 // ---- guard rail 4: the layer's atom contract is unchanged ------------------
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD (UA.1 rail 4): a v8 fold stores text + why on atoms but NO load_bearing field', () => {
     const member = { article_hash: 'a'.repeat(64), url: URL_A, title: 'A title',
         text: 'Body A text with enough words.' };
@@ -599,6 +600,7 @@ test('a rejecting sendMessage becomes status "failed", never an unhandled reject
     assert.match(out.error, /message port closed/);
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD (source pin): the reader routes the unified pass through the archive source and canonical substrate', async () => {
     const { readFile } = await import('node:fs/promises');
     const src = await readFile(new URL('../src/reader/index.js', import.meta.url), 'utf8');
@@ -650,6 +652,7 @@ test('claimProposalsFromExtract: v9 about refs ride, filtered to entities the ex
     assert.deepEqual(v8rows[0].about ?? [], []);
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD (UA.2 rail 4): a v9 fold stores NO entities and NO about — the layer stays claim-shaped', () => {
     const member = { article_hash: 'a'.repeat(64), url: URL_A, title: 'A title',
         text: 'Body A text with enough words.' };
@@ -663,6 +666,7 @@ test('GUARD (UA.2 rail 4): a v9 fold stores NO entities and NO about — the lay
     }
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('GUARD (UA.2, source pin): the live Suggest path is ONE call — no xray:llm:suggest, one ensureArticleExtract', async () => {
     const { readFile } = await import('node:fs/promises');
     const src = await readFile(new URL('../src/reader/index.js', import.meta.url), 'utf8');

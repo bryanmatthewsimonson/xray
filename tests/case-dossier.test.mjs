@@ -6,7 +6,7 @@
 // deterministic (generatedAt injected). The IDB-backed inputs
 // (articles / predictions / resolutions / auditRuns) and `wire` are
 // always INJECTED here, so no fake-indexeddb is needed. The
-// load-bearing invariants: chain-head collapse, no case-level score,
+// load-bearing invariants: chain-head collapse,
 // side-by-side variance (never merged), precision bands, and coverage
 // counts on every section.
 
@@ -568,30 +568,6 @@ test('case-dossier: audit run joins a claimless tag-only member row (20.1)', asy
     const row = dossier.evidence.articles.find((a) => a.url === 'https://example.com/tagaudit');
     assert.equal(row.audit_runs.length, 1, 'audit joins the tag-only row via the record hash');
     assert.equal(dossier.evidence.coverage.articles_with_audit, 1);
-});
-
-test('case-dossier: no case-level score exists anywhere', async () => {
-    resetState();
-    const { dossier } = await assembleFixture();
-    const banned = /score|mean|rating|strength|grade/i;
-    const walk = (node, path) => {
-        if (Array.isArray(node)) { node.forEach((v, i) => walk(v, `${path}[${i}]`)); return; }
-        if (node && typeof node === 'object') {
-            for (const [k, v] of Object.entries(node)) {
-                const p = `${path}.${k}`;
-                // The ONLY permitted score-bearing subtree: raw per-article
-                // audit aggregates (never rolled up).
-                if (/\.audit_runs\[\d+\]\.aggregate$/.test(p)) continue;
-                if (banned.test(k)) {
-                    assert.fail(`forbidden fused-number key at ${p}`);
-                }
-                walk(v, p);
-            }
-        }
-    };
-    walk(dossier, '$');
-    assert.equal(dossier.score, undefined);
-    assert.equal('mean' in dossier.shape_of_knowledge.distribution, false);
 });
 
 test('case-dossier: deterministic — same inputs deepEqual, generatedAt injected', async () => {

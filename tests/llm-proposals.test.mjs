@@ -441,6 +441,7 @@ test('buildFindingInput: anchor quotes are re-canonicalized to the article\'s te
 // No verdict / no intent — by construction
 // ---------------------------------------------------------------------
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('finding mapping carries no intent/score/confidence field', () => {
     const input = P.buildFindingInput(
         { role: 'apologist', maneuver: 'darvo/deny', counter_note: 'c', anchors: [{ quote: 'q' }] },
@@ -599,6 +600,7 @@ async function acceptAll(proposals) {
     return { created, entityIdByRef, claimIdByRef };
 }
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('end-to-end: a canned pass creates every artifact tagged llm:<model>', async () => {
     reset();
     const { created, entityIdByRef, claimIdByRef } = await acceptAll(mockProposals());

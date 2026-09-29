@@ -7,6 +7,8 @@
 // the signing call sites. (The 30067 fact sheet this file once also
 // guarded retired 2026-07-20 with the fact layer — the retirement
 // itself is pinned in tests/fact-retirement.test.mjs.)
+//
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

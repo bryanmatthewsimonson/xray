@@ -61,6 +61,7 @@ test('bar: empty state prompts the no-verdict capture flow', () => {
     assert.doesNotMatch(html, /xr-findings__item\b/, 'no rows');
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('bar: baselines render as plain rows — visible at last, never a weight (27 F.4)', () => {
     const baseline = {
         id: 'baseline_0123456789abcdef',

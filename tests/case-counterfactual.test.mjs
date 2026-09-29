@@ -275,6 +275,7 @@ test('case-counterfactual: traceLines honest zero — an untouched claim says so
     assert.match(lines[0].text, /No structural dependencies found/);
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('case-counterfactual: §4 copy guard — no likelihood/strength/percent phrasing in ANY line, either mode', () => {
     const banned = /more likely|less likely|stronger|weaker|% chance|\d+\s*%|probabilit|confidence|score\b|winner/i;
     for (const mode of COUNTERFACTUAL_MODES) {
@@ -291,6 +292,7 @@ test('case-counterfactual: §4 copy guard — no likelihood/strength/percent phr
     }
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('case-counterfactual: §4 guard — banned keys nowhere, and EVERY numeric sits beside a derivation', () => {
     const hypothesisEdges = [
         { hypothesis_id: 'hyp_1', label: 'Zoonotic', ref: C1, role: 'supports', edge_id: 'hedge_1' }

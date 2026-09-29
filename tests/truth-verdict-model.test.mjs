@@ -144,6 +144,7 @@ test('verdict: create + get round-trip; declared standard defaults per class', a
     assert.equal(again.rationale, v.rationale);
 });
 
+// Provenance: R-020
 test('verdict: THE FIREWALL — no verdict on interpretation or stated-value', async () => {
     resetState();
     const interpretation = await seedProposition('interpretation', {

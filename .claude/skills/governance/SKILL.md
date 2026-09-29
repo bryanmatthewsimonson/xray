@@ -42,8 +42,8 @@ copy, never mistake the clerk's reading for the court's ruling.
    from Art. 13 itself, and draft any missing one for the maintainer
    instead of passing the change without it. Tier 3 owes no ceremony.
 4. **Check licenses condition by condition.** An estimate or aggregate
-   runs Art. 5.2's conditions, and TRUTH_SYSTEMS §3.3's if consensus-
-   adjacent (Art. 5.5), each pass or fail with evidence. New capability
+   runs Art. 5.2's conditions, and Art. 5.5's if consensus-adjacent
+   (TRUTH_SYSTEMS §3.3 is advice), each pass or fail with evidence. New capability
    names its design document (Art. 2) or is flagged unlicensed. A kill
    or resurrection reads the kill's recorded rationale (JOURNAL; the
    ROAD_TO_1_0 status note); a resurrection answers it (Art. 11). Near

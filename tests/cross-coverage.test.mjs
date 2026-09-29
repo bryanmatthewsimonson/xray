@@ -3,8 +3,7 @@
 // captureArticleHash alias; parties/terms present in only ONE member
 // are dropped (cross-coverage means cross); both sides of an asymmetry
 // finding accrue to their own party; severities histogram; example
-// caps disclose overflow; and the outputs carry distributions only —
-// no mean, no score, nothing fused.
+// caps disclose overflow.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -95,15 +94,7 @@ test('R4a drift: quality histogram across members, absent-first ordering, single
     assert.ok(!out.terms.some((t) => t.term === 'onlyonce'), 'single-member term dropped');
 });
 
-test('R4a: outputs are distributions only — no fused number anywhere', () => {
-    const out = {
-        a: crossCoverageAsymmetry({ rows: [row('u1', ['h1']), row('u2', ['h2'])],
-            runs: [asymRun('h1', [asym('P', 'Q')]), asymRun('h2', [asym('P', 'Q')])] }),
-        d: definitionalDrift({ rows: [], runs: [] })
-    };
-    const flat = JSON.stringify(out);
-    for (const banned of ['mean', 'average', 'avg', 'fused', 'corpus_score']) {
-        assert.ok(!flat.includes(banned), `output must not carry "${banned}"`);
-    }
-    assert.deepEqual(out.d, { terms: [], memberCount: 0 }, 'empty input degrades cleanly');
+test('R4a: definitional drift over empty input degrades cleanly', () => {
+    const d = definitionalDrift({ rows: [], runs: [] });
+    assert.deepEqual(d, { terms: [], memberCount: 0 }, 'empty input degrades cleanly');
 });

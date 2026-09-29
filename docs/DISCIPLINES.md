@@ -1,10 +1,10 @@
 # Discipline Standards — best practices derived from first principles
 
-**Document version:** 1.0.0
-**Status:** Normative for the standards and the index; descriptive for
+**Document version:** 1.1.0
+**Status:** Advice (amended 2026-09-26, R-021); descriptive for
 status columns
-**Governed by:** `docs/CONSTITUTION.md` (Art. 9) — enters the Concord
-Schedule as an organic statute on adoption
+**Governed by:** `docs/CONSTITUTION.md` (Art. 9) — advice, not an
+organic statute
 **Date:** 2026-07-22
 
 Amendments follow the constitution's Art. 13 (Tier 2 for this
@@ -30,8 +30,8 @@ This document applies that method to every discipline the project
 draws on. For disciplines whose standards are already codified in a
 governing document or in validated code, the section here records the
 derivation and points at the codification. For disciplines not yet
-codified, the section derives the standards directly — they bind from
-this document until a fuller statute exists. Every section carries the
+codified, the section derives the standards directly — they are
+advice until a fuller statute exists. Every section carries the
 same fields, pinned by `tests/disciplines.test.mjs`: **The question**
 (the elicitation), **First principles** (what must be true),
 **Standards** (the derived practices), **Failure mode** (the
@@ -60,8 +60,8 @@ X-Ray).
 | §16 | Operator accountability | `operator` | `docs/CONSTITUTION.md` | codified |
 
 Status vocabulary: **codified** — a governing document or validated
-code carries the standards; **partial** — the standards below bind,
-with some already enforced in code and some not; **gap** — nothing in
+code carries the standards; **partial** — the standards below are
+advice, with some already enforced in code and some not; **gap** — nothing in
 the project enforces this discipline yet; the standards below are the
 specification for building it.
 
@@ -536,7 +536,10 @@ record.
 2. The stance is personal and stays personal: assessments are the
    reader's own, never averaged into a truth-signal; foreign judgments
    render side by side, never merged.
-3. One accept per artifact — bulk credulity is not review.
+3. Bulk-accept of individually grounded rows is lawful — the
+   grounding is the review. *Reversed 2026-09-26 (R-021); this
+   standard read: "One accept per artifact — bulk credulity is not
+   review."*
 4. Declining persists; a declined proposal never nags again.
 5. No one republishes another's work as their own.
 
@@ -628,3 +631,18 @@ emitted by `tools/gen-module-prompts.mjs` itself — `module-prompts.js`
 is generated, and a header the generator does not emit dies at the
 next regen. Adopted into the Concord Schedule by maintainer merge
 (CONSTITUTION Art. 9, Art. 14).
+
+**v1.1.0 — 2026-09-26.** This document becomes advice (maintainer
+rulings R-021 and R-023; CONSTITUTION Art. 2, Art. 9 and the Concord
+Schedule are amended the same day). The header, §0 and the §1 status
+vocabulary no longer say the standards bind. The prompt-header check
+in `tests/disciplines.test.mjs` stays, as a lint. §15 standard 3 is
+reversed (R-021): it read "One accept per artifact — bulk credulity is
+not review"; it now says bulk-accept of individually grounded rows is
+lawful, because the grounding is the review. Accepted failure modes: a
+standard that bound only from this document stops binding anywhere
+(for example §7 standard 3 and §11 standard 5); a case brief can cite a
+grounded quote nobody read; grounding checks only that the quote
+exists, not that the model's paraphrase is fair, and bulk accept stores
+that paraphrase as the claim's wording (still tagged as
+model-suggested).
