@@ -61,9 +61,10 @@ const OPS = Object.freeze({
 });
 
 /** A sender is an extension page when its URL is on this extension's
- *  own origin — the test the capture handoff uses (index.js). A content
- *  script's sender carries the web page's URL. Shared with the
- *  xray:llm:models door (./llm-models.js). */
+ *  own origin; a content script's sender carries the web page's URL.
+ *  The worker's ONE such check (tests/extension-page-sender.test.mjs):
+ *  the LLM-job ops, the xray:llm:models door (./llm-models.js) and the
+ *  capture handoff's source-tab rule (index.js) all use it. */
 export function fromExtensionPage(sender) {
     try {
         return !!(sender && typeof sender.url === 'string'
