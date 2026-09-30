@@ -27,7 +27,7 @@ import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
 import { runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, getCorpusConfig, runExtractPass, runVisionPass, getVisionConfig } from '../shared/llm-client.js';
-import { respondLlmJob } from './llm-jobs.js';
+import { respondLlmJob, fromExtensionPage } from './llm-jobs.js';
 import { respondLlmModels } from './llm-models.js';
 import { putSessionArticle } from '../shared/session-articles.js';
 import { getSourceDocument } from '../shared/archive-cache.js';
@@ -535,9 +535,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // with "Source tab unreachable". Those opens are tabless — the SW
         // signs Local/NSecBunker itself; NIP-07 gets a clear switch-to-Local
         // message instead of a misleading tab error.
-        const extOrigin = chrome.runtime.getURL('');
-        const fromExtensionPage = !!(sender && sender.url && sender.url.startsWith(extOrigin));
-        const sourceTabId = (!fromExtensionPage && sender && sender.tab && sender.tab.id != null)
+        const sourceTabId = (!fromExtensionPage(sender) && sender && sender.tab && sender.tab.id != null)
             ? sender.tab.id
             : null;
         // readOnly (Phase 12.7): set by the portal's "Open in reader" —
