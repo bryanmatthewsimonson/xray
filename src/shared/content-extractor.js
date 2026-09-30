@@ -53,31 +53,54 @@ function tweetParagraphs(text) {
 
 // A tweet's own status URL, on twitter.com or x.com (www./mobile.
 // allowed): /<handle>/status/<id>, /i/web/status/<id>, or /statuses/.
-const TWEET_STATUS_RX = /^https?:\/\/(?:(?:www|mobile)\.)?(?:twitter|x)\.com\/(?:i\/web|[A-Za-z0-9_]{1,15})\/status(?:es)?\/\d{1,20}(?:[/?#]|$)/i;
+// Group 1 is the tweet id.
+const TWEET_STATUS_RX = /^https?:\/\/(?:(?:www|mobile)\.)?(?:twitter|x)\.com\/(?:i\/web|[A-Za-z0-9_]{1,15})\/status(?:es)?\/(\d{1,20})(?:[/?#]|$)/i;
 
-// The tweet's own status link: the LAST status link outside the tweet
-// text (the date link of the standard embed; a status link inside the
-// text names some other tweet), else the blockquote's cite. Never a
-// profile, hashtag, t.co or look-alike-host link.
-function tweetStatusUrl(tweet) {
-  const inText = new Set(Array.from(tweet.querySelectorAll('p a[href]')));
-  const links = Array.from(tweet.querySelectorAll('a[href]'))
-    .filter(a => !inText.has(a) && TWEET_STATUS_RX.test(a.href || ''));
-  if (links.length) return links[links.length - 1].href;
-  const cite = String((tweet.getAttribute && tweet.getAttribute('cite')) || '').trim();
-  return TWEET_STATUS_RX.test(cite) ? cite : '';
+// The tweet id an embed carries as data-tweet-id, on itself or (a tweet
+// widgets.js already rendered) on its iframe. '' = none.
+function tweetIdOf(tweet) {
+  for (const el of [tweet, tweet.querySelector('[data-tweet-id]')]) {
+    const id = String((el && el.getAttribute && el.getAttribute('data-tweet-id')) || '').trim();
+    if (/^\d{1,20}$/.test(id)) return id;
+  }
+  return '';
 }
 
-// The author as the standard embed prints it: the bare text directly
-// inside the blockquote, "— Name (@handle) ". Else the @handle in the
-// status URL. Never a link's text.
-function tweetAuthor(tweet, statusUrl) {
-  let own = '';
-  for (const child of Array.from(tweet.childNodes || [])) {
-    if (child.nodeType === 3) own += child.nodeValue || '';
+// The tweet's own status link: the LAST status link outside the tweet
+// text `textEl` (the date link of the standard embed; a status link
+// inside the text names some other tweet), else a status link to the
+// embed's own data-tweet-id, else the blockquote's cite, else
+// twitter.com/i/web/status/<data-tweet-id>. Never a profile, hashtag,
+// t.co or look-alike-host link.
+function tweetStatusUrl(tweet, textEl) {
+  const inText = new Set(textEl ? Array.from(textEl.querySelectorAll('a[href]')) : []);
+  const links = Array.from(tweet.querySelectorAll('a[href]'))
+    .filter(a => TWEET_STATUS_RX.test(a.href || ''));
+  const outside = links.filter(a => !inText.has(a));
+  if (outside.length) return outside[outside.length - 1].href;
+  const id = tweetIdOf(tweet);
+  const own = id && links.find(a => TWEET_STATUS_RX.exec(a.href)[1] === id);
+  if (own) return own.href;
+  const cite = String((tweet.getAttribute && tweet.getAttribute('cite')) || '').trim();
+  if (TWEET_STATUS_RX.test(cite)) return cite;
+  return id ? `https://twitter.com/i/web/status/${id}` : '';
+}
+
+// The author as the standard embed prints it, "— Name (@handle) ": the
+// bare text directly inside the blockquote, or of the <p> that holds
+// the status link when that is not the tweet text (WordPress's wpautop
+// wraps the line in one). Else the @handle in the status URL. Never a
+// link's text.
+function tweetAuthor(tweet, statusUrl, textEl) {
+  const ownText = (el) => Array.from(el.childNodes || [])
+    .filter(child => child.nodeType === 3).map(child => child.nodeValue || '').join('');
+  const holders = [tweet, ...Array.from(tweet.childNodes || []).filter(child => statusUrl &&
+    child.nodeType === 1 && child !== textEl && String(child.nodeName || '').toUpperCase() === 'P' &&
+    Array.from(child.querySelectorAll('a[href]')).some(a => a.href === statusUrl))];
+  for (const el of holders) {
+    const printed = /^[\u2014\u2013-]\s*(\S[\s\S]*)$/.exec(ownText(el).replace(/[ \t\n\r\f]+/g, ' ').trim());
+    if (printed) return printed[1].trim();
   }
-  const printed = /^[\u2014\u2013-]\s*(\S[\s\S]*)$/.exec(own.replace(/[ \t\n\r\f]+/g, ' ').trim());
-  if (printed) return printed[1].trim();
   const handle = /^https?:\/\/[^/]+\/([A-Za-z0-9_]{1,15})\/status/i.exec(statusUrl || '');
   return handle && handle[1].toLowerCase() !== 'i' ? '@' + handle[1] : '';
 }
@@ -228,8 +251,8 @@ export const ContentExtractor = {
           // kept as a line break), its own status URL, and the author.
           const textEl = tweet.querySelector('p');
           const tweetText = (textEl && tweetTextOf(textEl).trim()) || tweetTextOf(tweet);
-          const tweetUrl = tweetStatusUrl(tweet);
-          const authorName = tweetAuthor(tweet, tweetUrl);
+          const tweetUrl = tweetStatusUrl(tweet, textEl);
+          const authorName = tweetAuthor(tweet, tweetUrl, textEl);
 
           // Replace complex tweet HTML with clean blockquote
           const cleanTweet = buildTweetEmbed(documentClone, { text: tweetText, author: authorName, url: tweetUrl });
@@ -898,7 +921,7 @@ export const ContentExtractor = {
             });
 
             if (tweetUrl) {
-              md += '> \n';
+              if (paragraphs.length) md += '> \n';
               md += `> [View on Twitter/X](${tweetUrl})\n`;
             }
 

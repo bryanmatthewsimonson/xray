@@ -140,6 +140,56 @@ test('the status link is the tweet\'s own: never a mention, hashtag, t.co, quote
     }
 });
 
+// Only the tweet TEXT (the first <p>) hides a status link, which there
+// names some other tweet. Shapes seen outside publish.twitter.com's own
+// markup: WordPress's wpautop wraps the author and date line in a second
+// <p>; a site's own [data-tweet-id] embed may put the permalink inside
+// its only <p>; a tweet widgets.js already rendered is an iframe that
+// carries only the id.
+test('the status link and author survive when the embed is not publish.twitter.com\'s exact markup', () => {
+    const wpautop = standInFor(
+        h('blockquote', { class: 'twitter-tweet' },
+            h('p', { lang: 'en', dir: 'ltr' }, 'wpautop text ', h('a', { href: 'https://twitter.com/hashtag/Tag?src=hash' }, '#Tag')),
+            '\n',
+            h('p', {}, '\u2014 WP Author (@wpauthor) ', h('a', { href: `https://twitter.com/wpauthor/status/111${REF}` }, 'May 1, 2024'))));
+    assert.deepEqual(shape(wpautop), {
+        tag: 'BLOCKQUOTE',
+        attrs: { class: 'xr-tweet-embed', 'data-tweet-url': `https://twitter.com/wpauthor/status/111${REF}`, 'data-tweet-author': 'WP Author (@wpauthor)' },
+        children: [
+            { tag: 'P', children: ['wpautop text #Tag'] },
+            { tag: 'CITE', children: ['\u2014 WP Author (@wpauthor)'] },
+            { tag: 'CITE', children: [{ tag: 'A', attrs: { href: `https://twitter.com/wpauthor/status/111${REF}` }, children: [`https://twitter.com/wpauthor/status/111${REF}`] }] },
+        ],
+    }, 'wpautop: the date link in the second <p> is the status link, and its printed author is the author');
+
+    const cases = [
+        ['a [data-tweet-id] embed whose permalink sits in its only <p>',
+            h('div', { 'data-tweet-id': '555' }, h('p', {}, 'divp text ', h('a', { href: 'https://twitter.com/divp/status/555' }, 'permalink'))),
+            'https://twitter.com/divp/status/555', '@divp'],
+        ['a [data-tweet-id] embed whose only status link names another tweet: the id',
+            h('div', { 'data-tweet-id': '777' }, h('p', {}, 'quoting ', h('a', { href: 'https://twitter.com/other/status/5' }, 'this'))),
+            'https://twitter.com/i/web/status/777', null],
+        ['a tweet widgets.js already rendered: the iframe\'s id',
+            h('div', { class: 'twitter-tweet twitter-tweet-rendered' }, h('iframe', { 'data-tweet-id': '1790000000000000003' })),
+            'https://twitter.com/i/web/status/1790000000000000003', null],
+        ['an id that is not a tweet id: no URL',
+            h('div', { 'data-tweet-id': '12ab' }, h('p', {}, 'text')),
+            '', null],
+    ];
+    for (const [label, tweet, url, author] of cases) {
+        const standIn = standInFor(tweet);
+        assert.equal(standIn.getAttribute('data-tweet-url'), url, `${label}: URL`);
+        assert.equal(standIn.getAttribute('data-tweet-author'), author, `${label}: author`);
+    }
+
+    // The rendered tweet has no text on the page: its Markdown is the
+    // header and the link, with one spacer between them.
+    const rendered = 'https://twitter.com/i/web/status/1790000000000000003';
+    assert.equal(ContentExtractor.htmlToMarkdown(`<blockquote data-tweet-url="${rendered}"><p></p>`
+        + `<cite><a href="${rendered}">${rendered}</a></cite></blockquote>`),
+        ['> 🐦 **Tweet**', '> ', `> [View on Twitter/X](${rendered})`].join('\n'));
+});
+
 test('the stand-in\'s author and line breaks reach the Markdown and the reader', () => {
     // The stand-in as Readability returns it: the class is gone, the data
     // attributes and both <cite>s stay, each paragraph is its own <p>.
