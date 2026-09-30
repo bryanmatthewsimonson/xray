@@ -36,6 +36,7 @@ the entry's heading anchor in its monthly file.
 
 ## 2026-09
 
+- **2026-09-30** — [Capture no longer writes to the user's tab, and an embedded tweet can no longer plant markup in the capture](journal/2026-09.md#2026-09-30--capture-no-longer-writes-to-the-users-tab-and-an-embedded-tweet-can-no-longer-plant-markup-in-the-capture) · bug, security, capture
 - **2026-09-30** — [An embedded tweet's text no longer becomes live code on the captured page](journal/2026-09.md#2026-09-30--an-embedded-tweets-text-no-longer-becomes-live-code-on-the-captured-page) · bug, security
 - **2026-09-29** — [The model picker lists newer Claude models from the user's own Anthropic account](journal/2026-09.md#2026-09-29--the-model-picker-lists-newer-claude-models-from-the-users-own-anthropic-account) · design, external
 - **2026-09-29** — [Fable 5.1, Opus 5.5 and Sonnet 5.5 join the roster; passes stop forcing their tool on models that reject it](journal/2026-09.md#2026-09-29--fable-51-opus-55-and-sonnet-55-join-the-roster-passes-stop-forcing-their-tool-on-models-that-reject-it) · design, external

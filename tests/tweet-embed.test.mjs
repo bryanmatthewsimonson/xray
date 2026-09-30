@@ -162,11 +162,11 @@ test('the stand-in\'s author and line breaks reach the Markdown and the reader',
     assert.match(back, /Read more #Launch<br>\s*line two/, 'the line break survives into the reader');
 });
 
-test('downstream: the text reaches Markdown verbatim and X-Ray\'s renderer escapes it', () => {
+test('downstream: text that reads as HTML reaches Markdown literally and X-Ray\'s renderer escapes it', () => {
     // The stand-in as it comes out of Readability in Chromium: Readability
     // drops the xr-tweet-embed class, and the text node's "<" and ">"
-    // serialize escaped. The Markdown then carries the text
-    // verbatim and unescaped, as any paragraph's text already does.
+    // serialize escaped. The Markdown then carries "<" and ">" literally,
+    // as any paragraph's text already does: Turndown's escape leaves them.
     const html = '<blockquote data-tweet-url="https://twitter.com/a/status/1">'
         + '<p>&lt;img src=x onerror=alert(1)&gt;</p>'
         + '<cite><a href="https://twitter.com/a/status/1">https://twitter.com/a/status/1</a></cite></blockquote>';
@@ -176,4 +176,84 @@ test('downstream: the text reaches Markdown verbatim and X-Ray\'s renderer escap
     const back = ContentExtractor.markdownToHtml(md);
     assert.ok(!/<img/i.test(back), 'no live <img> comes back out of the renderer');
     assert.match(back, /&lt;img src=x onerror=alert\(1\)&gt;/);
+});
+
+// Item 2: a tweet may not plant markup in the capture. Its text and
+// author are escaped exactly as an ordinary paragraph's text is (the
+// parity is the invariant; Turndown's own escaping is the reference),
+// and the link is an http(s) URL encoded so it cannot end early.
+const escHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const tweetHtml = (paragraphHtml, { url = STATUS, author = '' } = {}) =>
+    `<blockquote data-tweet-url="${escHtml(url)}"${author ? ` data-tweet-author="${escHtml(author)}"` : ''}>`
+    + `<p>${paragraphHtml}</p></blockquote>`;
+// The tweet's text lines, "> " stripped: everything between the header
+// (and its spacer) and the link (and its spacer).
+function tweetBody(md) {
+    const lines = md.split('\n').slice(2);
+    if (/^> \[View on Twitter\/X\]/.test(lines[lines.length - 1] || '')) lines.splice(-2);
+    return lines.map((l) => l.replace(/^> /, '')).join('\n');
+}
+const PLANTED = [
+    '![](https://tracker.example/p.gif)',
+    '[x](https://evil.example/)',
+    '# not a heading',
+    '> not a quote',
+    '1. not a list',
+    '- not a list',
+    '*not emphasis* and __not bold__',
+    '`not code`',
+];
+
+test('tweet text is escaped exactly as an ordinary paragraph\'s text is', () => {
+    for (const line of PLANTED) {
+        const asParagraph = ContentExtractor.htmlToMarkdown(`<p>${escHtml(line)}</p>`);
+        assert.notEqual(asParagraph, line, `sanity: Turndown escapes ${line}`);
+        const md = ContentExtractor.htmlToMarkdown(tweetHtml(escHtml(line)));
+        assert.equal(tweetBody(md), asParagraph, line);
+    }
+    // Every line of a multi-line tweet, not just the first.
+    const multi = `ok<br>${escHtml(PLANTED[0])}<br>${escHtml(PLANTED[2])}`;
+    assert.equal(tweetBody(ContentExtractor.htmlToMarkdown(tweetHtml(multi))),
+        ContentExtractor.htmlToMarkdown(`<p>${multi}</p>`));
+});
+
+test('the tweet author is escaped the same way', () => {
+    const author = '*[x](https://evil.example/)* ![](https://tracker.example/p.gif)';
+    const md = ContentExtractor.htmlToMarkdown(tweetHtml('hello', { author }));
+    const asParagraph = ContentExtractor.htmlToMarkdown(`<p>${escHtml(author)}</p>`);
+    assert.equal(md.split('\n')[0], `> 🐦 **Tweet by ${asParagraph}**`);
+    // A newline in the attribute cannot start a line of its own.
+    const split = ContentExtractor.htmlToMarkdown(tweetHtml('hello', { author: 'Some One\n# heading' }));
+    assert.equal(split.split('\n')[0], '> 🐦 **Tweet by Some One # heading**');
+});
+
+test('in X-Ray\'s reader, a tweet plants no image and no link an ordinary paragraph would not', () => {
+    const hrefs = (html) => [...html.matchAll(/\b(?:href|src)="([^"]*)"/g)].map((m) => m[1]).sort();
+    for (const line of PLANTED) {
+        const tweet = ContentExtractor.markdownToHtml(ContentExtractor.htmlToMarkdown(tweetHtml(escHtml(line))));
+        const para = ContentExtractor.markdownToHtml(ContentExtractor.htmlToMarkdown(`<p>${escHtml(line)}</p>`));
+        assert.ok(!/<img/i.test(tweet), `${line}: no <img> in the reader`);
+        assert.deepEqual(hrefs(tweet).filter((u) => u !== STATUS), hrefs(para), `${line}: the same targets as a paragraph`);
+    }
+});
+
+test('the tweet link is an http(s) URL that cannot be broken out of', () => {
+    const md = (url) => ContentExtractor.htmlToMarkdown(tweetHtml('hello', { url }));
+    const link = (url) => md(url).split('\n').find((l) => l.includes('View on Twitter/X')) || null;
+
+    assert.equal(link(STATUS), `> [View on Twitter/X](${STATUS})`, 'an ordinary status URL is byte-for-byte unchanged');
+
+    const breakout = 'https://twitter.com/a/status/1)![](https://tracker.example/p.gif';
+    assert.equal(link(breakout), '> [View on Twitter/X](https://twitter.com/a/status/1%29!%5B%5D%28https://tracker.example/p.gif)');
+    const html = ContentExtractor.markdownToHtml(md(breakout));
+    assert.ok(!/<img/i.test(html), 'no tracking image in the reader');
+    assert.deepEqual([...html.matchAll(/<a href="([^"]*)"/g)].map((m) => m[1]),
+        ['https://twitter.com/a/status/1%29!%5B%5D%28https://tracker.example/p.gif'], 'one link, the whole URL');
+
+    const starred = ContentExtractor.markdownToHtml(md('https://twitter.com/a/status/1?q=*x*'));
+    assert.match(starred, /<a href="https:\/\/twitter\.com\/a\/status\/1\?q=%2Ax%2A">/, 'no emphasis inside the href');
+
+    for (const bad of ['javascript:alert(1)', 'data:text/html,<script>alert(1)</script>', '//evil.example/a/status/1', 'twitter.com/a/status/1']) {
+        assert.equal(link(bad), null, `${bad}: no link at all`);
+    }
 });

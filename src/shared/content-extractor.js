@@ -82,6 +82,18 @@ function tweetAuthor(tweet, statusUrl) {
   return handle && handle[1].toLowerCase() !== 'i' ? '@' + handle[1] : '';
 }
 
+// The tweet link's Markdown destination: an absolute http(s) URL only,
+// with every character that can end or restructure a link destination
+// percent-encoded, so "[View on Twitter/X](…)" cannot be broken out of,
+// in X-Ray's markdownToHtml or a CommonMark renderer. '' = no link.
+function tweetLinkUrl(raw) {
+  let url;
+  try { url = new URL(String(raw || '').trim()); } catch (e) { return ''; }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+  return url.href.replace(/[()[\]*`\\<>\s]/g,
+    c => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'));
+}
+
 // The clean stand-in extractArticle swaps in for an embedded tweet, on
 // the page's CLONE (the live page is never written). Built with DOM
 // calls only, never innerHTML: `text` and `author` are the tweet's
@@ -848,8 +860,12 @@ export const ContentExtractor = {
                      node.classList.contains('xr-tweet-embed') ||
                      node.getAttribute('data-tweet-url')));
           },
+          // The tweet's text and author are the page's (and the tweet
+          // author's) words: escaped with Turndown's own escape, line by
+          // line, exactly as an ordinary paragraph's text is, so they
+          // cannot plant an image, a link or a block in the capture.
           replacement: function(content, node) {
-            const tweetUrl = node.getAttribute('data-tweet-url') || '';
+            const tweetUrl = tweetLinkUrl(node.getAttribute('data-tweet-url'));
             const paragraphs = [];
             Array.from(node.querySelectorAll('p')).forEach(p => {
               paragraphs.push(...tweetParagraphs(tweetTextOf(p)));
@@ -859,7 +875,7 @@ export const ContentExtractor = {
                                 footer?.textContent?.replace(/^—\s*/, '') || '').replace(/\s+/g, ' ').trim();
 
             let md = '> 🐦 **Tweet';
-            if (authorName) md += ` by ${authorName}`;
+            if (authorName) md += ` by ${turndown.escape(authorName)}`;
             md += '**\n';
             md += '> \n';
 
@@ -868,7 +884,7 @@ export const ContentExtractor = {
             paragraphs.forEach((lines, i) => {
               if (i) md += '> \n';
               lines.forEach((line, j) => {
-                md += `> ${line}${j < lines.length - 1 ? '  ' : ''}\n`;
+                md += `> ${turndown.escape(line)}${j < lines.length - 1 ? '  ' : ''}\n`;
               });
             });
 
