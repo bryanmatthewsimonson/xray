@@ -117,6 +117,30 @@ function tweetLinkUrl(raw) {
     c => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'));
 }
 
+// Text inside <xmp>, <iframe>, <noembed> and <noframes> serializes
+// unescaped (HTML's raw-text rule). Text a script put in one that holds
+// the element's own end tag, "</xmp><img src=x onerror=…>", therefore
+// comes back as markup in every parse of the serialized article: the
+// image fix-up, Turndown, the reader (JOURNAL 2026-09-30). Run on the
+// clone before Readability serializes it. An <xmp>, whose text the page
+// shows, becomes a <pre> holding the same text. The others, whose text
+// the page never shows, lose it. Text that cannot end its element
+// round-trips unchanged and is left alone.
+function neutralizeRawText(doc) {
+  doc.querySelectorAll('xmp, iframe, noembed, noframes').forEach(el => {
+    const tag = String(el.nodeName || '').toLowerCase();
+    const text = el.textContent || '';
+    if (!new RegExp(`</${tag}[\\s/>]`, 'i').test(text)) return;
+    if (tag === 'xmp') {
+      const pre = doc.createElement('pre');
+      pre.textContent = text;
+      el.parentNode?.replaceChild(pre, el);
+    } else {
+      el.textContent = '';
+    }
+  });
+}
+
 // The clean stand-in extractArticle swaps in for an embedded tweet, on
 // the page's CLONE (the live page is never written). Built with DOM
 // calls only, never innerHTML: `text` and `author` are the tweet's
@@ -269,6 +293,9 @@ export const ContentExtractor = {
           img.setAttribute('width', '48');
           img.setAttribute('height', '48');
       });
+
+      // Raw-text elements whose text would end them: text, never markup.
+      neutralizeRawText(documentClone);
 
       // Featured image: read from the prepared clone BEFORE Readability
       // rewrites it, so the lazy-image swaps above still count. It used

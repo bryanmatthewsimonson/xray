@@ -185,3 +185,51 @@ test('an image a pass re-points is never stamped with its live placeholder\'s si
     const readFrom = new Set(page.layoutReads.map((r) => r.split('.')[0]));
     assert.deepEqual([...readFrom], ['icon'], 'layout is read only for the image no pass re-pointed');
 });
+
+// Text inside <xmp>, <iframe>, <noembed> or <noframes> serializes
+// unescaped (HTML's raw-text rule). Text a script put in one that holds
+// the element's own end tag, "</xmp><img onerror=…>", therefore comes
+// back as markup in article.content, and every later parse of it (the
+// fix-up, Turndown, the reader) builds the <img>. Parsing in the inert
+// clone only stops it running on the page, so the clone Readability
+// serializes must hold no such text.
+test('text that would end its own raw-text element reaches Readability as text, never as markup', () => {
+    const BREAK = (tag) => `shown </${tag}><img src=https://px.example/${tag}.gif onerror=alert(1)>`;
+    const page = mirrorPage([
+        h('html', {},
+            h('body', {},
+                h('article', { $key: 'art' },
+                    h('p', {}, 'Body text.'),
+                    h('xmp', { $key: 'xmp' }, BREAK('xmp')),
+                    h('xmp', { $key: 'xmpOk' }, 'plain <b>xmp</b> text'),
+                    h('noembed', { $key: 'noembed' }, BREAK('noembed')),
+                    h('noframes', { $key: 'noframes' }, BREAK('NOFRAMES')),
+                    h('iframe', { $key: 'iframe', src: 'https://www.youtube.com/embed/x' }, BREAK('iframe ')),
+                    h('noembed', { $key: 'noembedOk' }, 'a fallback'))))
+    ]);
+    let handed = null;
+    const article = runCapture(ContentExtractor, page, { parse: (doc) => { handed = doc; return parsed(); } });
+    assert.deepEqual(page.errors, []);
+    assert.equal(typeof article, 'object', 'sanity: the capture got past the stubbed parse');
+    assert.equal(handed, page.clone, 'sanity: Readability is handed the clone');
+    assert.deepEqual(page.writes, [], 'the live page is untouched');
+
+    // The invariant, on the document Readability serializes.
+    const rawText = handed.querySelectorAll('xmp, iframe, noembed, noframes');
+    assert.ok(rawText.length >= 5, 'sanity: the elements themselves are still there');
+    for (const el of rawText) {
+        assert.doesNotMatch(el.textContent, new RegExp(`</${el.tagName}[\\s/>]`, 'i'), `${el.tagName}: no end tag of its own in its text`);
+    }
+    // The page shows an <xmp>'s text, so it survives, as a <pre>'s text.
+    assert.equal(page.clone$.art.replaced.length, 1, 'only the breaking <xmp> is swapped');
+    const [swap] = page.clone$.art.replaced;
+    assert.equal(swap.old, page.clone$.xmp);
+    assert.equal(swap.nw.tagName, 'PRE');
+    assert.equal(swap.nw.owner, 'clone');
+    assert.equal(swap.nw.textContent, BREAK('xmp'));
+    // The page never shows the others' text, so it goes.
+    for (const k of ['noembed', 'noframes', 'iframe']) assert.equal(page.clone$[k].textContent, '', k);
+    // Text that cannot end its element round-trips as it is: left alone.
+    assert.equal(page.clone$.xmpOk.textContent, 'plain <b>xmp</b> text');
+    assert.equal(page.clone$.noembedOk.textContent, 'a fallback');
+});
