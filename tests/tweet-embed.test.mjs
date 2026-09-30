@@ -277,7 +277,11 @@ test('the tweet author is escaped the same way', () => {
     assert.equal(split.split('\n')[0], '> 🐦 **Tweet by Some One # heading**');
 });
 
-test('in X-Ray\'s reader, a tweet plants no image and no link an ordinary paragraph would not', () => {
+// Parity, not absence: markdownToHtml ignores backslash escapes, so an
+// escaped "[x](url)" is a live link in X-Ray's reader, in a tweet and in
+// a paragraph alike (JOURNAL 2026-09-30; the renderer is an open
+// question for the maintainer). An escaped image renders as no <img>.
+test('in X-Ray\'s reader, a tweet plants no image, and no link that an ordinary paragraph would not', () => {
     const hrefs = (html) => [...html.matchAll(/\b(?:href|src)="([^"]*)"/g)].map((m) => m[1]).sort();
     for (const line of PLANTED) {
         const tweet = ContentExtractor.markdownToHtml(ContentExtractor.htmlToMarkdown(tweetHtml(escHtml(line))));

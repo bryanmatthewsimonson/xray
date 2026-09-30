@@ -922,7 +922,10 @@ export const ContentExtractor = {
           // The tweet's text and author are the page's (and the tweet
           // author's) words: escaped with Turndown's own escape, line by
           // line, exactly as an ordinary paragraph's text is, so they
-          // cannot plant an image, a link or a block in the capture.
+          // plant nothing an ordinary paragraph would not. A CommonMark
+          // renderer shows them as text. X-Ray's markdownToHtml ignores
+          // backslash escapes, so there an escaped "[x](url)" is still a
+          // live link, as in any paragraph (JOURNAL 2026-09-30).
           replacement: function(content, node) {
             const tweetUrl = tweetLinkUrl(node.getAttribute('data-tweet-url'));
             const paragraphs = [];
