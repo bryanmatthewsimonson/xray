@@ -40,7 +40,7 @@ export const MAX_ENTITY_AUDIT_OUTPUT_TOKENS = 32768;
 
 const EXTERNAL_ID_SCHEMES = ['wikidata', 'url'];
 
-/** The forced tool: a flat op list, discriminated on `op`. */
+/** The pass's tool: a flat op list, discriminated on `op`. */
 export function buildEntityAuditTool() {
     return {
         name: ENTITY_AUDIT_TOOL_NAME,

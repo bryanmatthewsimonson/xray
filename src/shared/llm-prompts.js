@@ -29,11 +29,12 @@ export const SUGGESTABLE_ENTITY_TYPES = Object.freeze(
 // ------------------------------------------------------------------
 
 // Ordered most-capable-first; the Options picker renders this verbatim.
-// Adding a model is this line + nothing else — every caller resolves
-// through resolveModel(), and the corpus/lens/audit passes all read the
-// user's stored choice. Cost note (per MTok in/out, 2026-08): Fable 5
-// $10/$50 · Opus 5 and Opus 4.8 $5/$25 · Sonnet 5 $3/$15 · Haiku 4.5
-// $1/$5.
+// Adding a model is this line, with its `force_tool` answer — every
+// caller resolves through resolveModel(), and the corpus/lens/audit
+// passes all read the user's stored choice. Cost note (per MTok in/out,
+// Anthropic's list as of 2026-09-25): Fable 5.1 and Fable 5 $10/$50 ·
+// Opus 5 and Opus 4.8 $5/$25 · Opus 5.5 $4/$20 · Sonnet 5.5 and
+// Sonnet 5 $2/$10 · Sonnet 4.6 $3/$15 · Haiku 4.5 $1/$5.
 //
 // THINKING BUDGET (2026-08-12): every pass omits the `thinking` param,
 // and what that means now varies by model — on Opus 4.8/4.7 it means
@@ -41,7 +42,11 @@ export const SUGGESTABLE_ENTITY_TYPES = Object.freeze(
 // is ON and its tokens share the pass's `max_tokens`. That is why
 // MAX_REDUCE_OUTPUT_TOKENS is 32768 (JOURNAL 2026-07-18); the 8192-cap
 // passes (map, lens, audit module, vision, forensic, links) have not
-// been re-measured against a thinking-on default.
+// been re-measured against a thinking-on default. Fable 5.1, Opus 5.5
+// and Sonnet 5.5 have adaptive thinking on by default too (on Fable
+// 5.1 and Opus 5.5 it cannot be turned off), and no pass sets
+// `effort`: Opus 5.5's default is `medium`, one step below Opus 5's
+// `high` (JOURNAL 2026-09-29).
 //
 // `max_output` is the model's HARD per-response ceiling — sending a
 // larger `max_tokens` is a 400, so every pass clamps to it
@@ -49,14 +54,23 @@ export const SUGGESTABLE_ENTITY_TYPES = Object.freeze(
 // ceiling, never a target, and unproduced tokens are never billed. That
 // asymmetry is why the pass caps should sit HIGH — the only real cost of
 // headroom is how long a call may run, which the timeouts own.
+//
+// `force_tool` says whether a pass may FORCE its one tool on the model
+// (`tool_choice: {type: 'tool'}`, what every pass sent before 2026-09).
+// Fable 5.1, Opus 5.5 and Sonnet 5.5 reject that with a 400; they, and
+// any id missing from this list, get `auto` plus a system line naming
+// the tool instead (withToolChoice below; JOURNAL 2026-09-29).
 export const LLM_MODELS = Object.freeze([
-    { id: 'claude-fable-5',    max_output: 128000, label: 'Claude Fable 5 (most capable — highest cost)' },
-    { id: 'claude-opus-5',     max_output: 128000, label: 'Claude Opus 5 (most capable Opus)' },
-    { id: 'claude-opus-4-8',   max_output: 128000, label: 'Claude Opus 4.8' },
-    { id: 'claude-opus-4-7',   max_output: 128000, label: 'Claude Opus 4.7' },
-    { id: 'claude-sonnet-5',   max_output: 128000, label: 'Claude Sonnet 5 (near-Opus quality, Sonnet cost)' },
-    { id: 'claude-sonnet-4-6', max_output: 128000, label: 'Claude Sonnet 4.6 (balanced)' },
-    { id: 'claude-haiku-4-5',  max_output:  64000, label: 'Claude Haiku 4.5 (fastest / cheapest)' }
+    { id: 'claude-fable-5-1',  max_output: 128000, force_tool: false, label: 'Claude Fable 5.1 (most capable — highest cost)' },
+    { id: 'claude-fable-5',    max_output: 128000, force_tool: true,  label: 'Claude Fable 5' },
+    { id: 'claude-opus-5-5',   max_output: 128000, force_tool: false, label: 'Claude Opus 5.5' },
+    { id: 'claude-opus-5',     max_output: 128000, force_tool: true,  label: 'Claude Opus 5' },
+    { id: 'claude-opus-4-8',   max_output: 128000, force_tool: true,  label: 'Claude Opus 4.8' },
+    { id: 'claude-opus-4-7',   max_output: 128000, force_tool: true,  label: 'Claude Opus 4.7' },
+    { id: 'claude-sonnet-5-5', max_output: 128000, force_tool: false, label: 'Claude Sonnet 5.5' },
+    { id: 'claude-sonnet-5',   max_output: 128000, force_tool: true,  label: 'Claude Sonnet 5 (near-Opus quality, Sonnet cost)' },
+    { id: 'claude-sonnet-4-6', max_output: 128000, force_tool: true,  label: 'Claude Sonnet 4.6 (balanced)' },
+    { id: 'claude-haiku-4-5',  max_output:  64000, force_tool: true,  label: 'Claude Haiku 4.5 (fastest / cheapest)' }
 ]);
 
 // The lowest ceiling in the roster — the largest `max_tokens` that is
@@ -85,8 +99,8 @@ export function outputBudget(passCap, modelId) {
 // DOMINANT workload, and that is now long-form: at the 400k map bound a
 // four-hour transcript is ~63k INPUT tokens against ~20k output, so
 // input price dominates the pass and Sonnet 5's $3/MTok against Opus
-// 5's $5 is where the saving actually lands (~$0.50 vs ~$0.80 per
-// episode). Sonnet 5 is near-Opus on exactly this shape of work —
+// 5's $5 (2026-08 prices) is where the saving actually lands (~$0.50
+// vs ~$0.80 per episode). Sonnet 5 is near-Opus on exactly this shape of work —
 // extraction against a supplied text, not open-ended reasoning. Opus 5
 // and Fable 5 stay one click away for the passes that earn them
 // (corpus reduce, forensic, lens). Only unset/unknown stored values
@@ -107,6 +121,43 @@ export function isKnownModel(id) {
 /** Map an arbitrary stored value to a real model id (defaulting). */
 export function resolveModel(id) {
     return isKnownModel(id) ? id : DEFAULT_LLM_MODEL;
+}
+
+/**
+ * Whether a pass may force its tool on this model. Only a roster line
+ * that says so: an id the roster does not list gets `auto`, which every
+ * model accepts, rather than a forced tool the newest models reject.
+ */
+export function modelForcesTool(id) {
+    const m = LLM_MODELS.find((x) => x.id === id);
+    return !!(m && m.force_tool === true);
+}
+
+/**
+ * Require a one-tool pass's tool in the way `payload.model` accepts.
+ * A model that takes a forced tool gets exactly what every pass sent
+ * before 2026-09. Any other model gets `auto`, at most one call (so a
+ * second call can never carry half the answer past extractToolInput),
+ * and one system line naming the tool. Pure — returns a new payload.
+ */
+export function withToolChoice(payload, toolName) {
+    if (modelForcesTool(payload.model)) {
+        return { ...payload, tool_choice: { type: 'tool', name: toolName } };
+    }
+    // "In the tool call, not a text reply" — not "not in prose": most
+    // tool fields ARE prose (summaries, captions, transcriptions).
+    const line = `Answer by calling the ${toolName} tool. X-Ray reads only that tool's input, `
+        + 'so put your whole answer in the tool call, not in a text reply.';
+    const system = Array.isArray(payload.system)
+        ? [...payload.system, { type: 'text', text: line }]
+        : (payload.system ? `${payload.system}\n\n${line}` : line);
+    return { ...payload, system, tool_choice: { type: 'auto', disable_parallel_tool_use: true } };
+}
+
+/** The one follow-up turn for an `auto` reply that ended without the tool. */
+export function toolNudgeText(toolName) {
+    return `That reply did not call the ${toolName} tool, and X-Ray reads only the tool's input. `
+        + `Call ${toolName} now with your complete answer.`;
 }
 
 // The Anthropic Messages API surface this module targets. The client

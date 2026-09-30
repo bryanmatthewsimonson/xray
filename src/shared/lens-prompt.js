@@ -30,7 +30,7 @@ export const LENS_PROMPT_VERSION = '1.0';
 export const LENS_TOOL_NAME = 'emit_lens_reading';
 
 /**
- * The single forced tool. Its input is this jurisdiction's readings of
+ * The single tool. Its input is this jurisdiction's readings of
  * the listed claims plus a reconstruction summary — nothing else. The
  * grounding report counts, the panel composition, and every
  * jurisdiction-identity field are computed in code, never asked of the

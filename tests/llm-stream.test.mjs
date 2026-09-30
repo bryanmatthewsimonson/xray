@@ -100,6 +100,25 @@ test('text and thinking deltas accumulate; a refusal on message_start survives',
     assert.equal(message.stop_details.category, 'cyber');
 });
 
+// A repair or follow-up turn sends the model's whole reply back, and the
+// API rejects a thinking block that has lost its signature. Opus 5.5,
+// Sonnet 5.5 and Fable 5.1 think by default, so once a pass stops
+// forcing its tool, their replies can open with a thinking block.
+test('a thinking block keeps its signature, which arrives as its own deltas', () => {
+    const { message } = run(sse([
+        { type: 'message_start', message: { id: 'm', role: 'assistant', model: 'claude-opus-5-5' } },
+        { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'hm' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'EqQBCgIYAh' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'IM1gbcDa9G' } },
+        { type: 'content_block_stop', index: 0 },
+        { type: 'message_delta', delta: { stop_reason: 'end_turn' } },
+        { type: 'message_stop' }
+    ]));
+    assert.equal(message.content[0].thinking, 'hm');
+    assert.equal(message.content[0].signature, 'EqQBCgIYAhIM1gbcDa9G');
+});
+
 test('a mid-stream error frame is reported, never returned as an empty success', () => {
     const { error } = run(sse([
         { type: 'message_start', message: { id: 'm', model: 'x' } },

@@ -1,8 +1,9 @@
 // Anthropic Messages STREAMING — the SSE wire, reassembled.
 //
-// WHY STREAM AT ALL. Every pass sends a forced `tool_choice`, so the
-// answer arrives as one tool_use block and nothing renders
-// incrementally — streaming is not a UX flourish here. It buys three
+// WHY STREAM AT ALL. Every pass requires one tool (forced, or `auto`
+// on the models that reject forcing — withToolChoice in
+// llm-prompts.js), so the answer arrives as a tool_use block and
+// nothing renders incrementally — streaming is not a UX flourish here. It buys three
 // things a single `await resp.json()` cannot:
 //
 //   1. NO WALL-CLOCK CEILING. A non-streaming response must arrive
@@ -178,6 +179,11 @@ export function createMessageAssembler({ salvage = false, onProgress = null } = 
                     if (!b) break;
                     if (d.type === 'text_delta') { b.text = (b.text || '') + (d.text || ''); chars += (d.text || '').length; }
                     else if (d.type === 'thinking_delta') { b.thinking = (b.thinking || '') + (d.thinking || ''); }
+                    // The signature is what lets a thinking block travel back
+                    // to the API: a repair or follow-up turn echoes the whole
+                    // reply, and an unsigned thinking block is rejected
+                    // (JOURNAL 2026-09-29).
+                    else if (d.type === 'signature_delta') { b.signature = (b.signature || '') + (d.signature || ''); }
                     else if (d.type === 'input_json_delta') {
                         const add = d.partial_json || '';
                         partials.set(ev.index, (partials.get(ev.index) || '') + add);

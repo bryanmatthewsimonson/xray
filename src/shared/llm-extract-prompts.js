@@ -43,7 +43,7 @@ export const EXTRACT_TOOL_NAME = 'xray_extract';
 export const MAX_EXTRACT_PAGES = 100;
 export const MAX_EXTRACT_BYTES = 22 * 1024 * 1024;
 
-/** The forced tool: an ordered span list. */
+/** The pass's tool: an ordered span list. */
 export function buildExtractTool() {
     return {
         name: EXTRACT_TOOL_NAME,
