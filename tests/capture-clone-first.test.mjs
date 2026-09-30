@@ -23,6 +23,7 @@ const { ContentExtractor } = await import('../src/shared/content-extractor.js');
 const PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';
 const LAZY = 'https://cdn.example/lazy.jpg';
 const NOSCRIPT_REAL = 'https://cdn.example/real.jpg';
+const NOSCRIPT_HTML = `<img src="${NOSCRIPT_REAL}" alt="Real" onerror="alert(1)">`;
 const BODY = '<p>' + 'Body text. '.repeat(30) + '</p>';
 
 // One of every pre-pass target. Only `icon` (index 3 of the page's
@@ -38,7 +39,7 @@ function storyPage() {
                     h('img', { $key: 'srcsetImg', srcset: 'https://cdn.example/s-1x.jpg 1x, https://cdn.example/s-2x.jpg 2x', $live: { offsetWidth: 300 } }),
                     h('figure', { $key: 'nsParent' },
                         h('img', { $key: 'nsImg', src: PLACEHOLDER, $live: { offsetWidth: 500 } }),
-                        h('noscript', {}, `<img src="${NOSCRIPT_REAL}" alt="Real" onerror="alert(1)">`)),
+                        h('noscript', {}, NOSCRIPT_HTML)),
                     h('img', { $key: 'icon', src: 'https://cdn.example/icon.png', $live: { naturalWidth: 40, naturalHeight: 30 } }),
                     h('div', { $key: 'tweetParent' },
                         h('blockquote', { $key: 'tweet', class: 'twitter-tweet' },
@@ -118,4 +119,21 @@ test('a capture that fails, or falls back, leaves the tab untouched too', () => 
     assert.equal(fallback.errors.length, 1, 'sanity: the catch path ran');
     assert.deepEqual(fallback.writes, []);
     assert.equal(fallback.clone$.hero.src, LAZY, 'the passes ran (on the clone) before the parse threw');
+});
+
+// Markup parsed into an element the LIVE document owns loads its images
+// and runs its inline handlers in the page's context, even detached. The
+// clone is inert (no browsing context), so both parses happen there.
+test('the noscript fallback and the post-Readability fix-up parse in the clone, never in the live page', () => {
+    const page = storyPage();
+    const article = runCapture(ContentExtractor, page, { parse: parsed });
+    assert.deepEqual(page.errors, []);
+    assert.equal(typeof article, 'object');
+    assert.deepEqual(page.liveDoc.created, [], 'the live document creates no element at all');
+    assert.deepEqual(page.parses.map(({ owner, tag, html }) => ({ owner, tag, html })), [
+        { owner: 'clone', tag: 'DIV', html: NOSCRIPT_HTML },
+        { owner: 'clone', tag: 'DIV', html: BODY },
+    ], 'exactly two parses, both in elements the clone owns');
+    assert.equal(page.clone$.nsImg.src, NOSCRIPT_REAL, 'the noscript image still replaces its placeholder');
+    assert.equal(article.content, BODY, 'the fixed-up content is what the parse produced');
 });

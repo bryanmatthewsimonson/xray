@@ -84,9 +84,12 @@ export const ContentExtractor = {
           }
       });
 
-      // Handle noscript image fallbacks (many sites put real images in noscript tags)
+      // Handle noscript image fallbacks (many sites put real images in noscript tags).
+      // Parsed in an element the CLONE owns: the clone has no browsing
+      // context, so the markup loads nothing and runs no handler. An
+      // element of the live page would do both, even detached.
       documentClone.querySelectorAll('noscript').forEach(noscript => {
-          const temp = document.createElement('div');
+          const temp = documentClone.createElement('div');
           temp.innerHTML = noscript.textContent || noscript.innerHTML;
           const noscriptImgs = temp.querySelectorAll('img[src]');
           noscriptImgs.forEach(nImg => {
@@ -176,8 +179,10 @@ export const ContentExtractor = {
           return null;
         }
         
-        // Post-process extracted content to fix image URLs
-        const tempDiv = document.createElement('div');
+        // Post-process extracted content to fix image URLs. Re-parsed in
+        // the (inert) clone, never the live page: the clone keeps the
+        // page's URL and <base>, so img.src below resolves the same.
+        const tempDiv = documentClone.createElement('div');
         tempDiv.innerHTML = article.content;
 
         tempDiv.querySelectorAll('img').forEach(img => {
