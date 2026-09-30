@@ -80,18 +80,20 @@ export const SAFE_OUTPUT_CEILING = 64000;
 
 /**
  * The model's hard output ceiling, for clamping a pass's `max_tokens`.
- * Unknown ids fall back to the safe floor rather than the optimistic
- * 128k: over-asking is a 400 that kills the call, under-asking only
- * risks a truncation the caller already reports honestly.
+ * A model found through the Models API (`discovered`, newerThanRoster
+ * below) answers with the ceiling the API reported for it. Unknown ids
+ * fall back to the safe floor rather than the optimistic 128k:
+ * over-asking is a 400 that kills the call, under-asking only risks a
+ * truncation the caller already reports honestly.
  */
-export function modelOutputCeiling(id) {
-    const m = LLM_MODELS.find((x) => x.id === id);
+export function modelOutputCeiling(id, discovered = []) {
+    const m = LLM_MODELS.find((x) => x.id === id) || discovered.find((x) => x.id === id);
     return (m && m.max_output) || SAFE_OUTPUT_CEILING;
 }
 
 /** A pass's `max_tokens`: what it asks for, clamped to what the model allows. */
-export function outputBudget(passCap, modelId) {
-    return Math.min(passCap, modelOutputCeiling(modelId));
+export function outputBudget(passCap, modelId, discovered = []) {
+    return Math.min(passCap, modelOutputCeiling(modelId, discovered));
 }
 
 // Sonnet 5, not the top of the roster — a deliberate departure from
@@ -118,9 +120,68 @@ export function isKnownModel(id) {
     return LLM_MODELS.some((m) => m.id === id);
 }
 
-/** Map an arbitrary stored value to a real model id (defaulting). */
-export function resolveModel(id) {
-    return isKnownModel(id) ? id : DEFAULT_LLM_MODEL;
+/**
+ * Map an arbitrary stored value to a real model id (defaulting). A
+ * discovered model counts only while the account still lists it.
+ */
+export function resolveModel(id, discovered = []) {
+    return (isKnownModel(id) || discovered.some((m) => m.id === id)) ? id : DEFAULT_LLM_MODEL;
+}
+
+// ------------------------------------------------------------------
+// Newer models from the user's own Anthropic account (JOURNAL
+// 2026-09-29). The Models API lists what the saved key can call; a
+// model the roster has not caught up with is offered in the picker
+// under "Newer — not yet verified with X-Ray", and every pass can run
+// on it — on `auto` tool choice, since modelForcesTool answers false
+// for any id the roster does not list.
+// ------------------------------------------------------------------
+
+// The date the roster was last brought up to date. Only a listed model
+// CREATED AFTER it counts as newer, so the older models the roster
+// leaves out on purpose stay out. Bump it with the roster; forgetting
+// only means a model the roster skipped keeps showing as newer.
+export const ROSTER_AS_OF = '2026-09-25';
+
+// Raw chrome.storage.local, like the model preference: the worker
+// writes it after each refresh and resolves the stored choice against
+// it. Derived from ONE key's account, so no backup carries it.
+export const LLM_DISCOVERED_MODELS_STORAGE = 'xray:llm:discovered_models';
+
+const MAX_DISCOVERED_MODELS = 10;
+const MAX_MODEL_LABEL = 80;
+// The id goes back to Anthropic as `model` and the label into the
+// Options page, so both are checked, never trusted.
+const MODEL_ID_RX = /^claude-[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/**
+ * A Models API listing (its `data` array) → the models newer than the
+ * roster, newest first, at most ten, in the roster's shape:
+ * `{ id, label, created_at, max_output? }`. It also accepts its own
+ * output and returns it unchanged, so the stored list re-reads through
+ * it as itself.
+ */
+export function newerThanRoster(listed) {
+    if (!Array.isArray(listed)) return [];
+    const asOf = Date.parse(ROSTER_AS_OF);
+    const byId = new Map();
+    for (const m of listed) {
+        const id = m && typeof m.id === 'string' ? m.id : '';
+        if (!MODEL_ID_RX.test(id) || isKnownModel(id) || byId.has(id)) continue;
+        const created = Date.parse(m.created_at);
+        if (!(created > asOf)) continue;
+        const name = typeof m.label === 'string' ? m.label : m.display_name;
+        const max = m.max_output !== undefined ? m.max_output : m.max_tokens;
+        byId.set(id, {
+            id,
+            label: typeof name === 'string' && name.trim() ? name.trim().slice(0, MAX_MODEL_LABEL) : id,
+            created_at: new Date(created).toISOString(),
+            ...(Number.isInteger(max) && max > 0 ? { max_output: max } : {})
+        });
+    }
+    return [...byId.values()]
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .slice(0, MAX_DISCOVERED_MODELS);
 }
 
 /**
@@ -163,6 +224,7 @@ export function toolNudgeText(toolName) {
 // The Anthropic Messages API surface this module targets. The client
 // (src/shared/llm-client.js) is the only thing that reads these.
 export const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
+export const ANTHROPIC_MODELS_URL = 'https://api.anthropic.com/v1/models';
 export const ANTHROPIC_VERSION = '2023-06-01';
 
 // The set of artifact kinds a pass can request. 'all' covers them all.

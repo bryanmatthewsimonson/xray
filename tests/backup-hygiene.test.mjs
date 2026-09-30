@@ -90,7 +90,7 @@ test('every known credential constant is in CREDENTIAL_STORAGE_KEYS', () => {
 
 test('backup.js imports the credential constants instead of restating strings', () => {
     const src = read('src/shared/backup.js');
-    assert.match(src, /import \{ LLM_KEY_STORAGE \} from '\.\/llm-prompts\.js'/);
+    assert.match(src, /import \{ LLM_KEY_STORAGE(?:, [A-Z_]+)* \} from '\.\/llm-prompts\.js'/);
     assert.match(src, /TRANSCRIBER_TOKEN_STORAGE, ASSEMBLYAI_KEY_STORAGE, DEEPGRAM_KEY_STORAGE/);
     // The one legitimate string mention left is in comments; the
     // exclusion list itself must be built from the imported class.
@@ -107,6 +107,22 @@ test('no credential value appears anywhere in a full backup', async () => {
     for (const secret of Object.values(SECRETS)) {
         assert.ok(!json.includes(secret), `credential value ${secret} leaked into the backup JSON`);
     }
+});
+
+// The newer-models list is derived from ONE key's Anthropic account
+// (JOURNAL 2026-09-29): restored onto another install it would offer
+// models that install's key may not be able to call.
+test('the discovered-models list never rides in a backup, and a restore never writes it', async () => {
+    const { LLM_DISCOVERED_MODELS_STORAGE } = await import('../src/shared/llm-prompts.js');
+    const list = { fetched_at: '2026-10-01T00:00:00.000Z', models: [{ id: 'claude-opus-6', label: 'Claude Opus 6', created_at: '2026-10-01T00:00:00.000Z' }] };
+    seedStorage();
+    _stateStore.set(LLM_DISCOVERED_MODELS_STORAGE, list);
+    const backup = await collectBackup({ includeSourceBytes: true });
+    assert.ok(!(LLM_DISCOVERED_MODELS_STORAGE in backup.storage), 'the list leaked into backup.storage');
+
+    _stateStore.delete(LLM_DISCOVERED_MODELS_STORAGE);
+    await applyBackup({ ...backup, storage: { ...backup.storage, [LLM_DISCOVERED_MODELS_STORAGE]: list } });
+    assert.equal(_stateStore.has(LLM_DISCOVERED_MODELS_STORAGE), false, 'a hand-edited file wrote the list');
 });
 
 test('restore leaves every stored credential untouched', async () => {

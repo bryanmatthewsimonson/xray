@@ -43,6 +43,7 @@ export const LANES = Object.freeze([
         owns: [
             'src/background/index.js',
             'src/background/llm-jobs.js',
+            'src/background/llm-models.js',
             'src/shared/llm-jobs.js',
             'src/shared/nostr-client.js',
             'src/shared/session-articles.js',
