@@ -146,12 +146,18 @@ export const ContentExtractor = {
       const documentClone = document.cloneNode(true);
       const cloneImgs = Array.from(documentClone.querySelectorAll('img'));
       const imgsPaired = liveImgs.length === cloneImgs.length;
+      // Clone images a pass below gives a new source. Their live twin
+      // still shows the old one (a 1x1 placeholder, an alt-text box, a
+      // broken-image icon), so its layout says nothing about the new
+      // image: Fix A sizes these from their attributes alone.
+      const repointed = new Set();
 
       // Pre-process lazy-loaded images
       documentClone.querySelectorAll('img[data-src], img[data-lazy-src], img[data-original], img[data-lazy]').forEach(img => {
           const lazySrc = img.dataset.src || img.dataset.lazySrc || img.dataset.original || img.dataset.lazy;
           if (lazySrc && (!img.src || img.src.includes('data:') || img.src.includes('placeholder') || img.src.includes('blank'))) {
               img.src = lazySrc;
+              repointed.add(img);
           }
       });
 
@@ -162,6 +168,7 @@ export const ContentExtractor = {
               const firstUrl = srcset.split(',')[0].trim().split(/\s+/)[0];
               if (firstUrl && (!img.src || img.src.includes('data:') || img.src.includes('placeholder'))) {
                   img.src = firstUrl;
+                  repointed.add(img);
               }
           }
       });
@@ -180,6 +187,7 @@ export const ContentExtractor = {
                   const existingImg = parent.querySelector('img');
                   if (existingImg && (!existingImg.src || existingImg.src.includes('data:') || existingImg.src.includes('placeholder'))) {
                       existingImg.src = nImg.src;
+                      repointed.add(existingImg);
                       if (nImg.alt) existingImg.alt = nImg.alt;
                   }
               }
@@ -190,9 +198,10 @@ export const ContentExtractor = {
       // Small images (avatars, icons, emoji) get enlarged by max-width:100% in reader view.
       // The sizes need layout, which only the live page has: read them
       // from the live twin, stamp the clone. Unpaired lists (never seen;
-      // a guard) fall back to the width/height attributes.
+      // a guard) and re-pointed images fall back to the width/height
+      // attributes.
       cloneImgs.forEach((img, i) => {
-          const live = imgsPaired ? liveImgs[i] : null;
+          const live = imgsPaired && !repointed.has(img) ? liveImgs[i] : null;
           const naturalWidth = (live && live.naturalWidth) || parseInt(img.getAttribute('width')) || (live && live.offsetWidth) || 0;
           const naturalHeight = (live && live.naturalHeight) || parseInt(img.getAttribute('height')) || (live && live.offsetHeight) || 0;
           // Only tag small images (< 100px) to prevent enlargement in reader view

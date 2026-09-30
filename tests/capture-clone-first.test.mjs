@@ -137,3 +137,51 @@ test('the noscript fallback and the post-Readability fix-up parse in the clone, 
     assert.equal(page.clone$.nsImg.src, NOSCRIPT_REAL, 'the noscript image still replaces its placeholder');
     assert.equal(article.content, BODY, 'the fixed-up content is what the parse produced');
 });
+
+// A pass that gives a clone image a new source (the lazy swap, the
+// srcset fallback, the noscript fallback) leaves its live twin showing
+// the OLD one: a 1x1 placeholder, an alt-text box, a broken-image icon.
+// That layout says nothing about the new image, so those images are
+// sized from their width/height attributes alone. Measured in Chromium
+// 141, the live twins read as below (nw = naturalWidth, ow = offsetWidth).
+test('an image a pass re-points is never stamped with its live placeholder\'s size', () => {
+    const page = mirrorPage([
+        h('html', {},
+            h('body', {},
+                h('article', {},
+                    // <img data-src alt="Photo">: no src, an alt-text box (nw 0, ow 53x18)
+                    h('img', { $key: 'altBox', 'data-src': 'https://cdn.example/photo.jpg', alt: 'Photo', $live: { offsetWidth: 53, offsetHeight: 18 } }),
+                    // <img data-srcset alt="Chart">: the same, through the srcset pass
+                    h('img', { $key: 'srcsetBox', 'data-srcset': 'https://cdn.example/chart.png 1x', alt: 'Chart', $live: { offsetWidth: 52, offsetHeight: 18 } }),
+                    // a valid 1x1 placeholder (nw 1): stamped 1x1 before, on the live page too
+                    h('img', { $key: 'onePx', src: PLACEHOLDER, 'data-src': 'https://cdn.example/big.jpg', $live: { naturalWidth: 1, naturalHeight: 1, offsetWidth: 1, offsetHeight: 1 } }),
+                    // a broken placeholder: the broken-image icon (nw 0, ow 16x16)
+                    h('img', { $key: 'broken', src: 'https://cdn.example/blank.png', 'data-src': 'https://cdn.example/big2.jpg', $live: { offsetWidth: 16, offsetHeight: 16 } }),
+                    // the noscript fallback over a broken placeholder (nw 0, ow 36x18)
+                    h('figure', {},
+                        h('img', { $key: 'nsBox', src: 'https://cdn.example/placeholder.png', alt: 'N', $live: { offsetWidth: 36, offsetHeight: 18 } }),
+                        h('noscript', {}, `<img src="${NOSCRIPT_REAL}" alt="Real">`)),
+                    // a re-pointed image the page sizes itself: its attributes still count
+                    h('img', { $key: 'sizedLazy', src: PLACEHOLDER, 'data-src': 'https://cdn.example/emoji.png', width: '20', height: '18', $live: { naturalWidth: 1, naturalHeight: 1, offsetWidth: 20 } }),
+                    // control: an ordinary small image is still stamped from the live page
+                    h('img', { $key: 'icon', src: 'https://cdn.example/icon.png', $live: { naturalWidth: 40, naturalHeight: 30 } }))))
+    ]);
+    const article = runCapture(ContentExtractor, page, { parse: parsed });
+    assert.deepEqual(page.errors, []);
+    assert.equal(typeof article, 'object', 'sanity: the capture got past the stubbed parse');
+    assert.deepEqual(page.writes, []);
+
+    const c = page.clone$;
+    assert.equal(c.altBox.src, 'https://cdn.example/photo.jpg', 'sanity: the lazy pass re-pointed it');
+    assert.equal(c.srcsetBox.src, 'https://cdn.example/chart.png', 'sanity: the srcset pass re-pointed it');
+    assert.equal(c.nsBox.src, NOSCRIPT_REAL, 'sanity: the noscript pass re-pointed it');
+    for (const k of ['altBox', 'srcsetBox', 'onePx', 'broken', 'nsBox']) {
+        assert.deepEqual([c[k].getAttribute('width'), c[k].getAttribute('height'), c[k].classList.contains('xr-inline-img')],
+            [null, null, false], `${k}: no stamp from the live placeholder`);
+    }
+    assert.deepEqual([c.sizedLazy.getAttribute('width'), c.sizedLazy.getAttribute('height'), c.sizedLazy.classList.contains('xr-inline-img')],
+        ['20', '18', true], 'a re-pointed image with its own width/height is stamped from them');
+    assert.deepEqual([c.icon.getAttribute('width'), c.icon.getAttribute('height')], ['40', '30'], 'control: the icon is stamped');
+    const readFrom = new Set(page.layoutReads.map((r) => r.split('.')[0]));
+    assert.deepEqual([...readFrom], ['icon'], 'layout is read only for the image no pass re-pointed');
+});
