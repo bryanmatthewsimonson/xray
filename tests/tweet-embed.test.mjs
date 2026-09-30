@@ -1,15 +1,18 @@
-// Embedded-tweet clean-up in ContentExtractor.extractArticle: before
-// cloning, the pre-pass swaps each embedded tweet ON THE LIVE PAGE for
-// a plain <blockquote class="xr-tweet-embed">. It used to build that
-// stand-in with innerHTML from the tweet's textContent, so a tweet that
-// READS "<img src=x onerror=…>" became live markup that ran on the
-// captured site (JOURNAL 2026-09-30). The first test drives the real
-// extractArticle through the pre-pass with stub elements (no jsdom) and
-// is the regression proof. The last one characterizes what happens to
-// the stand-in's text downstream, which this fix did not change.
+// Embedded-tweet clean-up in ContentExtractor.extractArticle: the
+// pre-pass swaps each embedded tweet ON THE CLONE for a plain
+// <blockquote class="xr-tweet-embed"> (the live page is never written;
+// tests/capture-clone-first.test.mjs). It used to build that stand-in
+// with innerHTML from the tweet's textContent, so a tweet that READS
+// "<img src=x onerror=…>" became live markup that ran on the captured
+// site (JOURNAL 2026-09-30). The first test drives the real
+// extractArticle on a hand-built live page and its clone
+// (tests/helpers/capture-page-stub.mjs) and is the regression proof.
+// The last one characterizes what happens to the stand-in's text
+// downstream.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { h, mirrorPage, runCapture } from './helpers/capture-page-stub.mjs';
 
 globalThis.chrome = globalThis.chrome || {
     storage: { local: { get(_k, cb) { cb({}); }, set(_o, cb) { cb && cb(); }, remove(_k, cb) { cb && cb(); } } }
@@ -19,103 +22,58 @@ const { ContentExtractor, buildTweetEmbed } = await import('../src/shared/conten
 
 const HOSTILE = '<img src=x onerror=alert(1)>';
 
-// A stub element that records every innerHTML write instead of parsing.
-function stubDoc() {
-    const innerHTMLWrites = [];
-    function createElement(tag) {
-        return {
-            tagName: tag.toUpperCase(),
-            className: '',
-            children: [],
-            attrs: {},
-            _text: '',
-            setAttribute(n, v) { this.attrs[n] = String(v); },
-            getAttribute(n) { return n in this.attrs ? this.attrs[n] : null; },
-            appendChild(c) { this.children.push(c); return c; },
-            get textContent() {
-                return this.children.length ? this.children.map((c) => c.textContent).join('') : this._text;
-            },
-            set textContent(v) { this.children = []; this._text = String(v); },
-            get innerHTML() { return ''; },
-            set innerHTML(v) { innerHTMLWrites.push(v); },
-        };
-    }
-    return { createElement, innerHTMLWrites };
-}
-
+// A node as a plain tree: elements as { tag, attrs?, children }, text as a string.
 function shape(node) {
+    if (node.nodeType === 3) return node.nodeValue;
     return {
         tag: node.tagName,
-        ...(node.className ? { className: node.className } : {}),
-        ...(Object.keys(node.attrs).length ? { attrs: node.attrs } : {}),
-        ...(node.children.length ? { children: node.children.map(shape) } : { text: node._text }),
+        ...(Object.keys(node.attrs).length ? { attrs: { ...node.attrs } } : {}),
+        children: node.childNodes.map(shape),
     };
 }
 
-test('extractArticle keeps a tweet\'s displayed text as text on the live page', () => {
-    const doc = stubDoc();
+test('extractArticle keeps a tweet\'s displayed text as text', () => {
     const url = 'https://twitter.com/someone/status/1';
-    // The tweet and its parent record any HTML write too, so a parse
-    // anywhere in the pre-pass is observed, not just on created elements.
-    // (Accessors are defined, not spread: a spread would copy them as
-    // plain data properties and stop recording.)
-    const withHtmlSinks = (obj) => Object.defineProperties(obj, {
-        innerHTML: { set(v) { doc.innerHTMLWrites.push(v); } },
-        outerHTML: { set(v) { doc.innerHTMLWrites.push(v); } },
-        insertAdjacentHTML: { value(_pos, v) { doc.innerHTMLWrites.push(v); } },
-    });
-    const parent = withHtmlSinks({ replaced: null, replaceChild(n, o) { this.replaced = { n, o }; } });
-    const tweet = withHtmlSinks({
-        textContent: HOSTILE,
-        parentNode: parent,
-        querySelector(sel) {
-            if (sel === 'p') return { textContent: ` ${HOSTILE} ` };
-            if (sel.startsWith('a[href*="twitter.com"]')) return { href: url };
-            if (sel.startsWith('a:not')) return { textContent: '<b>Some One</b>' };
-            return null;
-        },
-    });
-    const saved = { document: globalThis.document, simple: ContentExtractor.extractSimple, error: console.error };
-    globalThis.document = {
-        createElement: doc.createElement,
-        querySelectorAll: (sel) => (sel.includes('blockquote.twitter-tweet') ? [tweet] : []),
-        // Stop after the pre-clone passes: the catch hands off to extractSimple.
-        cloneNode() { throw new Error('stop after the pre-clone passes'); },
-    };
-    ContentExtractor.extractSimple = () => 'fell-back';
-    console.error = () => {};
-    try {
-        assert.equal(ContentExtractor.extractArticle(), 'fell-back', 'sanity: the stub stops at the clone');
-    } finally {
-        globalThis.document = saved.document;
-        ContentExtractor.extractSimple = saved.simple;
-        console.error = saved.error;
-    }
+    const page = mirrorPage([
+        h('body', {},
+            h('div', { $key: 'parent' },
+                h('blockquote', { $key: 'tweet', class: 'twitter-tweet' },
+                    h('p', {}, ` ${HOSTILE} `),
+                    h('a', { href: url }, 'May 1, 2024'),
+                    h('a', { href: 'https://twitter.com/someone' }, '<b>Some One</b>'))))
+    ]);
+    // The stub clone has no documentElement, so the real Readability
+    // refuses it and the catch hands off to extractSimple: the run stops
+    // right after the pre-passes.
+    assert.equal(runCapture(ContentExtractor, page), 'fell-back', 'sanity: the stub stops at the parse');
 
-    assert.ok(parent.replaced, 'the tweet was swapped for a stand-in');
-    assert.equal(parent.replaced.o, tweet);
-    assert.deepEqual(doc.innerHTMLWrites, [], 'no innerHTML write: the tweet text is never parsed as HTML');
-    assert.deepEqual(shape(parent.replaced.n), {
-        tag: 'BLOCKQUOTE', className: 'xr-tweet-embed', attrs: { 'data-tweet-url': url },
+    const { replaced } = page.clone$.parent;
+    assert.equal(replaced.length, 1, 'the tweet was swapped for a stand-in');
+    assert.equal(replaced[0].old, page.clone$.tweet);
+    assert.equal(replaced[0].nw.owner, 'clone', 'built by the clone document');
+    assert.deepEqual(page.writes, [], 'the live page is untouched');
+    assert.deepEqual(page.parses, [], 'no HTML write anywhere: the tweet text is never parsed as HTML');
+    assert.deepEqual(shape(replaced[0].nw), {
+        tag: 'BLOCKQUOTE', attrs: { class: 'xr-tweet-embed', 'data-tweet-url': url },
         children: [
-            { tag: 'P', text: HOSTILE },
-            { tag: 'FOOTER', text: '— <b>Some One</b>' },
-            { tag: 'CITE', children: [{ tag: 'A', attrs: { href: url }, text: url }] },
+            { tag: 'P', children: [HOSTILE] },
+            { tag: 'FOOTER', children: ['— <b>Some One</b>'] },
+            { tag: 'CITE', children: [{ tag: 'A', attrs: { href: url }, children: [url] }] },
         ],
     });
 });
 
 test('buildTweetEmbed leaves out the footer and cite when there is no author or URL', () => {
-    const doc = stubDoc();
-    const quote = buildTweetEmbed(doc, { text: 'just text' });
-    assert.deepEqual(doc.innerHTMLWrites, []);
+    const page = mirrorPage([]);
+    const quote = buildTweetEmbed(page.clone, { text: 'just text' });
+    assert.deepEqual(page.parses, []);
     assert.deepEqual(shape(quote), {
-        tag: 'BLOCKQUOTE', className: 'xr-tweet-embed', attrs: { 'data-tweet-url': '' },
-        children: [{ tag: 'P', text: 'just text' }],
+        tag: 'BLOCKQUOTE', attrs: { class: 'xr-tweet-embed', 'data-tweet-url': '' },
+        children: [{ tag: 'P', children: ['just text'] }],
     });
 });
 
-test('downstream (unchanged by this fix): the text reaches Markdown verbatim and X-Ray\'s renderer escapes it', () => {
+test('downstream: the text reaches Markdown verbatim and X-Ray\'s renderer escapes it', () => {
     // The stand-in as it comes out of Readability in Chromium: Readability
     // drops the xr-tweet-embed class and the <footer>, and the text node's
     // "<" and ">" serialize escaped. The Markdown then carries the text

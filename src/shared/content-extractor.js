@@ -22,11 +22,12 @@ function sanitizeMdUrl(raw) {
 }
 
 // The clean stand-in extractArticle swaps in for an embedded tweet, on
-// the LIVE page, before cloning. Built with DOM calls only, never
-// innerHTML: `text` and `author` are the tweet's DISPLAYED text
-// (textContent undoes the page's escaping), so a tweet that reads
-// "<img src=x onerror=…>" has to stay text. Parsed as HTML, it became
-// live markup that ran on the captured site (JOURNAL 2026-09-30).
+// the page's CLONE (the live page is never written). Built with DOM
+// calls only, never innerHTML: `text` and `author` are the tweet's
+// DISPLAYED text (textContent undoes the page's escaping), so a tweet
+// that reads "<img src=x onerror=…>" has to stay text. Parsed as HTML,
+// it became live markup that ran on the captured site (JOURNAL
+// 2026-09-30).
 export function buildTweetEmbed(doc, { text = '', author = '', url = '' } = {}) {
   const quote = doc.createElement('blockquote');
   quote.className = 'xr-tweet-embed';
@@ -54,8 +55,18 @@ export const ContentExtractor = {
   // Extract article using Readability (bundled via npm)
   extractArticle: () => {
     try {
-      // Pre-process lazy-loaded images before cloning
-      document.querySelectorAll('img[data-src], img[data-lazy-src], img[data-original], img[data-lazy]').forEach(img => {
+      // Clone FIRST: every pass below edits the clone, and the user's
+      // tab is only ever read (JOURNAL 2026-09-30). The live <img> list
+      // is taken in the same synchronous block as the clone, so no page
+      // script runs in between and the two lists pair index-for-index;
+      // Fix A reads its layout-only sizes from the live twin.
+      const liveImgs = Array.from(document.querySelectorAll('img'));
+      const documentClone = document.cloneNode(true);
+      const cloneImgs = Array.from(documentClone.querySelectorAll('img'));
+      const imgsPaired = liveImgs.length === cloneImgs.length;
+
+      // Pre-process lazy-loaded images
+      documentClone.querySelectorAll('img[data-src], img[data-lazy-src], img[data-original], img[data-lazy]').forEach(img => {
           const lazySrc = img.dataset.src || img.dataset.lazySrc || img.dataset.original || img.dataset.lazy;
           if (lazySrc && (!img.src || img.src.includes('data:') || img.src.includes('placeholder') || img.src.includes('blank'))) {
               img.src = lazySrc;
@@ -63,7 +74,7 @@ export const ContentExtractor = {
       });
 
       // Handle srcset fallback for images without proper src
-      document.querySelectorAll('img[srcset]:not([src]), img[data-srcset]').forEach(img => {
+      documentClone.querySelectorAll('img[srcset]:not([src]), img[data-srcset]').forEach(img => {
           const srcset = img.srcset || img.dataset.srcset;
           if (srcset) {
               const firstUrl = srcset.split(',')[0].trim().split(/\s+/)[0];
@@ -74,7 +85,7 @@ export const ContentExtractor = {
       });
 
       // Handle noscript image fallbacks (many sites put real images in noscript tags)
-      document.querySelectorAll('noscript').forEach(noscript => {
+      documentClone.querySelectorAll('noscript').forEach(noscript => {
           const temp = document.createElement('div');
           temp.innerHTML = noscript.textContent || noscript.innerHTML;
           const noscriptImgs = temp.querySelectorAll('img[src]');
@@ -90,11 +101,15 @@ export const ContentExtractor = {
           });
       });
 
-      // Fix A: Preserve original image dimensions before cloning
-      // Small images (avatars, icons, emoji) get enlarged by max-width:100% in reader view
-      document.querySelectorAll('img').forEach(img => {
-          const naturalWidth = img.naturalWidth || parseInt(img.getAttribute('width')) || img.offsetWidth;
-          const naturalHeight = img.naturalHeight || parseInt(img.getAttribute('height')) || img.offsetHeight;
+      // Fix A: Preserve original image dimensions
+      // Small images (avatars, icons, emoji) get enlarged by max-width:100% in reader view.
+      // The sizes need layout, which only the live page has: read them
+      // from the live twin, stamp the clone. Unpaired lists (never seen;
+      // a guard) fall back to the width/height attributes.
+      cloneImgs.forEach((img, i) => {
+          const live = imgsPaired ? liveImgs[i] : null;
+          const naturalWidth = (live && live.naturalWidth) || parseInt(img.getAttribute('width')) || (live && live.offsetWidth) || 0;
+          const naturalHeight = (live && live.naturalHeight) || parseInt(img.getAttribute('height')) || (live && live.offsetHeight) || 0;
           // Only tag small images (< 100px) to prevent enlargement in reader view
           if (naturalWidth > 0 && naturalWidth < 100) {
               img.classList.add('xr-inline-img');
@@ -103,8 +118,8 @@ export const ContentExtractor = {
           }
       });
 
-      // Pre-process embedded tweets before cloning (expanded selectors for NYT, etc.)
-      document.querySelectorAll([
+      // Pre-process embedded tweets (expanded selectors for NYT, etc.)
+      documentClone.querySelectorAll([
           'blockquote.twitter-tweet',
           'blockquote[cite*="twitter.com"]',
           'blockquote[cite*="x.com"]',
@@ -123,13 +138,13 @@ export const ContentExtractor = {
           const authorName = authorEl?.textContent?.trim() || '';
 
           // Replace complex tweet HTML with clean blockquote
-          const cleanTweet = buildTweetEmbed(document, { text: tweetText, author: authorName, url: tweetUrl });
+          const cleanTweet = buildTweetEmbed(documentClone, { text: tweetText, author: authorName, url: tweetUrl });
 
           tweet.parentNode?.replaceChild(cleanTweet, tweet);
       });
 
       // Also handle Twitter avatar/profile images - constrain their size
-      document.querySelectorAll('img[src*="pbs.twimg.com/profile_images"], img[src*="twimg.com/profile"]').forEach(img => {
+      documentClone.querySelectorAll('img[src*="pbs.twimg.com/profile_images"], img[src*="twimg.com/profile"]').forEach(img => {
           img.classList.add('xr-inline-img');
           img.style.width = '48px';
           img.style.height = '48px';
@@ -138,8 +153,10 @@ export const ContentExtractor = {
           img.setAttribute('height', '48');
       });
 
-      // Clone document for Readability
-      const documentClone = document.cloneNode(true);
+      // Featured image: read from the prepared clone BEFORE Readability
+      // rewrites it, so the lazy-image swaps above still count. It used
+      // to see them only because they were made on the live page.
+      const featuredImage = ContentExtractor.extractFeaturedImage(documentClone);
 
       // Unwrap inline glossary/footnote popups before Readability runs.
       // Sites like josephsmithpapers.org wrap inline person/place names in
@@ -152,9 +169,8 @@ export const ContentExtractor = {
 
       // Readability is now bundled via npm import
       {
-        const reader = new Readability(documentClone);
-        const article = reader.parse();
-        
+        const article = ContentExtractor._parseArticle(documentClone);
+
         if (!article || article.textContent.length < CONFIG.extraction.min_content_length) {
           console.log('[NAC] Readability extraction failed or content too short');
           return null;
@@ -226,8 +242,8 @@ export const ContentExtractor = {
           article.publishedAtSource = dateResult.source;
         }
         
-        // Extract featured image
-        article.featuredImage = ContentExtractor.extractFeaturedImage();
+        // Featured image (read from the clone above)
+        article.featuredImage = featuredImage;
         
         // Extract publication icon (favicon)
         article.publicationIcon = ContentExtractor.extractPublicationIcon();
@@ -291,6 +307,10 @@ export const ContentExtractor = {
       return ContentExtractor.extractSimple();
     }
   },
+
+  // Readability over the detached clone. Its own seam so a test can
+  // drive extractArticle past the parse on stub documents (no jsdom).
+  _parseArticle: (doc) => new Readability(doc).parse(),
 
   // Unwrap inline glossary/footnote popups so the visible reference text
   // survives Readability. Targets the josephsmithpapers.org shape:
@@ -536,8 +556,9 @@ export const ContentExtractor = {
     return null;
   },
 
-  // Extract featured image
-  extractFeaturedImage: () => {
+  // Extract featured image. `root` is the document read: the capture
+  // passes its prepared clone; the default is the live page.
+  extractFeaturedImage: (root = document) => {
     const selectors = [
       'meta[property="og:image"]',
       'meta[name="twitter:image"]',
@@ -546,7 +567,7 @@ export const ContentExtractor = {
     ];
     
     for (const selector of selectors) {
-      const element = document.querySelector(selector);
+      const element = root.querySelector(selector);
       if (element) {
         const src = element.getAttribute('content') || element.getAttribute('src');
         if (src) {
