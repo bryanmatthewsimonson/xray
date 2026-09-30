@@ -3,9 +3,10 @@
 // a plain <blockquote class="xr-tweet-embed">. It used to build that
 // stand-in with innerHTML from the tweet's textContent, so a tweet that
 // READS "<img src=x onerror=…>" became live markup that ran on the
-// captured site (JOURNAL 2026-09-30). These tests drive the real
-// extractArticle through the pre-pass with stub elements (no jsdom),
-// then follow the stand-in's text through Markdown and back to HTML.
+// captured site (JOURNAL 2026-09-30). The first test drives the real
+// extractArticle through the pre-pass with stub elements (no jsdom) and
+// is the regression proof. The last one characterizes what happens to
+// the stand-in's text downstream, which this fix did not change.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -54,8 +55,17 @@ function shape(node) {
 test('extractArticle keeps a tweet\'s displayed text as text on the live page', () => {
     const doc = stubDoc();
     const url = 'https://twitter.com/someone/status/1';
-    const parent = { replaced: null, replaceChild(n, o) { this.replaced = { n, o }; } };
-    const tweet = {
+    // The tweet and its parent record any HTML write too, so a parse
+    // anywhere in the pre-pass is observed, not just on created elements.
+    // (Accessors are defined, not spread: a spread would copy them as
+    // plain data properties and stop recording.)
+    const withHtmlSinks = (obj) => Object.defineProperties(obj, {
+        innerHTML: { set(v) { doc.innerHTMLWrites.push(v); } },
+        outerHTML: { set(v) { doc.innerHTMLWrites.push(v); } },
+        insertAdjacentHTML: { value(_pos, v) { doc.innerHTMLWrites.push(v); } },
+    });
+    const parent = withHtmlSinks({ replaced: null, replaceChild(n, o) { this.replaced = { n, o }; } });
+    const tweet = withHtmlSinks({
         textContent: HOSTILE,
         parentNode: parent,
         querySelector(sel) {
@@ -64,7 +74,7 @@ test('extractArticle keeps a tweet\'s displayed text as text on the live page', 
             if (sel.startsWith('a:not')) return { textContent: '<b>Some One</b>' };
             return null;
         },
-    };
+    });
     const saved = { document: globalThis.document, simple: ContentExtractor.extractSimple, error: console.error };
     globalThis.document = {
         createElement: doc.createElement,
@@ -105,15 +115,16 @@ test('buildTweetEmbed leaves out the footer and cite when there is no author or 
     });
 });
 
-test('the stand-in\'s text stays text through Markdown and X-Ray\'s own renderer', () => {
-    // What the live stand-in serializes to once Readability clones it:
-    // the text node's "<" and ">" come out escaped.
-    const html = '<blockquote class="xr-tweet-embed" data-tweet-url="https://twitter.com/a/status/1">'
-        + '<p>&lt;img src=x onerror=alert(1)&gt;</p><footer>— A</footer>'
+test('downstream (unchanged by this fix): the text reaches Markdown verbatim and X-Ray\'s renderer escapes it', () => {
+    // The stand-in as it comes out of Readability in Chromium: Readability
+    // drops the xr-tweet-embed class and the <footer>, and the text node's
+    // "<" and ">" serialize escaped. The Markdown then carries the text
+    // verbatim and unescaped, as any paragraph's text already does.
+    const html = '<blockquote data-tweet-url="https://twitter.com/a/status/1">'
+        + '<p>&lt;img src=x onerror=alert(1)&gt;</p>'
         + '<cite><a href="https://twitter.com/a/status/1">https://twitter.com/a/status/1</a></cite></blockquote>';
     const md = ContentExtractor.htmlToMarkdown(html);
     assert.match(md, /> <img src=x onerror=alert\(1\)>/, 'the tweet line keeps the literal text');
-    assert.match(md, /\*\*Tweet by A\*\*/);
     assert.match(md, /\[View on Twitter\/X\]\(https:\/\/twitter\.com\/a\/status\/1\)/);
     const back = ContentExtractor.markdownToHtml(md);
     assert.ok(!/<img/i.test(back), 'no live <img> comes back out of the renderer');
