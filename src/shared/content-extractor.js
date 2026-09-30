@@ -21,24 +21,94 @@ function sanitizeMdUrl(raw) {
   return value.replace(/"/g, '&quot;');
 }
 
+// A tweet's displayed text with its line breaks: a <br> is a newline
+// and source-formatting whitespace is one space. innerText would do
+// this, but it needs layout, and the clone the pre-pass reads has none.
+function tweetTextOf(node) {
+  let out = '';
+  for (const child of Array.from(node.childNodes || [])) {
+    if (child.nodeType === 3) {
+      out += String(child.nodeValue || '').replace(/[ \t\n\r\f]+/g, ' ');
+    } else if (child.nodeType === 1) {
+      const name = String(child.nodeName || '').toUpperCase();
+      if (name === 'BR') out += '\n';
+      else if (name !== 'SCRIPT' && name !== 'STYLE') out += tweetTextOf(child);
+    }
+  }
+  return out;
+}
+
+// Text → paragraphs of lines: one newline breaks a line, a blank line
+// breaks a paragraph; edge spaces and empty lines go.
+function tweetParagraphs(text) {
+  const paragraphs = [[]];
+  for (const raw of String(text || '').split('\n')) {
+    const line = raw.trim();
+    const current = paragraphs[paragraphs.length - 1];
+    if (line) current.push(line);
+    else if (current.length) paragraphs.push([]);
+  }
+  return paragraphs.filter(lines => lines.length);
+}
+
+// A tweet's own status URL, on twitter.com or x.com (www./mobile.
+// allowed): /<handle>/status/<id>, /i/web/status/<id>, or /statuses/.
+const TWEET_STATUS_RX = /^https?:\/\/(?:(?:www|mobile)\.)?(?:twitter|x)\.com\/(?:i\/web|[A-Za-z0-9_]{1,15})\/status(?:es)?\/\d{1,20}(?:[/?#]|$)/i;
+
+// The tweet's own status link: the LAST status link outside the tweet
+// text (the date link of the standard embed; a status link inside the
+// text names some other tweet), else the blockquote's cite. Never a
+// profile, hashtag, t.co or look-alike-host link.
+function tweetStatusUrl(tweet) {
+  const inText = new Set(Array.from(tweet.querySelectorAll('p a[href]')));
+  const links = Array.from(tweet.querySelectorAll('a[href]'))
+    .filter(a => !inText.has(a) && TWEET_STATUS_RX.test(a.href || ''));
+  if (links.length) return links[links.length - 1].href;
+  const cite = String((tweet.getAttribute && tweet.getAttribute('cite')) || '').trim();
+  return TWEET_STATUS_RX.test(cite) ? cite : '';
+}
+
+// The author as the standard embed prints it: the bare text directly
+// inside the blockquote, "— Name (@handle) ". Else the @handle in the
+// status URL. Never a link's text.
+function tweetAuthor(tweet, statusUrl) {
+  let own = '';
+  for (const child of Array.from(tweet.childNodes || [])) {
+    if (child.nodeType === 3) own += child.nodeValue || '';
+  }
+  const printed = /^[\u2014\u2013-]\s*(\S[\s\S]*)$/.exec(own.replace(/[ \t\n\r\f]+/g, ' ').trim());
+  if (printed) return printed[1].trim();
+  const handle = /^https?:\/\/[^/]+\/([A-Za-z0-9_]{1,15})\/status/i.exec(statusUrl || '');
+  return handle && handle[1].toLowerCase() !== 'i' ? '@' + handle[1] : '';
+}
+
 // The clean stand-in extractArticle swaps in for an embedded tweet, on
 // the page's CLONE (the live page is never written). Built with DOM
 // calls only, never innerHTML: `text` and `author` are the tweet's
 // DISPLAYED text (textContent undoes the page's escaping), so a tweet
 // that reads "<img src=x onerror=…>" has to stay text. Parsed as HTML,
 // it became live markup that ran on the captured site (JOURNAL
-// 2026-09-30).
+// 2026-09-30). One <p> per paragraph of `text`, a <br> per line break.
+// The author rides twice, because Readability drops a <footer>: as
+// `data-tweet-author` for the Markdown rule, and as a visible <cite>.
 export function buildTweetEmbed(doc, { text = '', author = '', url = '' } = {}) {
   const quote = doc.createElement('blockquote');
   quote.className = 'xr-tweet-embed';
   quote.setAttribute('data-tweet-url', url);
-  const p = doc.createElement('p');
-  p.textContent = text;
-  quote.appendChild(p);
+  if (author) quote.setAttribute('data-tweet-author', author);
+  const paragraphs = tweetParagraphs(text);
+  (paragraphs.length ? paragraphs : [[]]).forEach(lines => {
+    const p = doc.createElement('p');
+    lines.forEach((line, i) => {
+      if (i) p.appendChild(doc.createElement('br'));
+      p.appendChild(doc.createTextNode(line));
+    });
+    quote.appendChild(p);
+  });
   if (author) {
-    const footer = doc.createElement('footer');
-    footer.textContent = `— ${author}`;
-    quote.appendChild(footer);
+    const byline = doc.createElement('cite');
+    byline.textContent = `— ${author}`;
+    quote.appendChild(byline);
   }
   if (url) {
     const cite = doc.createElement('cite');
@@ -133,12 +203,12 @@ export const ContentExtractor = {
           'div[class*="tweet-embed"]',
           'div[class*="twitter-tweet"]'
       ].join(', ')).forEach(tweet => {
-          // Extract tweet text, author, and URL from the blockquote
-          const tweetText = tweet.querySelector('p')?.textContent?.trim() || tweet.textContent?.trim() || '';
-          const tweetLink = tweet.querySelector('a[href*="twitter.com"], a[href*="x.com"]');
-          const tweetUrl = tweetLink?.href || '';
-          const authorEl = tweet.querySelector('a:not([href*="/status/"])') || tweet.querySelector('a');
-          const authorName = authorEl?.textContent?.trim() || '';
+          // Extract tweet text (the first <p>, else the whole embed; <br>
+          // kept as a line break), its own status URL, and the author.
+          const textEl = tweet.querySelector('p');
+          const tweetText = (textEl && tweetTextOf(textEl).trim()) || tweetTextOf(tweet);
+          const tweetUrl = tweetStatusUrl(tweet);
+          const authorName = tweetAuthor(tweet, tweetUrl);
 
           // Replace complex tweet HTML with clean blockquote
           const cleanTweet = buildTweetEmbed(documentClone, { text: tweetText, author: authorName, url: tweetUrl });
@@ -780,22 +850,27 @@ export const ContentExtractor = {
           },
           replacement: function(content, node) {
             const tweetUrl = node.getAttribute('data-tweet-url') || '';
-            const paragraphs = node.querySelectorAll('p');
-            const tweetText = Array.from(paragraphs).map(p => p.textContent.trim()).filter(t => t).join('\n');
+            const paragraphs = [];
+            Array.from(node.querySelectorAll('p')).forEach(p => {
+              paragraphs.push(...tweetParagraphs(tweetTextOf(p)));
+            });
             const footer = node.querySelector('footer');
-            const authorName = footer?.textContent?.replace(/^—\s*/, '').trim() || '';
+            const authorName = (node.getAttribute('data-tweet-author') ||
+                                footer?.textContent?.replace(/^—\s*/, '') || '').replace(/\s+/g, ' ').trim();
 
             let md = '> 🐦 **Tweet';
             if (authorName) md += ` by ${authorName}`;
             md += '**\n';
             md += '> \n';
 
-            // Add tweet text as blockquote lines
-            if (tweetText) {
-              tweetText.split('\n').forEach(line => {
-                md += `> ${line}\n`;
+            // Add tweet text as blockquote lines: a hard break ("  ")
+            // between the lines of a paragraph, a "> " line between paragraphs
+            paragraphs.forEach((lines, i) => {
+              if (i) md += '> \n';
+              lines.forEach((line, j) => {
+                md += `> ${line}${j < lines.length - 1 ? '  ' : ''}\n`;
               });
-            }
+            });
 
             if (tweetUrl) {
               md += '> \n';
