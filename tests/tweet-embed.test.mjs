@@ -60,6 +60,7 @@ test('extractArticle keeps a tweet\'s displayed text as text', () => {
         children: [
             { tag: 'P', children: [HOSTILE] },
             { tag: 'CITE', children: ['— <b>Some One</b> (@someone)'] },
+            { tag: 'BR', children: [] },
             { tag: 'CITE', children: [{ tag: 'A', attrs: { href: url }, children: [url] }] },
         ],
     });
@@ -107,6 +108,7 @@ test('a standard embed: the status link, the printed author and the line breaks 
             { tag: 'P', children: ['Big news today.'] },
             { tag: 'P', children: ['Read more https://t.co/AbCdEf123 #Launch with @someone', { tag: 'BR', children: [] }, 'line two'] },
             { tag: 'CITE', children: ['— Example Org (@example)'] },
+            { tag: 'BR', children: [] },
             { tag: 'CITE', children: [{ tag: 'A', attrs: { href: STATUS }, children: [STATUS] }] },
         ],
     });
@@ -158,6 +160,7 @@ test('the status link and author survive when the embed is not publish.twitter.c
         children: [
             { tag: 'P', children: ['wpautop text #Tag'] },
             { tag: 'CITE', children: ['\u2014 WP Author (@wpauthor)'] },
+            { tag: 'BR', children: [] },
             { tag: 'CITE', children: [{ tag: 'A', attrs: { href: `https://twitter.com/wpauthor/status/111${REF}` }, children: [`https://twitter.com/wpauthor/status/111${REF}`] }] },
         ],
     }, 'wpautop: the date link in the second <p> is the status link, and its printed author is the author');

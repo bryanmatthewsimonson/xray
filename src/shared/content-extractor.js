@@ -170,6 +170,8 @@ export function buildTweetEmbed(doc, { text = '', author = '', url = '' } = {}) 
     quote.appendChild(byline);
   }
   if (url) {
+    // A line break keeps the byline and the link apart in the reader.
+    if (author) quote.appendChild(doc.createElement('br'));
     const cite = doc.createElement('cite');
     const a = doc.createElement('a');
     a.setAttribute('href', url);
