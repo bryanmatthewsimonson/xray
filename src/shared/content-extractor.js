@@ -21,6 +21,35 @@ function sanitizeMdUrl(raw) {
   return value.replace(/"/g, '&quot;');
 }
 
+// The clean stand-in extractArticle swaps in for an embedded tweet, on
+// the LIVE page, before cloning. Built with DOM calls only, never
+// innerHTML: `text` and `author` are the tweet's DISPLAYED text
+// (textContent undoes the page's escaping), so a tweet that reads
+// "<img src=x onerror=…>" has to stay text. Parsed as HTML, it became
+// live markup that ran on the captured site (JOURNAL 2026-09-30).
+export function buildTweetEmbed(doc, { text = '', author = '', url = '' } = {}) {
+  const quote = doc.createElement('blockquote');
+  quote.className = 'xr-tweet-embed';
+  quote.setAttribute('data-tweet-url', url);
+  const p = doc.createElement('p');
+  p.textContent = text;
+  quote.appendChild(p);
+  if (author) {
+    const footer = doc.createElement('footer');
+    footer.textContent = `— ${author}`;
+    quote.appendChild(footer);
+  }
+  if (url) {
+    const cite = doc.createElement('cite');
+    const a = doc.createElement('a');
+    a.setAttribute('href', url);
+    a.textContent = url;
+    cite.appendChild(a);
+    quote.appendChild(cite);
+  }
+  return quote;
+}
+
 export const ContentExtractor = {
   // Extract article using Readability (bundled via npm)
   extractArticle: () => {
@@ -94,12 +123,7 @@ export const ContentExtractor = {
           const authorName = authorEl?.textContent?.trim() || '';
 
           // Replace complex tweet HTML with clean blockquote
-          const cleanTweet = document.createElement('blockquote');
-          cleanTweet.className = 'xr-tweet-embed';
-          cleanTweet.setAttribute('data-tweet-url', tweetUrl);
-          cleanTweet.innerHTML = `<p>${tweetText}</p>` +
-              (authorName ? `<footer>— ${authorName}</footer>` : '') +
-              (tweetUrl ? `<cite><a href="${tweetUrl}">${tweetUrl}</a></cite>` : '');
+          const cleanTweet = buildTweetEmbed(document, { text: tweetText, author: authorName, url: tweetUrl });
 
           tweet.parentNode?.replaceChild(cleanTweet, tweet);
       });
