@@ -275,6 +275,18 @@ test('resolverIdentity: signer first, never the bare sync key', () => {
         { pubkey: 'k1', sources: ['sync-key'] },
         { pubkey: 'k2', sources: ['manual'] }
     ]).pubkey, 'k2');
+    // JOURNAL 2026-10-01: the case's bound identity and the journal's
+    // past profiles are LOCAL keys — never evidence of a NIP-07 or
+    // bunker signer, so never the resolver.
+    assert.equal(resolverIdentity([
+        { pubkey: 'k1', sources: ['case-identity'] },
+        { pubkey: 'k2', sources: ['journal'] },
+        { pubkey: 'k3', sources: ['case-identity', 'journal'] }
+    ]), null);
+    assert.equal(resolverIdentity([
+        { pubkey: 'k1', sources: ['case-identity'] },
+        { pubkey: 'k2', sources: ['publish-history'] }
+    ]).pubkey, 'k2', 'a claim stamp still evidences the signer');
 });
 
 // ------------------------------------------------------------------

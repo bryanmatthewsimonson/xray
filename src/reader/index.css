@@ -96,6 +96,12 @@ body {
   white-space: nowrap;
 }
 
+/* The live signer is not the case's identity (JOURNAL 2026-10-01). */
+.xr-reader__case--warn {
+  border-color: var(--xr-warning);
+  color: var(--xr-warning);
+}
+
 .xr-reader__modes {
   display: flex;
   gap: 2px;

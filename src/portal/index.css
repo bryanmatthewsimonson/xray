@@ -141,6 +141,22 @@ body.xr-portal {
   padding: 8px 0 4px;
 }
 
+/* The live signer is not the case's identity (JOURNAL 2026-10-01):
+   one warning row under the identity strip, with the way out. */
+.xr-portal__signer-warning {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--xr-border);
+  border-left: 3px solid var(--xr-warning);
+  background: color-mix(in srgb, var(--xr-warning) 10%, var(--xr-bg));
+  font-size: 13px;
+}
+
+.xr-portal__signer-warning-text { flex: 1; min-width: 240px; }
+
 /* PR-8 (D1): the header's two select-as-menus — the case switcher's
    pill, borrowed; neutral border so the ACTIVE CASE pill stays the one
    accent-bordered element in the header. */
@@ -174,6 +190,7 @@ body.xr-portal {
 
 .xr-chip__src--signer  { color: var(--xr-success); }
 .xr-chip__src--manual  { color: var(--xr-accent); }
+.xr-chip__src--case-identity { color: var(--xr-primary); }
 .xr-chip__src--viewer  { color: var(--xr-warning); }
 .xr-chip--viewer       { border-style: dotted; }
 
