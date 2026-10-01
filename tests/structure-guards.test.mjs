@@ -242,7 +242,7 @@ const DOM_RX = /(?<![\w$.])(document|window)\s*[.[]|(?<![\w$.])globalThis\s*\.\s
 const SURFACES = ['content', 'background', 'options', 'sidepanel', 'reader', 'portal', 'network'];
 const DOM_ALLOW = {
     'src/shared/content-detector.js':            { maxCount: 31, allowedBundles: ['content'] },          // URL+DOM detection (:9-10, :60-62, :100-151)
-    'src/shared/content-extractor.js':           { maxCount: 60, allowedBundles: SURFACES },             // LATENT: DOM readers (:58-:1314) bundled into the worker via event-builder.js:13 — split them out
+    'src/shared/content-extractor.js':           { maxCount: 52, allowedBundles: SURFACES },             // LATENT: DOM readers (:145-:1431) bundled into the worker via event-builder.js:13 — split them out
     'src/shared/platforms/index.js':             { maxCount: 15, allowedBundles: ['content'] },          // typeof-guarded dispatcher
     'src/shared/forensic-modal.js':              { maxCount: 13, allowedBundles: ['reader'] },           // modal → shared/ui/ (ARCH-8)
     'src/shared/platforms/facebook.js':          { maxCount: 11, allowedBundles: ['content'] },
