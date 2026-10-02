@@ -34,6 +34,10 @@ the entry's heading anchor in its monthly file.
 
 <!-- journal-index:start -->
 
+## 2026-10
+
+- **2026-10-01** — [An empty archive over 158 "confirmed" publishes: relay.primal.net keeps events for days, and the portal now reads the case's own publish record](journal/2026-10.md#2026-10-01--an-empty-archive-over-158-confirmed-publishes-relayprimalnet-keeps-events-for-days-and-the-portal-now-reads-the-cases-own-publish-record) · bug, relays, portal, identity
+
 ## 2026-09
 
 - **2026-09-30** — [An embedded tweet's text no longer becomes live code on the captured page](journal/2026-09.md#2026-09-30--an-embedded-tweets-text-no-longer-becomes-live-code-on-the-captured-page) · bug, security

@@ -3,7 +3,7 @@
 // "Me" is a resolved SET of author pubkeys, not one key. The portal runs
 // outside any capture context, so the reader's source-tab path
 // (`xray:capture:getPubkey`) is unavailable and NIP-07 cannot answer
-// from an extension page at all. Instead we union four sources, each
+// from an extension page at all. Instead we union six sources, each
 // tagged with its provenance so the UI can show honest chips:
 //
 //   'signer'          — Signer.getPublicKey(): Local reads the primary
@@ -15,6 +15,15 @@
 //   'publish-history' — the union of `publishedPubkeys` recorded on
 //                       claims (append-only since Phase 11.1) plus any
 //                       `publishedPubkey` singletons.
+//   'journal'         — every saved identity profile that signed an
+//                       event in this case's signed-event journal
+//                       (publish-history.js; JOURNAL 2026-10-01). Only
+//                       PROFILES: a merge-import carries a collaborator's
+//                       journal rows in, and their key must not become
+//                       "me".
+//   'case-identity'   — the identity the active case is bound to
+//                       (JOURNAL 2026-10-01): the live signer can move
+//                       on its own, the case's binding cannot.
 //   'manual'          — npubs/hex the user pasted into the portal
 //                       header, persisted under `portal_identities`.
 //
@@ -27,13 +36,17 @@ import { Signer } from '../shared/signer.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { ClaimModel } from '../shared/claim-model.js';
 import { EntityModel } from '../shared/entity-model.js';
+import { Workspaces, IdentityProfiles } from '../shared/identity-profiles.js';
 import { Crypto } from '../shared/crypto.js';
 import { Utils } from '../shared/utils.js';
+import { loadJournalRows, summarizeJournal, rankHistoryRelays } from './publish-history.js';
 
 const MANUAL_KEY = 'portal_identities';
 const SYNC_KEY_NAME = 'xray:user'; // sidepanel/index.js USER_KEY_NAME
 const HEX64 = /^[0-9a-f]{64}$/;
 const SIGNER_TIMEOUT_MS = 4000;
+// The sources whose keys may contribute read relays (JOURNAL 2026-10-01).
+const RELAY_SOURCES = new Set(['signer', 'sync-key', 'case-identity', 'journal']);
 
 function withTimeout(promise, ms) {
     return Promise.race([
@@ -71,20 +84,28 @@ async function resolveSignerPubkey() {
 /**
  * Resolve the full identity picture for the portal.
  *
+ * @param {{readJournal?: () => Promise<Array<object>>}} [opts]  the
+ *        journal reader (tests inject one; default: the active
+ *        workspace's event-journal listAll)
  * @returns {Promise<{
  *   identities: Array<{pubkey: string, sources: string[]}>,   // "me"
  *   viewers:    Array<{pubkey: string, sources: string[]}>,   // pasted read-only archives (28.4)
  *   entities:   Array<{pubkey: string, entityId: string, name: string, type: string}>,
- *   signer:     {method: string, pubkey: string|null, reason: string|null}
+ *   signer:     {method: string, pubkey: string|null, reason: string|null},
+ *   historyRelays: string[]   // relays that confirmed events "me" signed in this case, ranked
  * }>}
  */
-export async function resolveIdentities() {
+export async function resolveIdentities({ readJournal } = {}) {
     const sourcesByPubkey = new Map(); // pubkey → Set(source)
     const add = (pubkey, source) => {
         if (typeof pubkey !== 'string' || !HEX64.test(pubkey)) return;
         if (!sourcesByPubkey.has(pubkey)) sourcesByPubkey.set(pubkey, new Set());
         sourcesByPubkey.get(pubkey).add(source);
     };
+
+    // Started first, awaited last: the journal holds every signed event
+    // in full, so its read overlaps the storage reads below.
+    const journalRows = loadJournalRows(readJournal);
 
     const signer = await resolveSignerPubkey();
     if (signer.pubkey) add(signer.pubkey, 'signer');
@@ -111,6 +132,22 @@ export async function resolveIdentities() {
 
     for (const pk of await getManualIdentities()) add(pk, 'manual');
 
+    // The case's own identity, and the saved profiles that signed in its
+    // journal (JOURNAL 2026-10-01). A profile is a key this install holds
+    // the nsec for, so a collaborator's merged-in rows never qualify.
+    let profileKeys = new Set();   // pubkeys only — the profiles' nsecs are not kept
+    try {
+        const [ws, all] = await Promise.all([Workspaces.active(), IdentityProfiles.getAll()]);
+        profileKeys = new Set(Object.keys((all && typeof all === 'object') ? all : {}));
+        if (ws && typeof ws.identity_pubkey === 'string') add(ws.identity_pubkey.toLowerCase(), 'case-identity');
+    } catch (err) {
+        Utils.log('Portal identity: case binding unreadable:', err && err.message);
+    }
+    const journal = summarizeJournal(await journalRows);
+    for (const pk of journal.keys()) {
+        if (profileKeys.has(pk)) add(pk, 'journal');
+    }
+
     const entities = [];
     try {
         const all = await EntityModel.getAll();
@@ -136,7 +173,8 @@ export async function resolveIdentities() {
     // the user, and unioning a viewer into it is exactly how two
     // projects' ledgers interlocked (CASE_WORKSPACE_KICKOFF §1.4). A
     // pasted npub that ALSO has a me-source (signer / sync-key /
-    // publish-history) stays an identity, chip provenance intact.
+    // publish-history / journal / case-identity) stays an identity,
+    // chip provenance intact.
     const identities = [];
     const viewers = [];
     for (const [pubkey, sources] of sourcesByPubkey.entries()) {
@@ -144,7 +182,15 @@ export async function resolveIdentities() {
         if (sources.size === 1 && sources.has('manual')) viewers.push(row);
         else identities.push(row);
     }
-    return { identities, viewers, entities, signer };
+    // Relays that confirmed what "me" signed here — taken only from keys
+    // this install holds or chose. A claim's publish stamp can arrive by
+    // merge-import (a collaborator's claims), so a key that is "me" only
+    // through 'publish-history' adds no relay; nor does a viewer.
+    const relaySigners = identities
+        .filter((i) => i.sources.some((s) => RELAY_SOURCES.has(s)))
+        .map((i) => i.pubkey);
+    const historyRelays = rankHistoryRelays(journal, relaySigners);
+    return { identities, viewers, entities, signer, historyRelays };
 }
 
 /** The persisted manual pubkeys (hex, validated on write). */

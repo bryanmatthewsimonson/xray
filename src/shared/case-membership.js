@@ -21,6 +21,7 @@
 // checks (20.1) always resolve.
 
 import { Utils } from './utils.js';
+import { Storage } from './storage.js';
 import { EntityModel } from './entity-model.js';
 import { ClaimModel } from './claim-model.js';
 import { listArticles, getArticle, saveArticle } from './archive-cache.js';
@@ -78,6 +79,70 @@ export async function describeActiveContext() {
         profileLabel,
         isDefault: ws.id === 'default'
     };
+}
+
+const HEX64 = /^[0-9a-f]{64}$/;
+const shortPk = (pk) => `${pk.slice(0, 8)}…${pk.slice(-4)}`;
+const nameOf = (who) => (who.label ? `“${who.label}” (${shortPk(who.pubkey)})` : shortPk(who.pubkey));
+
+/**
+ * The live signer against the active case's bound identity — pure.
+ * `Workspaces.activate` moves both together, but the live key can move
+ * on its own afterwards (Options ▸ Signing "Use", a backup restore, a
+ * rebind), and from then on every publish in this case is signed by a
+ * key that is not the case's (JOURNAL 2026-10-01). Only a LOCAL signer
+ * is compared: NIP-07 and NSecBunker keys are not identity profiles,
+ * and under Option C (NIP07_IDENTITY_KICKOFF §6) the local primary
+ * legitimately differs from a NIP-07 signer. `method` is normalized
+ * as Signer.getMethod does.
+ *
+ * @returns {{method: string, bound: {pubkey, label}|null,
+ *            live: {pubkey, label}|null, mismatch: boolean}}
+ */
+export function signerBindingState({ method, boundPubkey, livePubkey, profiles } = {}) {
+    const m = (method === 'nip07' || method === 'nsecbunker') ? method : 'local';
+    const named = (pk) => {
+        const key = typeof pk === 'string' ? pk.toLowerCase() : '';
+        if (!HEX64.test(key)) return null;
+        const p = profiles && profiles[key];
+        return { pubkey: key, label: (p && typeof p.label === 'string' && p.label) || null };
+    };
+    const bound = named(boundPubkey);
+    const live = m === 'local' ? named(livePubkey) : null;
+    return { method: m, bound, live, mismatch: !!(bound && live && bound.pubkey !== live.pubkey) };
+}
+
+/** signerBindingState over the stored workspace, signing method, primary and profiles. */
+export async function describeSignerBinding() {
+    const [ws, prefs, primary, profiles] = await Promise.all([
+        Workspaces.active(),
+        Storage.preferences.get(),
+        Storage.primaryIdentity.get(),
+        IdentityProfiles.getAll().catch(() => ({}))
+    ]);
+    const labels = {};   // pubkey → {label}: the profiles' nsecs go no further than this read
+    for (const [pk, p] of Object.entries(profiles || {})) labels[pk] = { label: p && p.label };
+    return signerBindingState({
+        method: prefs && prefs.signing_method,
+        boundPubkey: ws && ws.identity_pubkey,
+        livePubkey: primary && primary.pubkey,
+        profiles: labels
+    });
+}
+
+/** Where a mismatch is fixed — shown beside every signerBindingWarning. */
+export const SIGNER_BINDING_FIX = 'Switch identities in Settings ▸ Signing, or rebind the case in Settings ▸ Advanced ▸ Cases.';
+
+/**
+ * The words every surface shows for a mismatch (the portal banner, the
+ * reader's case chip and its Publish confirm) — one source so they
+ * cannot drift. Null when there is nothing to warn about.
+ */
+export function signerBindingWarning(state) {
+    if (!state || !state.mismatch) return null;
+    const liveName = state.live.label ? `“${state.live.label}”` : shortPk(state.live.pubkey);
+    return `This case is bound to ${nameOf(state.bound)}, but X-Ray is signing as ${nameOf(state.live)}. `
+        + `Anything published now is signed by ${liveName}, not by the case's identity.`;
 }
 
 /**

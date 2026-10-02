@@ -79,6 +79,20 @@ paste your npub, or publish once") instead of a silent empty portal.
 Follow-up (not v1): an optional "fetch from a NIP-07 tab" button that
 routes through an active tab the way the reader does.
 
+> **Amendment (2026-10-01, JOURNAL 2026-10-01; the maintainer asked for
+> it in session):** two more sources, because the live signer can move
+> away from a case (Settings ▸ Signing "Use", a restore, a rebind) while
+> the case's corpus stays signed by its earlier key. 5. the active
+> case's bound identity → source `case-identity`; 6. every saved
+> identity PROFILE that signed an operator-kind event in the case's
+> signed-event journal → source `journal`. Profiles only: a
+> merge-import carries a collaborator's journal rows in, and their key
+> must not become "me". Neither source is ever the resolver identity
+> (they are local keys, never evidence of a NIP-07 or bunker signer).
+> [INTERPRETATION: Claude, 2026-10-01 — default: journal signers count
+> only when they are saved profiles; ask: Should a journal signer that
+> is not a profile (a NIP-07 key) count as "me" too?]
+
 **Entity pubkeys** come from `EntityModel.getAll()` →
 `entity.keypair.pubkey` (keys live in `LocalKeyManager` under
 `entity:<id>`). They are the `authors` of entity kind-0 profiles only —
@@ -360,6 +374,20 @@ configured relays for events signed by your keys. Relays can see that
 request."* No new permissions, no new storage of sensitive material
 (manual npubs are public keys).
 
+> **Amendment (2026-10-01, JOURNAL 2026-10-01; the maintainer asked for
+> it in session):** the portal also READS from up to eight relays that
+> confirmed the user's own events in the active case (the signed-event
+> journal's per-relay snapshot; wss, or ws on a loopback host), taken
+> only from events signed by a key this install holds or chose (the
+> signer, the sync key, the case's bound identity, a saved profile) —
+> never one that is "me" only by a claim's publish stamp. They are
+> relays the user already published to, so the principle above holds,
+> but the configured set is no longer the whole read set. The footer
+> names every relay read and says so. Publishing and rebroadcast never
+> widen. [INTERPRETATION: Claude, 2026-10-01 — default: configured
+> relays plus up to eight journal-confirmed ones; ask: Should reads stay
+> on the configured relays only?]
+
 ## Build wiring and page shell
 
 Verified against `esbuild.config.mjs` and `manifest.json`:
@@ -450,9 +478,10 @@ answered by the maintainer on 2026-06-10:
    v1**, full free-floating graph as a later slice.
 4. **Privacy:** ✅ **sufficient as designed** — no new content
    disclosure; correlation caveat documented + stated in a portal
-   footer; queries restricted to the user's configured relays; entity
-   queries kept in a separate subscription. No explicit first-open
-   consent step required.
+   footer; queries restricted to the user's configured relays (amended
+   2026-10-01: plus relays that confirmed the user's own events — see
+   Privacy); entity queries kept in a separate subscription. No explicit
+   first-open consent step required.
 5. **Reconciliation is display-only:** ✅ **yes** — the portal never
    backfills `markPublished` (no ledger writes from a read surface),
    and remote-only items render fully but are never imported into

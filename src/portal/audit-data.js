@@ -447,16 +447,23 @@ export function predictionsDue(index, localPredictions, { nowMs, windowDays = 90
     };
 }
 
+// Identity sources that evidence the key the NEXT publish is signed
+// with. Not the sync key (it signs entity-sync blobs, never audit
+// events), and not 'case-identity' / 'journal' (JOURNAL 2026-10-01):
+// those are local profiles, which a NIP-07 or bunker signer is not.
+// An allowlist, so a future source is ineligible until it says so.
+const RESOLVER_SOURCES = new Set(['signer', 'publish-history', 'manual']);
+
 /**
  * Pick the identity that will sign predictions/resolutions in the v1
- * flow: the signer when known; otherwise any identity that is not
- * solely the reserved sync key (which signs entity-sync blobs, never
- * audit events). Null when nothing qualifies — the Resolve affordance
- * disables rather than minting a coordinate under the wrong key.
+ * flow: the signer when known; otherwise the first identity with a
+ * source in RESOLVER_SOURCES. Null when nothing qualifies — the
+ * Resolve affordance disables rather than minting a coordinate under
+ * the wrong key.
  */
 export function resolverIdentity(identities) {
     const list = identities || [];
     const signer = list.find((i) => (i.sources || []).includes('signer'));
     if (signer) return signer;
-    return list.find((i) => (i.sources || []).some((s) => s !== 'sync-key')) || null;
+    return list.find((i) => (i.sources || []).some((s) => RESOLVER_SOURCES.has(s))) || null;
 }

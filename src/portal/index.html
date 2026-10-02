@@ -45,6 +45,10 @@
     </div>
   </details>
 
+  <!-- The live signer is not the identity this case is bound to: shown
+       by identity-strip.js only then (JOURNAL 2026-10-01). -->
+  <div class="xr-portal__signer-warning" id="xr-signer-warning" role="alert" hidden></div>
+
   <!-- Library chrome (Phase 12.2): type tabs + facet bar + search.
        Hidden until a corpus is loaded. -->
   <nav class="xr-portal__tabs" id="xr-tabs" aria-label="Type filter" hidden></nav>
@@ -94,7 +98,8 @@
   <footer class="xr-portal__footer">
     <span id="xr-footer-relays"></span>
     <span class="xr-portal__footer-note">The portal asks your configured
-    relays for events signed by your keys. Relays can see that request.</span>
+    relays, and up to eight more that confirmed this case's publishes, for
+    events signed by your keys. Relays can see that request.</span>
   </footer>
 
   <script src="../../dist/portal.bundle.js"></script>

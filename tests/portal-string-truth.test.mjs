@@ -40,12 +40,16 @@ test('E1: the page is "Archive" — the ratified one-noun name', () => {
 });
 
 test('D2 (strings): provenance tokens render as words, tokens kept as tooltips', () => {
-    assert.match(PORTAL, /IDENTITY_SOURCE_LABELS = \{/);
-    for (const token of ['sync-key', 'publish-history', 'manual', 'signer']) {
-        assert.match(PORTAL, new RegExp(`['"]?${token}['"]?:\\s*'[^']+'`), `${token} has a plain label`);
+    // The chips moved out of index.js into identity-strip.js (JOURNAL
+    // 2026-10-01); portal-publish-history.test.mjs holds the set rule
+    // (every token identity.js emits has a label).
+    const STRIP = stripComments(readRepo('src/portal/identity-strip.js'));
+    assert.match(STRIP, /IDENTITY_SOURCE_LABELS = \{/);
+    for (const token of ['sync-key', 'publish-history', 'manual', 'signer', 'journal', 'case-identity']) {
+        assert.match(STRIP, new RegExp(`['"]?${token}['"]?:\\s*'[^']+'`), `${token} has a plain label`);
     }
-    assert.match(PORTAL, /IDENTITY_SOURCE_LABELS\[src\] \|\| src/, 'unknown tokens still render rather than vanish');
-    assert.match(PORTAL, /srcEl\.title = src/, 'the raw token stays available to the expert');
+    assert.match(STRIP, /IDENTITY_SOURCE_LABELS\[src\] \|\| src/, 'unknown tokens still render rather than vanish');
+    assert.match(STRIP, /srcEl\.title = src/, 'the raw token stays available to the expert');
 });
 
 test('jargon table: the pure-string rows are applied', () => {

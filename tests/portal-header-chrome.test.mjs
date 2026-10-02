@@ -116,7 +116,11 @@ test('SEAM (D2): the identity strip is a <details> behind a rendered summary', (
     const html = readRaw('src/portal/index.html');
     assert.match(html, /<details[^>]*id="xr-identity"/);
     assert.match(html, /<summary[^>]*id="xr-identity-summary"/);
-    const src = read('src/portal/index.js');
-    assert.match(src, /identitySummaryLine\(\{ identities: state\.identities, viewers: state\.viewers \}\)/,
-        'renderIdentityChips must write the summary from the pure line');
+    // The strip's DOM moved to identity-strip.js (JOURNAL 2026-10-01): it
+    // still writes the summary from the pure line, over the resolved
+    // identity state index.js hands it.
+    assert.match(read('src/portal/identity-strip.js'), /identitySummaryLine\(\{ identities, viewers \}\)/,
+        'renderIdentityStrip must write the summary from the pure line');
+    assert.match(read('src/portal/index.js'), /renderIdentityStrip\(state, \{/,
+        'renderIdentityChips must hand the resolved identity state to the strip');
 });

@@ -22,7 +22,7 @@ import {
     buildItems, applyFilters, typeCounts, facetValues, isOtherClient,
     kindLabel, pageWindow, TYPE_DEFS, CORE_TAB_KEYS, EMPTY_FILTERS } from './library.js';
 import { buildBuckets, brushRange } from './timeline.js';
-import { el, svgEl, clear, truncate, shortKey } from './dom.js';
+import { el, svgEl, clear, truncate } from './dom.js';
 import { mountTranscriptImport } from './import-transcript.js';
 import { mountMediaTranscribe } from './import-media.js';
 import { mountUrlImport } from './import-urls.js';
@@ -34,7 +34,7 @@ import { renderEntityDossierView } from './entity-dossier-view.js';
 import { renderCrossWorkspaceView } from './cross-workspace-view.js';
 import { renderEntityCorpusView } from './entity-corpus-view.js';
 import { Workspaces } from '../shared/identity-profiles.js';
-import { describeActiveContext } from '../shared/case-membership.js';
+import { describeActiveContext, describeSignerBinding } from '../shared/case-membership.js';
 import { findingsForEntity } from './forensic-data.js';
 import { loadLocalLedger, reconcile, countLocalOnly, listLocalArtifacts } from './reconcile.js';
 import { getByEventId as journalGetByEventId } from '../shared/event-journal.js';
@@ -43,7 +43,9 @@ import { renderInspector } from './inspector.js';
 import { openArchivedInReader } from './open-archived.js';
 import { createNavStack } from './nav-stack.js';
 import { inspectButton, TIMELINE_HINT } from './row-controls.js';
-import { addMenuOptions, moreMenuOptions, identitySummaryLine } from './header-chrome.js';
+import { addMenuOptions, moreMenuOptions } from './header-chrome.js';
+import { renderIdentityStrip, renderSignerWarning, relayFooterText } from './identity-strip.js';
+import { extraReadRelays } from './publish-history.js';
 import { resolveActiveCaseRef } from '../shared/case-membership.js';
 import {
     buildAuditIndex, mergeLocalRuns, mergeLocalResolutions, auditsForArticle,
@@ -68,7 +70,9 @@ const state = {
     entities: [],        // [{pubkey, entityId, name, type}]
     entityIndex: {},     // pubkey → {entityId, name, type}
     signer: null,        // {method, pubkey, reason}
-    relays: [],
+    relays: [],          // configured — where publishes and rebroadcasts go
+    historyRelays: [],   // + relays that confirmed this case's publishes (read only)
+    readRelays: [],      // relays ∪ historyRelays — every relay the corpus is fetched from
     records: [],         // [{event, relays}] — raw, pre-dedupe
     items: [],           // library items (deduped, parsed, sorted)
     localArtifacts: [],  // itemized never-published local records
@@ -97,70 +101,12 @@ function setStatus(text, isError) {
     node.classList.toggle('xr-portal__status--error', !!isError);
 }
 
-// How an identity was established, in words a first-session user can
-// read. The raw tokens stay as tooltips and CSS hooks.
-const IDENTITY_SOURCE_LABELS = {
-    signer: 'your signer',
-    'sync-key': 'backup key',
-    'publish-history': 'seen in your published events',
-    manual: 'added by you'
-};
-
+// The chips + summary line live in identity-strip.js; removing a pasted
+// key re-boots, because the identity set decides what is fetched.
 function renderIdentityChips() {
-    // PR-8 (D2): the one line that stays visible when the strip is
-    // folded. Identities listed, viewers named as viewing — the words
-    // keep identity.js's fence visible.
-    const summary = $('#xr-identity-summary');
-    if (summary) summary.textContent = identitySummaryLine({ identities: state.identities, viewers: state.viewers });
-    const host = $('#xr-identity-chips');
-    clear(host);
-    for (const id of state.identities) {
-        const chip = el('span', 'xr-chip');
-        chip.appendChild(el('span', 'xr-chip__key', shortKey(id.pubkey)));
-        chip.title = id.pubkey;
-        for (const src of id.sources) {
-            // Plain label, raw token kept as the tooltip and the CSS hook
-            // (docs/PORTAL_UX_REVIEW.md §5 — provenance tokens were
-            // rendering verbatim as UI).
-            const srcEl = el('span', `xr-chip__src xr-chip__src--${src}`, IDENTITY_SOURCE_LABELS[src] || src);
-            srcEl.title = src;
-            chip.appendChild(srcEl);
-        }
-        if (id.sources.includes('manual')) {
-            const btn = el('button', 'xr-chip__remove', '✕');
-            btn.type = 'button';
-            btn.title = 'Remove this identity';
-            btn.addEventListener('click', async () => {
-                await removeManualIdentity(id.pubkey);
-                await boot();
-            });
-            chip.appendChild(btn);
-        }
-        host.appendChild(chip);
-    }
-    // 28.4 — pasted archives render as VIEWER chips: fetched and
-    // browsable, never "me" (excluded from reconcile/binding/resolver).
-    for (const v of state.viewers) {
-        const chip = el('span', 'xr-chip xr-chip--viewer');
-        chip.appendChild(el('span', 'xr-chip__key', shortKey(v.pubkey)));
-        chip.title = `${v.pubkey}\nRead-only viewer — this archive is browsed, never treated as yours.`;
-        chip.appendChild(el('span', 'xr-chip__src xr-chip__src--viewer', 'viewer'));
-        const btn = el('button', 'xr-chip__remove', '✕');
-        btn.type = 'button';
-        btn.title = 'Stop viewing this archive';
-        btn.addEventListener('click', async () => {
-            await removeManualIdentity(v.pubkey);
-            await boot();
-        });
-        chip.appendChild(btn);
-        host.appendChild(chip);
-    }
-    if (state.entities.length > 0) {
-        const chip = el('span', 'xr-chip xr-chip--entity');
-        chip.appendChild(el('span', 'xr-chip__key', `${state.entities.length} entity key(s)`));
-        chip.title = state.entities.map((e) => `${e.name} (${e.type})`).join('\n');
-        host.appendChild(chip);
-    }
+    renderIdentityStrip(state, {
+        onRemove: async (pubkey) => { await removeManualIdentity(pubkey); await boot(); }
+    });
 }
 
 function renderEmpty(heading, lines) {
@@ -172,10 +118,12 @@ function renderEmpty(heading, lines) {
     for (const line of lines) host.appendChild(el('p', null, line));
 }
 
+function openSettings() {
+    try { chrome.runtime.openOptionsPage(); } catch (_) { /* non-extension context */ }
+}
+
 function renderFooter() {
-    $('#xr-footer-relays').textContent = state.relays.length
-        ? `Relays: ${state.relays.join('  ')}`
-        : 'No relays configured.';
+    $('#xr-footer-relays').textContent = relayFooterText(state.relays, state.historyRelays);
 }
 
 // ------------------------------------------------------------------
@@ -440,7 +388,7 @@ function renderRows(allVisible) {
     if (allVisible.length === 0) {
         if (state.items.length === 0) {
             renderEmpty('Nothing found on the relays', [
-                'The configured relays returned no events for the resolved identities. '
+                'The relays asked (listed at the bottom of this page) returned no events for the resolved identities. '
                 + 'If you publish from another device, add that identity above; otherwise publish a capture and refresh.'
             ]);
         } else {
@@ -782,7 +730,7 @@ function renderReconPanel() {
             row.appendChild(head);
             row.appendChild(el('div', 'xr-row__sub',
                 `event ${entry.publishedEventId ? entry.publishedEventId.slice(0, 16) + '…' : '?'} — `
-                + 'no configured relay returned it. It may have been rejected, expired, or published to relays not configured here.'));
+                + 'no relay the portal asked returned it. It may have been rejected, accepted and later dropped, or published to a relay not configured here.'));
             ul.appendChild(row);
         }
         details.appendChild(ul);
@@ -1029,7 +977,7 @@ function render() {
         libraryChromeVisible(false);
         renderEntityCorpusView($('#xr-view'), {
             pubkey: state.view.pubkey,
-            relays: state.relays.length ? state.relays : FALLBACK_RELAYS,
+            relays: state.readRelays.length ? state.readRelays : FALLBACK_RELAYS,
             entityIndex: state.entityIndex,
             callbacks: viewCallbacks
         });
@@ -1149,17 +1097,27 @@ async function boot({ full = false } = {}) {
     setBusy(true);
     try {
         setStatus('Resolving identity…');
-        const { identities, viewers, entities, signer } = await resolveIdentities();
+        const { identities, viewers, entities, signer, historyRelays } = await resolveIdentities();
         state.identities = identities;
         state.viewers = viewers;
         state.entities = entities;
         state.signer = signer;
         renderIdentityChips();
+        // The live signer vs the case's identity (JOURNAL 2026-10-01) —
+        // display-only, so it never holds up the fetch.
+        describeSignerBinding()
+            .then((b) => renderSignerWarning($('#xr-signer-warning'), b, { onOpenSettings: openSettings }))
+            .catch((err) => Utils.log('Portal: signer binding unreadable:', err && err.message));
 
         const prefs = await Storage.preferences.get() || {};
         state.relays = Array.isArray(prefs.default_relays) && prefs.default_relays.length > 0
             ? prefs.default_relays
             : FALLBACK_RELAYS;
+        // Read where this case's events actually landed, too: a relay that
+        // confirmed them and was later dropped from Settings still holds
+        // them. Publishing and rebroadcast keep to the configured list.
+        state.historyRelays = extraReadRelays(state.relays, historyRelays);
+        state.readRelays = [...state.relays, ...state.historyRelays];
         renderFooter();
 
         // Cache first: anything we already hold renders immediately.
@@ -1207,7 +1165,7 @@ async function boot({ full = false } = {}) {
             ...state.viewers.map((v) => v.pubkey),   // a viewer change needs its full history
             ...state.entities.map((e) => e.pubkey)
         ].sort().join(',');
-        const relaysKey = [...state.relays].sort().join(',');
+        const relaysKey = [...state.readRelays].sort().join(',');
         let sync = null;
         if (!full && !state.cacheBroken) {
             try { sync = await getMeta('sync'); } catch (_) { /* live-only */ }
@@ -1217,16 +1175,16 @@ async function boot({ full = false } = {}) {
         const since = cursorValid ? sync.lastSyncAt - SYNC_OVERLAP_SECONDS : undefined;
         const fetchStartedAt = Math.floor(Date.now() / 1000);
 
-        setStatus(`Querying ${state.relays.length} relay(s)${since ? ' for new events' : ''}…`);
+        setStatus(`Querying ${state.readRelays.length} relay(s)${since ? ' for new events' : ''}…`);
         // Viewers' events are FETCHED (that is the read-only-archive
         // feature) but viewers never join state.identities — reconcile,
         // creator binding, and the resolver identity stay "me"-only (28.4).
         const { records, relayErrors, truncated } = await fetchCorpus({
             pubkeys: [...state.identities, ...state.viewers].map((i) => i.pubkey),
             entityPubkeys: state.entities.map((e) => e.pubkey),
-            relays: state.relays,
+            relays: state.readRelays,
             since,
-            onProgress: ({ fetched }) => setStatus(`Querying ${state.relays.length} relay(s)… ${fetched} event(s) so far`)
+            onProgress: ({ fetched }) => setStatus(`Querying ${state.readRelays.length} relay(s)… ${fetched} event(s) so far`)
         });
         state.relayErrors = relayErrors;
         state.truncated = truncated;
@@ -1268,7 +1226,7 @@ async function boot({ full = false } = {}) {
         const parts = [`${state.items.length} item(s)`];
         if (stats.added > 0) parts.push(`+${stats.added} new`);
         if (stats.superseded > 0) parts.push(`${stats.superseded} replaced by newer versions`);
-        parts.push(`${state.relays.length - failed.length}/${state.relays.length} relay(s)`);
+        parts.push(`${state.readRelays.length - failed.length}/${state.readRelays.length} relay(s)`);
         if (failed.length) parts.push(`failed: ${failed.join(', ')}`);
         if (truncated) parts.push('some relays hit the page ceiling — older events not shown');
         setStatus(parts.join(' — '), failed.length > 0);
@@ -1306,7 +1264,7 @@ async function renderCaseSwitcher() {
             const active = sel.dataset.active;
             if (picked === '__manage') {
                 sel.value = active;
-                try { chrome.runtime.openOptionsPage(); } catch (_) { /* non-extension context */ }
+                openSettings();
                 return;
             }
             if (picked === active) return;
@@ -1447,9 +1405,7 @@ function wireChrome() {
 
     // Identity is MANAGED in Settings ▸ Signing; the input above only
     // adds read-only viewer npubs for other archives.
-    $('#xr-identity-settings').addEventListener('click', () => {
-        try { chrome.runtime.openOptionsPage(); } catch (_) { /* non-extension context */ }
-    });
+    $('#xr-identity-settings').addEventListener('click', openSettings);
 
     let searchTimer = null;
     $('#xr-search').addEventListener('input', (e) => {

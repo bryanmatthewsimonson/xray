@@ -97,6 +97,7 @@ import { localBlockedByHealth } from '../shared/companion-status.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { resolveActiveCaseRef, describeActiveContext, memberUrlSets } from '../shared/case-membership.js';
+import { flagCaseChip, confirmPublishSigner } from './signer-binding.js';
 import { gatherCorpusSources, corpusSourcesChars } from '../shared/audit/corpus-sources.js';
 import {
     ensureArticleExtract, articleSourceForExtract, claimProposalsFromExtract,
@@ -8074,6 +8075,7 @@ async function init() {
         chip.textContent = `🗂 ${ctx.caseName || ctx.wsLabel}`;
         if (ctx.profileLabel) chip.title = `Case "${ctx.caseName || ctx.wsLabel}" · profile "${ctx.profileLabel}" — manage cases in Settings.`;
         chip.hidden = false;
+        flagCaseChip(chip).catch(() => { /* the chip stays as it is */ });
         chip.addEventListener('click', () => {
             try { chrome.runtime.openOptionsPage(); } catch (_) { /* non-extension context */ }
         });
@@ -8104,7 +8106,8 @@ async function init() {
         btn.addEventListener('click', () => setViewMode(btn.dataset.mode));
     });
 
-    $('#xr-publish').addEventListener('click', () => {
+    $('#xr-publish').addEventListener('click', async () => {
+        if (!(await confirmPublishSigner($('#xr-publish')))) return;   // JOURNAL 2026-10-01
         publish().catch((err) => {
             console.error('[X-Ray Reader] publish failed:', err);
             toast('Publish failed: ' + (err.message || err), 'error', 6000);
