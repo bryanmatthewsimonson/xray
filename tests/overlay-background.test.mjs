@@ -1,9 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 // storage.js reads chrome.* at import time; the handler's default io is never used here.
-globalThis.chrome = { storage: { local: { get() {}, set() {}, remove() {} } }, runtime: { getURL: (p) => p } };
-const { handleOverlayMessage } = await import('../src/background/overlay.js');
+const _store = new Map();
+globalThis.chrome = {
+    storage: {
+        local: {
+            get(keys, cb) {
+                const out = {};
+                for (const k of Array.isArray(keys) ? keys : [keys]) if (_store.has(k)) out[k] = _store.get(k);
+                cb(out);
+            },
+            set(obj, cb) { for (const [k, v] of Object.entries(obj)) _store.set(k, v); cb && cb(); },
+            remove(keys, cb) { for (const k of Array.isArray(keys) ? keys : [keys]) _store.delete(k); cb && cb(); }
+        }
+    },
+    runtime: { getURL: (p) => p }
+};
+const { handleOverlayMessage, defaultIo } = await import('../src/background/overlay.js');
 const { Utils } = await import('../src/shared/utils.js');
+const { Storage } = await import('../src/shared/storage.js');
 
 const EXT = 'chrome-extension://abc/';
 const CARD = EXT + 'src/overlay/overlay-card.html';
@@ -184,4 +199,60 @@ test('malformed payload (itemIds not array of strings, url not string) -> bad re
         const r = await handleOverlayMessage({ type: 'xray:overlay:card', url, itemIds: [] }, iframeSender(), io);
         assert.equal(r.error, 'bad request');
     }
+});
+
+// A notes fake that actually stores, keyed like PageNotes (by normalized url).
+function statefulNotes(io) {
+    const map = new Map();
+    io.notes = {
+        forUrl: async (u) => [...map.values()].filter((n) => n.url === Utils.normalizeUrl(u)),
+        save: async (n) => {
+            const note = { ...n, id: n.id || 'pn_' + String(map.size + 1).padStart(16, '0'), url: Utils.normalizeUrl(n.url) };
+            map.set(note.id, note);
+            return note;
+        },
+        remove: async (id) => { map.delete(id); }
+    };
+    return map;
+}
+
+test('note:save: a supplied id belonging to another URL is refused and the note is unchanged', async () => {
+    const io = makeIo();
+    const map = statefulNotes(io);
+    map.set(NOTE_ID, { id: NOTE_ID, url: 'https://other.example/z', text: 'foreign' });
+    const r = await handleOverlayMessage({ type: 'xray:overlay:note:save', url: URL1, note: { id: NOTE_ID, text: 'hijack' } }, iframeSender(), io);
+    assert.deepEqual(r, { ok: false, error: 'bad request' });
+    assert.equal(map.get(NOTE_ID).text, 'foreign');
+    assert.equal(map.get(NOTE_ID).url, 'https://other.example/z');
+});
+
+test('tabless sender: the card path is forbidden, the side panel path is allowed', async () => {
+    const msg = { type: 'xray:overlay:card', url: URL1, itemIds: [] };
+    assert.equal((await handleOverlayMessage(msg, { url: CARD }, makeIo())).error, 'forbidden');
+    assert.equal((await handleOverlayMessage(msg, { url: CARD + '?x=1' }, makeIo())).error, 'forbidden');
+    assert.equal((await handleOverlayMessage(msg, { url: EXT + 'src/reader/index.html' }, makeIo())).error, 'forbidden');
+    assert.equal((await handleOverlayMessage(msg, { url: EXT + 'src/sidepanel/index.html' }, makeIo())).ok, true);
+});
+
+test('lookup: overlay_site_off written through Storage is honoured by the real accessor', async () => {
+    const io = makeIo();
+    io.readSiteOff = defaultIo.readSiteOff;
+    assert.ok((await lookup(io)).items.length > 0);
+    await Storage.set('overlay_site_off', ['example.com']);
+    assert.deepEqual(await lookup(io), { ok: true, items: [] });
+    await Storage.set('overlay_site_off', []);
+});
+
+test('youtu.be tab: a saved note is found by lookup and can be deleted', async () => {
+    const yt = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+    const tab = 'https://youtu.be/dQw4w9WgXcQ';
+    const io = makeIo({ archived: { [Utils.normalizeUrl(yt)]: { articleHash: 'h', markdown: 'one two three' } } });
+    statefulNotes(io);
+    const sender = iframeSender(tab);
+    const saved = await handleOverlayMessage({ type: 'xray:overlay:note:save', url: tab, note: { text: 'mine', quote: 'two' } }, sender, io);
+    assert.equal(saved.ok, true);
+    const r = await handleOverlayMessage({ type: 'xray:overlay:lookup', url: tab }, pageSender, io);
+    assert.ok(r.items.some((i) => i.id === 'note:' + saved.note.id));
+    const del = await handleOverlayMessage({ type: 'xray:overlay:note:delete', url: tab, id: saved.note.id }, sender, io);
+    assert.deepEqual(del, { ok: true });
 });

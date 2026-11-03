@@ -9,6 +9,7 @@
 // Content-script senders are always refused.
 
 import { Utils } from '../shared/utils.js';
+import { Storage } from '../shared/storage.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { buildOverlay, toLookupItems, sanitizeAnchor } from '../shared/overlay-model.js';
 import { quoteToSeconds } from '../shared/anchor-resolve.js';
@@ -21,6 +22,7 @@ import { getArticle } from '../shared/archive-cache.js';
 import { getArticleExtraction } from '../shared/audit/audit-cache.js';
 
 export const OVERLAY_CARD_PATH = 'src/overlay/overlay-card.html';
+export const SIDE_PANEL_PATH = 'src/sidepanel/index.html';
 const SITE_OFF_KEY = 'overlay_site_off';
 const MAX_QUOTE = 2000;
 const MAX_ITEM_IDS = 500;
@@ -28,9 +30,9 @@ const MAX_ITEM_IDS = 500;
 const BAD = { ok: false, error: 'bad request' };
 const FORBIDDEN = { ok: false, error: 'forbidden' };
 
+// Through the house wrapper: it JSON-encodes and may workspace-map keys.
 async function readSiteOff() {
-    const got = await chrome.storage.local.get(SITE_OFF_KEY);
-    return got ? got[SITE_OFF_KEY] : null;
+    return Storage.get(SITE_OFF_KEY, []);
 }
 
 export const defaultIo = {
@@ -94,13 +96,17 @@ function urlCandidates(url) {
     return out;
 }
 
-async function assemble(pageUrl, io) {
-    let url = pageUrl;
-    let article = null;
+/** The archived address this page maps to (and its article), or the page URL as-is. */
+async function resolveArchived(pageUrl, io) {
     for (const candidate of urlCandidates(pageUrl)) {
-        article = await io.getArticle(candidate);
-        if (article) { url = candidate; break; }
+        const article = await io.getArticle(candidate);
+        if (article) return { url: candidate, article };
     }
+    return { url: pageUrl, article: null };
+}
+
+async function assemble(pageUrl, io) {
+    const { url, article } = await resolveArchived(pageUrl, io);
     if (!article) return null;
 
     const claims = asList(await io.getClaims(url));
@@ -153,7 +159,10 @@ function senderAllowed(sender, message, io) {
         return typeof tabUrl === 'string'
             && Utils.normalizeUrl(tabUrl) === Utils.normalizeUrl(message.url);
     }
-    return senderUrl.startsWith(io.getURL(''));
+    // Tabless: ONLY the side panel. The card is web-accessible, so a
+    // page could frame it somewhere tabless and skip the tab binding.
+    const panel = io.getURL(SIDE_PANEL_PATH);
+    return senderUrl === panel || senderUrl.startsWith(panel + '?') || senderUrl.startsWith(panel + '#');
 }
 
 async function handleCard(message, io) {
@@ -189,14 +198,21 @@ function validNote(note) {
 async function handleNoteSave(message, io) {
     const clean = validNote(message.note);
     if (!clean) return BAD;
-    const note = await io.notes.save({ ...clean, url: message.url });
+    const { url } = await resolveArchived(message.url, io);
+    if (clean.id) {
+        // PageNotes.save replaces by id: never let it overwrite another page's note.
+        const mine = asList(await io.notes.forUrl(url));
+        if (!mine.some((n) => n.id === clean.id)) return BAD;
+    }
+    const note = await io.notes.save({ ...clean, url });
     return { ok: true, note };
 }
 
 async function handleNoteDelete(message, io) {
     if (typeof message.id !== 'string' || !NOTE_ID_RE.test(message.id)) return BAD;
     // Only delete a note that belongs to this page.
-    const mine = asList(await io.notes.forUrl(message.url));
+    const { url } = await resolveArchived(message.url, io);
+    const mine = asList(await io.notes.forUrl(url));
     if (!mine.some((n) => n.id === message.id)) return BAD;
     await io.notes.remove(message.id);
     return { ok: true };
