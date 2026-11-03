@@ -1274,6 +1274,39 @@ async function exportAuditLedger() {
 // Advanced
 // ------------------------------------------------------------------
 
+// Inline overlay: hosts the user hid via the overlay's own menu. Read and
+// written through the Storage facade (same key the content script writes).
+const OVERLAY_SITE_OFF_KEY = 'overlay_site_off';
+
+async function renderOverlaySiteOff() {
+    const ul = document.getElementById('overlay-site-off-list');
+    const empty = document.getElementById('overlay-site-off-empty');
+    if (!ul || !empty) return;
+    let hosts = await Storage.get(OVERLAY_SITE_OFF_KEY, []);
+    hosts = Array.isArray(hosts) ? hosts.filter((h) => typeof h === 'string' && h) : [];
+    ul.textContent = '';
+    empty.hidden = hosts.length > 0;
+    for (const host of hosts) {
+        const li = document.createElement('li');
+        li.style.margin = '4px 0';
+        const name = document.createElement('code');
+        name.textContent = host;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'xr-opt__btn xr-opt__btn--small';
+        btn.textContent = 'Remove';
+        btn.style.marginLeft = '8px';
+        btn.addEventListener('click', async () => {
+            const cur = await Storage.get(OVERLAY_SITE_OFF_KEY, []);
+            const next = (Array.isArray(cur) ? cur : []).filter((h) => h !== host);
+            await Storage.set(OVERLAY_SITE_OFF_KEY, next);
+            await renderOverlaySiteOff();
+        });
+        li.append(name, btn);
+        ul.appendChild(li);
+    }
+}
+
 async function loadAdvanced() {
     refreshBackupEstimate(); // fire-and-forget — sizes the backup checkbox label
     const prefs = (await storageGet('preferences')) || {};
@@ -1314,6 +1347,8 @@ async function loadAdvanced() {
     // Phase 28 — per-capture map prepay (a standing spend authorization).
     document.getElementById('pref-auto-preanalyze').checked = isEnabled('autoPreAnalyze');
     document.getElementById('pref-capture-automation').checked = isEnabled('captureAutomation');
+    document.getElementById('pref-inline-overlay').checked = isEnabled('inlineOverlay');
+    await renderOverlaySiteOff();
 
     // Local transcription (companion service) + the LM Studio post-pass.
     // Port / URL / model live under their own storage keys (the LLM-key
@@ -1467,6 +1502,10 @@ async function saveAdvanced() {
     // Capture automation (Phase 27 K.4).
     const captureAutoOn = document.getElementById('pref-capture-automation').checked;
     await setOverride('captureAutomation', captureAutoOn ? true : null);
+
+    // Inline overlay (spec 2026-11-02): default off; unchecked clears the override.
+    const overlayOn = document.getElementById('pref-inline-overlay').checked;
+    await setOverride('inlineOverlay', overlayOn ? true : null);
 
     // Local transcription + LM Studio claim drafts. The client pins both
     // services to loopback; a non-loopback LM Studio URL is refused here
