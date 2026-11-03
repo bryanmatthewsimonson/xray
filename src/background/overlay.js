@@ -26,6 +26,8 @@ export const SIDE_PANEL_PATH = 'src/sidepanel/index.html';
 const SITE_OFF_KEY = 'overlay_site_off';
 const MAX_QUOTE = 2000;
 const MAX_ITEM_IDS = 500;
+const MAX_ITEM_ID_CHARS = 256;
+export const SIDE_PANEL_FOCUS_KEY = 'overlay_sidepanel_focus';
 
 const BAD = { ok: false, error: 'bad request' };
 const FORBIDDEN = { ok: false, error: 'forbidden' };
@@ -33,6 +35,39 @@ const FORBIDDEN = { ok: false, error: 'forbidden' };
 // Through the house wrapper: it JSON-encodes and may workspace-map keys.
 async function readSiteOff() {
     return Storage.get(SITE_OFF_KEY, []);
+}
+
+// Session-only (trusted contexts — content scripts cannot read it), raw
+// object, ids only. Never falls back to storage.local: it is a transient
+// pointer, not data.
+async function writeSidePanelFocus(value) {
+    if (!chrome.storage || !chrome.storage.session) return;
+    await chrome.storage.session.set({ [SIDE_PANEL_FOCUS_KEY]: value });
+}
+
+/**
+ * Open the side panel for the overlay's CSP fallback. Not the existing
+ * openEntityBrowser(): that one TOGGLES the Firefox sidebar (closing it
+ * if open) and falls back to a tab, and a tabbed side-panel page is
+ * refused by senderAllowed. Both panel APIs need a user gesture, which a
+ * message after a 1.5 s timeout no longer carries, so this often returns
+ * false; the focus key is written regardless, so the panel shows the
+ * items whenever the user opens it.
+ */
+async function openSidePanel(tab) {
+    try {
+        if (typeof browser !== 'undefined' && browser.sidebarAction && browser.sidebarAction.open) {
+            await browser.sidebarAction.open();
+            return true;
+        }
+        if (chrome.sidePanel && chrome.sidePanel.open) {
+            await chrome.sidePanel.open({ tabId: tab.id });
+            return true;
+        }
+    } catch (err) {
+        Utils.log('overlay: side panel did not open', err && err.message);
+    }
+    return false;
 }
 
 export const defaultIo = {
@@ -54,7 +89,9 @@ export const defaultIo = {
         return out;
     },
     getFindings: async () => Object.values((await ForensicModel.getAll()) || {}),
-    notes: PageNotes
+    notes: PageNotes,
+    writeSidePanelFocus,
+    openSidePanel
 };
 
 function hostOf(url) {
@@ -165,6 +202,27 @@ function senderAllowed(sender, message, io) {
     return senderUrl === panel || senderUrl.startsWith(panel + '?') || senderUrl.startsWith(panel + '#');
 }
 
+/**
+ * CSP fallback, from the content script: the page blocked the card
+ * iframe. Bound to the sender's own tab URL; stores ids only.
+ */
+async function handleOpenInSidePanel(message, sender, io) {
+    const tab = sender && sender.tab;
+    if (!tab || typeof tab.id !== 'number' || typeof tab.url !== 'string') return FORBIDDEN;
+    if (Utils.normalizeUrl(tab.url) !== Utils.normalizeUrl(message.url)) return FORBIDDEN;
+    const ids = message.itemIds;
+    if (!Array.isArray(ids) || ids.length > MAX_ITEM_IDS
+        || !ids.every((i) => typeof i === 'string' && i.length <= MAX_ITEM_ID_CHARS)) {
+        return BAD;
+    }
+    // Start the open first: the closer to the message, the better the
+    // (slim) chance a user gesture still counts.
+    const opening = io.openSidePanel(tab);
+    await io.writeSidePanelFocus({ url: message.url, itemIds: ids.slice() });
+    const opened = await opening;
+    return { ok: true, opened: !!opened };
+}
+
 async function handleCard(message, io) {
     const ids = message.itemIds;
     if (!Array.isArray(ids) || ids.length > MAX_ITEM_IDS || !ids.every((i) => typeof i === 'string')) {
@@ -224,6 +282,9 @@ export async function handleOverlayMessage(message, sender, io = defaultIo) {
         switch (message.type) {
             case 'xray:overlay:lookup':
                 return await handleLookup(message, io);
+            case 'xray:overlay:openInSidePanel':
+                if (!validUrl(message.url)) return BAD;
+                return await handleOpenInSidePanel(message, sender, io);
             case 'xray:overlay:card':
             case 'xray:overlay:note:save':
             case 'xray:overlay:note:delete': {

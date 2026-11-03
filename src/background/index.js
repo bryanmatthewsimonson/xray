@@ -1311,11 +1311,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // ------------------------------------------------------------------
 
 chrome.commands?.onCommand.addListener((command) => {
+    // Inline overlay: "Add X-Ray note to selection" (no default key —
+    // the user binds one). The content script captures the selection
+    // and opens the card iframe in editor mode; it ignores the message
+    // when the overlay is off.
+    if (command === 'xray:overlay:addNote') {
+        relayToActiveTab({ type: 'xray:overlay:addNote' });
+        return;
+    }
     // The manifest command id stays `xray:toggle` so existing user key
     // bindings survive; it now triggers a capture rather than a toggle.
     if (command !== 'xray:toggle') return;
     captureActiveTab();
 });
+
+/** Fire-and-forget a message to the active tab's content script. */
+function relayToActiveTab(message) {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const tab = tabs && tabs[0];
+        if (!tab || !tab.id) return;
+        chrome.tabs.sendMessage(tab.id, message).catch(() => { /* no content script here */ });
+    });
+}
 
 // ------------------------------------------------------------------
 // Reader → sign → publish orchestration

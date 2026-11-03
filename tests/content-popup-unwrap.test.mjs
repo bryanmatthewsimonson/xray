@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ContentExtractor } from '../src/shared/content-extractor.js';
+import { stripOverlayNodes } from '../src/shared/overlay-strip.js';
 
 // Minimal stubs ----------------------------------------------------------
 
@@ -99,7 +100,7 @@ test('never throws on a malformed root', () => {
 
 // Inline-overlay nodes are stripped from the capture clone ---------------
 
-test('_stripOverlayNodes removes pins/chip/style/frame and unwraps marks', () => {
+test('stripOverlayNodes removes pins/chip/style/frame and unwraps marks', () => {
     const log = [];
     const mk = (name, kids = []) => {
         const n = {
@@ -127,9 +128,10 @@ test('_stripOverlayNodes removes pins/chip/style/frame and unwraps marks', () =>
             return [];
         }
     };
-    ContentExtractor._stripOverlayNodes(root);
+    stripOverlayNodes(root);
     assert.deepEqual(para.childNodes.map((n) => n.name), ['text']);
     assert.deepEqual(body.childNodes.map((n) => n.name), ['p']);
     assert.ok(log.includes('pin') && log.includes('chip') && log.includes('mark'));
-    assert.doesNotThrow(() => ContentExtractor._stripOverlayNodes(null));
+    assert.doesNotThrow(() => stripOverlayNodes(null));
+    assert.doesNotThrow(() => stripOverlayNodes({}));
 });

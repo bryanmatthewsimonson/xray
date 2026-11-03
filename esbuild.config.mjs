@@ -8,6 +8,7 @@
 //   dist/sidepanel.bundle.js        — chrome.sidePanel target (entity browser)
 //   dist/reader.bundle.js           — extension-page reader view
 //   dist/portal.bundle.js           — "My Archive" data portal (Phase 12)
+//   dist/overlay.bundle.js          — inline-overlay card iframe (web-accessible)
 //   dist/api-interceptor.bundle.js  — MAIN-world fetch/XHR hook (Phase 8a)
 //
 // The toolbar-icon click captures the active tab into the reader — no
@@ -84,7 +85,7 @@ const configs = [
     },
 
     // --- extension pages (each is its own IIFE bundle, loaded by its HTML shell) ---
-    ...['options', 'sidepanel', 'reader', 'portal', 'network'].map((name) => ({
+    ...['options', 'sidepanel', 'reader', 'portal', 'network', 'overlay'].map((name) => ({
         ...shared,
         entryPoints: [resolve(root, `src/${name}/index.js`)],
         outfile: resolve(root, `dist/${name}.bundle.js`),

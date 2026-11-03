@@ -2,8 +2,8 @@
 // `inlineOverlay`). Receives LOCATING data only (LookupItems: ids, kinds,
 // anchors, quotes) from the background and draws <mark> markers, pins and
 // a chip. It never holds or renders note text, verdicts or assessments:
-// the card UI is an extension iframe (a later task) that listens for the
-// `xr-ov:open` event dispatched here. Every DOM edit is reversible
+// the card UI is an extension iframe (overlay-frame.js) opened through
+// the isolated-world `env.onOpen` callback. Every DOM edit is reversible
 // (teardown restores the original text nodes) and every failure path
 // degrades to "draw nothing" — this must never break the host page.
 
@@ -229,6 +229,7 @@ export function startOverlay(env = {}) {
     let urlTimer = null;
     let reAdds = 0;
     let unresolved = 0;
+    let unresolvedIds = [];    // ids the list card marks "not located"
     let busy = false;          // true while WE mutate the DOM
 
     // -- hand-off to the card UI ----------------------------------
@@ -340,6 +341,7 @@ export function startOverlay(env = {}) {
         // splits text nodes and would invalidate later offsets.
         const planned = [];
         unresolved = 0;
+        unresolvedIds = [];
         for (const it of items) {
             let loc = null;
             if (!index.oversize) {
@@ -348,14 +350,14 @@ export function startOverlay(env = {}) {
                     if (r.range && r.confidence >= ACCEPT_CONFIDENCE) loc = locate(index, r.range.start, r.range.end);
                 } catch (_) { loc = null; }
             }
-            if (!loc) { unresolved++; continue; }
+            if (!loc) { unresolved++; unresolvedIds.push(it.id); continue; }
             planned.push({ it, loc });
         }
         const pinGroups = new Map(); // key (ref+endOffset) -> {outerMark, ids}
         for (const { it, loc } of planned) {
             const si = index.map.findIndex((e) => e.ref === loc.startRef);
             const ei = index.map.findIndex((e) => e.ref === loc.endRef);
-            if (si < 0 || ei < 0 || ei < si) { unresolved++; continue; }
+            if (si < 0 || ei < 0 || ei < si) { unresolved++; unresolvedIds.push(it.id); continue; }
             let lastMark = null;
             const lastKey = { ref: loc.endRef, end: loc.endOffset };
             for (let i = si; i <= ei; i++) {
@@ -374,7 +376,7 @@ export function startOverlay(env = {}) {
                     lastMark = x.mark;
                 }
             }
-            if (!lastMark) { unresolved++; continue; }
+            if (!lastMark) { unresolved++; unresolvedIds.push(it.id); continue; }
             // Pins group items that end on the same text position.
             let key = null;
             for (const [k, g] of pinGroups) {
@@ -426,7 +428,10 @@ export function startOverlay(env = {}) {
         });
         showAll.addEventListener('click', () => {
             chip.className = 'xr-ov-chip';
-            fireOpen({ itemIds: items.map((i) => i.id), rect: rectOf(chip), mode: 'list' });
+            fireOpen({
+                itemIds: items.map((i) => i.id), rect: rectOf(chip), mode: 'list',
+                unlocatedIds: unresolvedIds.slice()
+            });
         });
         hide.addEventListener('click', async () => {
             try {
@@ -507,6 +512,7 @@ export function startOverlay(env = {}) {
         items = [];
         reAdds = 0;
         unresolved = 0;
+        unresolvedIds = [];
         currentUrl = win.location.href;
         if (await isSiteOff(currentUrl)) return;
         const got = await lookup(currentUrl);
@@ -563,5 +569,11 @@ export function startOverlay(env = {}) {
     }, URL_POLL_MS);
     apply().catch((err) => Utils.error('overlay: start failed', err));
 
-    return { teardown };
+    /** Re-look-up and redraw (after the card saved or deleted a note). */
+    function refresh() {
+        if (dead) return;
+        apply().catch((err) => Utils.error('overlay: refresh failed', err));
+    }
+
+    return { teardown, refresh };
 }

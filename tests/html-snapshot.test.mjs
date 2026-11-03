@@ -165,3 +165,30 @@ test('snapshotHash is deterministic for identical input', async () => {
     const b = await snapshotHash('<p>same</p>');
     assert.equal(a, b);
 });
+
+test('snapshot strips inline-overlay pins and frame from the clone (never evidence)', () => {
+    const pin = el('span', { attrs: { class: 'xr-ov-pin' } });
+    const frame = el('iframe', { attrs: { class: 'xr-ov-frame' } });
+    const p = el('p', { children: [pin] });
+    const root = el('div', { children: [p, frame] });
+    // The shim has no querySelectorAll: give clones one that finds the
+    // overlay nodes by class (what stripOverlayNodes relies on).
+    const origClone = root.cloneNode.bind(root);
+    root.cloneNode = (deep) => {
+        const copy = origClone(deep);
+        const all = [];
+        const walk = (n) => { for (const c of n.children) { all.push(c); walk(c); } };
+        walk(copy);
+        copy.querySelectorAll = (sel) => all.filter((n) => {
+            const cls = n._attrs.get('class') || '';
+            return sel.split(',').some((s) => s.trim() === '.' + cls);
+        });
+        return copy;
+    };
+    const out = snapshot(root);
+    assert.ok(!out.includes('xr-ov-pin'), out);
+    assert.ok(!out.includes('xr-ov-frame'), out);
+    assert.ok(out.includes('<p'), out);
+    // The live element is untouched.
+    assert.equal(p.children.length, 1);
+});

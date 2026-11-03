@@ -13,6 +13,7 @@ import { Signer } from '../shared/signer.js';
 import { NIP07Client } from './nip07-client.js';
 import { UI } from './ui.js';
 import { startOverlay } from './overlay.js';
+import { mountFrame } from './overlay-frame.js';
 import { installBufferListener, configureInterceptor } from '../shared/api-hook-buffer.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 
@@ -157,7 +158,17 @@ async function init() {
     // the page's notes/claims. Failure here must never affect capture.
     try {
         await loadFlags();
-        if (isEnabled('inlineOverlay')) startOverlay({ window, document, chrome });
+        if (isEnabled('inlineOverlay')) {
+            // The card iframe (extension origin) renders all content; the
+            // overlay hands it ids through an isolated-world callback.
+            let overlay = null;
+            const frame = mountFrame({
+                window, document, chrome,
+                notify: (m) => UI.showToast(m, 'warning'),
+                onChanged: () => overlay && overlay.refresh()
+            });
+            overlay = startOverlay({ window, document, chrome, onOpen: (d) => frame.open(d) });
+        }
     } catch (err) {
         Utils.error('Inline overlay failed to start:', err);
     }

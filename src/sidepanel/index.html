@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>X-Ray — Entities</title>
   <link rel="stylesheet" href="index.css" />
+  <link rel="stylesheet" href="../overlay/index.css" />
 </head>
 <body class="xr-side">
   <header class="xr-side__chrome">
@@ -22,6 +23,10 @@
        <body>. -->
 
   <section class="xr-side__list-view">
+    <!-- Inline overlay CSP fallback (flag inlineOverlay): the items a
+         page's card iframe could not show. Filled by sidepanel/index.js
+         from chrome.storage.session `overlay_sidepanel_focus`. -->
+    <div class="xr-ov-focus" id="xr-ov-focus" hidden></div>
     <div class="xr-side__filters">
       <button class="xr-side__type-chip xr-side__type-chip--active" data-type=""            title="All">All</button>
       <button class="xr-side__type-chip" data-type="person"       title="Person">👤</button>

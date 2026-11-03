@@ -197,6 +197,16 @@ test('pin click and Show all dispatch xr-ov:open', async () => {
     assert.equal(domEvents, 0, 'no page-visible DOM event is dispatched');
 });
 
+test('Show all reports which items were not located (ids only)', async () => {
+    page('Alpha beta gamma delta.');
+    lookupReturns([claim('c1', 'beta gamma'), claim('c2', 'nowhere on this page')]);
+    const events = [];
+    start({ onOpen: (d) => events.push(d) }); await flush();
+    all(doc.body, (e) => e.className === 'xr-ov-show-all')[0].click();
+    assert.deepEqual(events[0].itemIds, ['c1', 'c2']);
+    assert.deepEqual(events[0].unlocatedIds, ['c2']);
+});
+
 test('teardown fully restores the original text nodes (innerHTML identical)', async () => {
     page('Alpha beta gamma delta.', 'Second paragraph.');
     const before = doc.body.innerHTML;
