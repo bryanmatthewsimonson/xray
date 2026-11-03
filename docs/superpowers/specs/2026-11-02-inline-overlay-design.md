@@ -90,14 +90,20 @@ extractionRows, notes })` → `Item[]`:
 
 ```
 Item = {
-  id, kind: 'claim' | 'extraction' | 'note',
+  id, kind: 'claim' | 'finding' | 'extraction' | 'note',
   anchor?, quote?, seconds?,           // locating data only
   judgmentKinds: string[],             // e.g. ['assessment','verdict'] — kinds, not content
   reviewState?: 'unreviewed' | 'accepted' | 'rejected'   // extraction rows only
 }
 ```
 
-- Judgments attach to their claim by claim coordinate/id; a judgment
+- Forensic findings (30062) are first-class items, not attachments: a
+  finding's subject is an actor, not a claim, and each of its `anchors`
+  carries its own quote, selector, timestamp and `source_ref.url`. The
+  overlay emits one `finding` item per anchor whose URL is this page.
+  (Amended 2026-11-02 during planning; the design conversation had
+  assumed findings hang on claims.)
+- Assessments and verdicts attach to their claim by claim id; a judgment
   whose claim is not on this URL is ignored here (it belongs to its own
   claim's page).
 - Rejected extraction rows are included with `reviewState: 'rejected'`;
@@ -201,6 +207,9 @@ menu carries "Hide on this site".
   (`sender.url` is our `overlay-card.html`) **and** normalized
   `sender.tab.url` equals the requested `url`. A page can never pull notes
   for another URL; an embedding page cannot read the iframe's response.
+  The one other accepted sender is a tabless extension page (the side
+  panel, for the CSP fallback), since our own pages already read storage
+  directly. Content-script senders are always refused.
 - Chrome: `use_dynamic_url: true` on the resource to block fingerprinting
   by probe. Firefox already randomizes the extension UUID per install.
 - `lookup` returns only `toLookupItems` fields. Quotes are already on the
@@ -255,7 +264,11 @@ the YouTube selectors is worth automating goes to the `automator` review.
 3. Find a real site whose CSP blocks the extension iframe — sizes how
    often §5.2's side-panel fallback fires.
 
-Results are recorded in §9 before the implementation plan is written.
+Results are recorded in §9 before any marker code is written. (Amended
+during planning: the `<mark>` path is built regardless, as the Firefox
+< 140 fallback, so the spike decides only whether the Highlight API
+task runs. It is Task 1 of the plan rather than a precondition for
+writing it.)
 
 ## 8. Out of scope (phase 1)
 
