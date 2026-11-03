@@ -12,6 +12,7 @@ import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
 import { Signer } from '../shared/signer.js';
 import { NIP07Client } from './nip07-client.js';
 import { UI } from './ui.js';
+import { startOverlay } from './overlay.js';
 import { installBufferListener, configureInterceptor } from '../shared/api-hook-buffer.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 
@@ -151,6 +152,15 @@ async function init() {
         maybeAutomationCapture().catch((err) =>
             Utils.error('Automation capture marker failed:', err));
     });
+
+    // Inline overlay (flag inlineOverlay, default OFF): local markers for
+    // the page's notes/claims. Failure here must never affect capture.
+    try {
+        await loadFlags();
+        if (isEnabled('inlineOverlay')) startOverlay({ window, document, chrome });
+    } catch (err) {
+        Utils.error('Inline overlay failed to start:', err);
+    }
 }
 
 /**
