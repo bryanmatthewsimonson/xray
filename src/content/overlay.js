@@ -22,6 +22,7 @@ const SITE_OFF_KEY = 'overlay_site_off';
 const CONTEXT_CHARS = 32;
 const MAX_QUOTE = 2000;
 const STYLE_ID = 'xr-ov-style';
+const KINDS = new Set(['claim', 'extraction', 'finding', 'note']);
 const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
 
 const CSS = `
@@ -205,13 +206,19 @@ export function startOverlay(env = {}) {
     const win = env.window || (typeof window !== 'undefined' ? window : null);
     const doc = env.document || (win && win.document);
     const chromeApi = env.chrome || (typeof chrome !== 'undefined' ? chrome : null);
+    const onOpen = typeof env.onOpen === 'function' ? env.onOpen : () => {};
     const getVideoSeconds = typeof env.getVideoSeconds === 'function' ? env.getVideoSeconds : () => null;
     if (!win || !doc || !chromeApi || !chromeApi.runtime) return { teardown() {} };
 
     let dead = false;
     let gen = 0;               // invalidates in-flight lookups
     let items = [];            // cached LookupItems for the current URL
+    const noHash = (u) => String(u).split('#')[0];
     let currentUrl = win.location.href;
+    // Split bookkeeping so teardown can put page-owned text nodes back
+    // exactly (no normalize(): it would merge/delete page text nodes).
+    let splitLog = new Map();  // original node -> {data, tails:[{node, s}]}
+    const origOf = new Map();  // tail node -> original node
     let marks = [];            // mark elements we created
     let pins = [];
     let chip = null;
@@ -224,12 +231,11 @@ export function startOverlay(env = {}) {
     let unresolved = 0;
     let busy = false;          // true while WE mutate the DOM
 
-    // -- events to the card UI ------------------------------------
+    // -- hand-off to the card UI ----------------------------------
+    // An isolated-world callback, NOT a DOM event: page scripts can both
+    // listen to and forge DOM events.
     function fireOpen(detail) {
-        try {
-            const Ev = win.CustomEvent || CustomEvent;
-            doc.dispatchEvent(new Ev('xr-ov:open', { detail }));
-        } catch (err) { Utils.error('overlay: dispatch failed', err); }
+        try { onOpen(detail); } catch (err) { Utils.error('overlay: onOpen failed', err); }
     }
 
     // -- marker removal -------------------------------------------
@@ -244,10 +250,19 @@ export function startOverlay(env = {}) {
                 parents.add(p);
             }
             for (const pin of pins) if (pin.parentNode) { parents.add(pin.parentNode); pin.parentNode.removeChild(pin); }
-            for (const p of parents) { try { p.normalize(); } catch (_) { /* detached */ } }
+            for (const [orig, rec] of splitLog) {
+                rec.tails.sort((a, b) => a.s - b.s);
+                for (const t of rec.tails) {
+                    if (!t.node.parentNode) continue;
+                    orig.data += t.node.data;
+                    t.node.parentNode.removeChild(t.node);
+                }
+            }
         } catch (err) { Utils.error('overlay: removeMarkers failed', err); }
         marks = [];
         pins = [];
+        splitLog = new Map();
+        origOf.clear();
     }
 
     /** Run our own DOM edits without the observer treating them as page changes. */
@@ -274,6 +289,15 @@ export function startOverlay(env = {}) {
 
     // -- placement --------------------------------------------------
     /** Wrap original-coordinate [s,e) of one text node, splitting as needed. */
+    function splitAt(node, off, s) {
+        const orig = origOf.get(node) || node;
+        if (!splitLog.has(orig)) splitLog.set(orig, { tails: [] });
+        const tail = node.splitText(off);
+        origOf.set(tail, orig);
+        splitLog.get(orig).tails.push({ node: tail, s });
+        return tail;
+    }
+
     function wrapPiece(frags, s, e, makeMark) {
         const made = [];
         for (const f of frags.slice()) {
@@ -285,12 +309,12 @@ export function startOverlay(env = {}) {
             const at = frags.indexOf(f);
             const repl = [];
             if (ss > f.s) {
-                const tail = node.splitText(ss - f.s);
+                const tail = splitAt(node, ss - f.s, ss);
                 repl.push({ node, s: f.s, e: ss });
                 node = tail;
             }
             let rest = null;
-            if (ee < f.e) rest = node.splitText(ee - ss);
+            if (ee < f.e) rest = splitAt(node, ee - ss, ee);
             const mid = { node, s: ss, e: ee };
             repl.push(mid);
             if (rest) repl.push({ node: rest, s: ee, e: f.e });
@@ -337,10 +361,11 @@ export function startOverlay(env = {}) {
             for (let i = si; i <= ei; i++) {
                 const ref = index.map[i].ref;
                 const from = i === si ? loc.startOffset : 0;
-                const to = i === ei ? loc.endOffset : ref.data.length;
+                const fr = fragsOf(ref);
+                const to = i === ei ? loc.endOffset : fr[fr.length - 1].e;
                 const made = wrapPiece(fragsOf(ref), from, to, () => {
                     const m = doc.createElement('mark');
-                    m.className = 'xr-ov-mark xr-ov-' + String(it.kind || 'note');
+                    m.className = 'xr-ov-mark xr-ov-' + it.kind;
                     m.setAttribute('data-xr-ov', it.id);
                     return m;
                 });
@@ -486,7 +511,7 @@ export function startOverlay(env = {}) {
         if (await isSiteOff(currentUrl)) return;
         const got = await lookup(currentUrl);
         if (dead || myGen !== gen || !got) return;
-        items = got;
+        items = got.filter((it) => it && KINDS.has(it.kind) && typeof it.id === 'string');
         if (!items.length) return;
         try {
             guarded(() => { ensureStyle(); place(); buildChip(); });
@@ -532,7 +557,7 @@ export function startOverlay(env = {}) {
     try { chromeApi.runtime.onMessage.addListener(onMessage); } catch (_) { /* ignore */ }
     urlTimer = setInterval(() => {
         if (dead) return;
-        if (win.location.href !== currentUrl) {
+        if (noHash(win.location.href) !== noHash(currentUrl)) {
             apply().catch((err) => Utils.error('overlay: relookup failed', err));
         }
     }, URL_POLL_MS);

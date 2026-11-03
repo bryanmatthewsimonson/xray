@@ -126,6 +126,10 @@ export const ContentExtractor = {
       // 2026-06-06.
       ContentExtractor._unwrapInlinePopups(documentClone);
 
+      // The inline overlay's markers must never reach the capture (they
+      // would add "X-Ray" pin text and change the canonical article hash).
+      ContentExtractor._stripOverlayNodes(documentClone);
+
       // Readability is now bundled via npm import
       {
         const reader = new Readability(documentClone);
@@ -282,6 +286,26 @@ export const ContentExtractor = {
   // editorial-note markers (footnote superscripts) entirely so they don't
   // litter the prose. Operates on the detached clone, never the live page.
   // Best-effort: any failure here must not block extraction.
+  /**
+   * Remove inline-overlay chrome (pins, chip, style, card frame) from a
+   * cloned document and unwrap its <mark> wrappers, so captured text is
+   * identical to a page the overlay never touched.
+   */
+  _stripOverlayNodes: (root) => {
+    try {
+      if (!root || typeof root.querySelectorAll !== 'function') return;
+      Array.prototype.forEach.call(
+        root.querySelectorAll('.xr-ov-pin, .xr-ov-chip, #xr-ov-style, .xr-ov-frame'),
+        (n) => { if (n.parentNode) n.parentNode.removeChild(n); });
+      Array.prototype.forEach.call(root.querySelectorAll('.xr-ov-mark'), (m) => {
+        const parent = m.parentNode;
+        if (!parent) return;
+        while (m.firstChild) parent.insertBefore(m.firstChild, m);
+        parent.removeChild(m);
+      });
+    } catch (_) { /* never block extraction on overlay cleanup */ }
+  },
+
   _unwrapInlinePopups: (root) => {
     let unwrapped = 0;
     try {

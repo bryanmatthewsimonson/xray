@@ -187,12 +187,14 @@ test('pin click and Show all dispatch xr-ov:open', async () => {
     page('Alpha beta gamma delta.');
     lookupReturns([claim('c1', 'beta gamma')]);
     const events = [];
-    doc.addEventListener('xr-ov:open', (e) => events.push(e.detail));
-    start(); await flush();
+    let domEvents = 0;
+    doc.addEventListener('xr-ov:open', () => domEvents++);
+    start({ onOpen: (d) => events.push(d) }); await flush();
     all(doc.body, (e) => e.className === 'xr-ov-pin')[0].click();
     all(doc.body, (e) => e.className === 'xr-ov-show-all')[0].click();
     assert.deepEqual(events.map((e) => [e.mode, e.itemIds]), [['cards', ['c1']], ['list', ['c1']]]);
     assert.ok(events[0].rect && 'top' in events[0].rect);
+    assert.equal(domEvents, 0, 'no page-visible DOM event is dispatched');
 });
 
 test('teardown fully restores the original text nodes (innerHTML identical)', async () => {
@@ -333,9 +335,8 @@ test('addNote command: selection -> draft; no selection -> seconds; neither -> n
     const art = page('Alpha beta gamma delta.');
     const text = art.childNodes[0].childNodes[0];
     const events = [];
-    doc.addEventListener('xr-ov:open', (e) => events.push(e.detail));
     let secs = null;
-    start({ getVideoSeconds: () => secs }); await flush();
+    start({ getVideoSeconds: () => secs, onOpen: (d) => events.push(d) }); await flush();
     const fire = () => _msgListeners.forEach((f) => f({ type: 'xray:overlay:addNote' }));
     fire();
     assert.equal(events.length, 0);
@@ -351,4 +352,57 @@ test('addNote command: selection -> draft; no selection -> seconds; neither -> n
     assert.equal(events[1].rect.top, 9);
     _msgListeners.forEach((f) => f({ type: 'other' }));
     assert.equal(events.length, 2);
+});
+
+test('multi-node item is fully marked after an earlier item split its first node', async () => {
+    const art = doc.createElement('article');
+    const p = doc.createElement('p');
+    const em = doc.createElement('em');
+    em.appendChild(doc.createTextNode('delta'));
+    p.appendChild(doc.createTextNode('Alpha beta gamma '));
+    p.appendChild(em);
+    art.appendChild(p); doc.body.appendChild(art);
+    lookupReturns([claim('c1', 'Alpha'), claim('c2', 'gamma delta')]);
+    start(); await flush();
+    const c2 = marksOf().filter((m) => m.getAttribute('data-xr-ov') === 'c2').map((m) => m.textContent).join('|');
+    assert.equal(c2, 'gamma |delta');
+});
+
+test('teardown restores page-owned text nodes exactly (adjacent + empty nodes survive)', async () => {
+    const art = doc.createElement('article');
+    const p = doc.createElement('p');
+    const a = doc.createTextNode('Hello, ');
+    const e = doc.createTextNode('');
+    const b = doc.createTextNode('world and more text here.');
+    p.appendChild(a); p.appendChild(e); p.appendChild(b);
+    art.appendChild(p); doc.body.appendChild(art);
+    const before = doc.body.innerHTML;
+    lookupReturns([claim('c1', 'Hello, world and'), claim('c2', 'more')]);
+    const h = start(); await flush();
+    assert.ok(marksOf().length >= 2);
+    h.teardown();
+    assert.equal(doc.body.innerHTML, before);
+    assert.deepEqual(p.childNodes, [a, e, b]);
+    assert.deepEqual([a.data, e.data, b.data], ['Hello, ', '', 'world and more text here.']);
+});
+
+test('hash-only navigation does not relookup; path change does', async () => {
+    page('Alpha beta gamma delta.');
+    lookupReturns([claim('c1', 'beta gamma')]);
+    start(); await flush();
+    win.location.href = 'https://example.com/a#footnote-1';
+    mock.timers.tick(1000); await flush();
+    assert.equal(_sent.length, 1);
+    assert.equal(marksOf().length, 1);
+    win.location.href = 'https://example.com/b#x';
+    mock.timers.tick(1000); await flush();
+    assert.equal(_sent.length, 2);
+});
+
+test('unknown item kinds are skipped, never put in a className', async () => {
+    page('Alpha beta gamma delta.');
+    lookupReturns([{ ...claim('x1', 'beta'), kind: 'claim" onclick="x' }, claim('c1', 'gamma')]);
+    start(); await flush();
+    assert.deepEqual(marksOf().map((m) => m.getAttribute('data-xr-ov')), ['c1']);
+    assert.equal(chipText(), 'X-Ray: 1 notes');
 });
