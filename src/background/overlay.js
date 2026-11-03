@@ -31,6 +31,7 @@ export const SIDE_PANEL_FOCUS_KEY = 'overlay_sidepanel_focus';
 
 const BAD = { ok: false, error: 'bad request' };
 const FORBIDDEN = { ok: false, error: 'forbidden' };
+const DISABLED = { ok: false, error: 'disabled' };
 
 // Through the house wrapper: it JSON-encodes and may workspace-map keys.
 async function readSiteOff() {
@@ -134,18 +135,42 @@ function urlCandidates(url) {
     return out;
 }
 
-/** The archived address this page maps to (and its article), or the page URL as-is. */
+/**
+ * The archived address this page maps to (and its article). Unarchived,
+ * it is the page's canonical form (the YouTube watch URL for youtu.be /
+ * shorts / embed / live), so a note saved before capture is keyed where
+ * the archive will later put the article.
+ */
 async function resolveArchived(pageUrl, io) {
-    for (const candidate of urlCandidates(pageUrl)) {
+    const candidates = urlCandidates(pageUrl);
+    for (const candidate of candidates) {
         const article = await io.getArticle(candidate);
-        if (article) return { url: candidate, article };
+        if (article) return { url: candidate, article, candidates };
     }
-    return { url: pageUrl, article: null };
+    return { url: candidates[candidates.length - 1], article: null, candidates };
+}
+
+/** This page's notes under every address form it maps to (deduped by id). */
+async function notesFor(candidates, io) {
+    const out = [];
+    const seen = new Set();
+    for (const candidate of candidates) {
+        for (const n of asList(await io.notes.forUrl(candidate))) {
+            if (!n || seen.has(n.id)) continue;
+            seen.add(n.id);
+            out.push(n);
+        }
+    }
+    return out;
 }
 
 async function assemble(pageUrl, io) {
-    const { url, article } = await resolveArchived(pageUrl, io);
-    if (!article) return null;
+    const { url, article, candidates } = await resolveArchived(pageUrl, io);
+    // Not archived: personal notes are still the user's (spec §2.3, "free
+    // personal notes"); claims, findings and extraction need an article.
+    if (!article) {
+        return buildOverlay(url, { notes: await notesFor(candidates, io) });
+    }
 
     const claims = asList(await io.getClaims(url));
     const assessmentsByClaim = new Map();
@@ -171,7 +196,7 @@ async function assemble(pageUrl, io) {
         verdictsByClaim,
         findings: asList(await io.getFindings()),
         extraction: extraction || null,
-        notes: asList(await io.notes.forUrl(url)),
+        notes: await notesFor(candidates, io),
         secondsFor
     });
 }
@@ -183,7 +208,6 @@ async function handleLookup(message, io) {
     const off = await io.readSiteOff();
     if (Array.isArray(off) && off.includes(hostOf(message.url))) return { ok: true, items: [] };
     const items = await assemble(message.url, io);
-    if (!items) return { ok: true, items: [] };
     return { ok: true, items: toLookupItems(items) };
 }
 
@@ -245,7 +269,6 @@ async function handleCard(message, io) {
         return BAD;
     }
     const items = await assemble(message.url, io);
-    if (!items) return { ok: true, items: [] };
     const want = new Set(ids);
     return { ok: true, items: items.filter((it) => want.has(it.id)) };
 }
@@ -272,21 +295,24 @@ function validNote(note) {
 async function handleNoteSave(message, io) {
     const clean = validNote(message.note);
     if (!clean) return BAD;
-    const { url } = await resolveArchived(message.url, io);
+    const { url, candidates } = await resolveArchived(message.url, io);
+    let saveUrl = url;
     if (clean.id) {
         // PageNotes.save replaces by id: never let it overwrite another page's note.
-        const mine = asList(await io.notes.forUrl(url));
-        if (!mine.some((n) => n.id === clean.id)) return BAD;
+        const prior = (await notesFor(candidates, io)).find((n) => n.id === clean.id);
+        if (!prior) return BAD;
+        // An edit keeps the note where it lives (e.g. a youtu.be-keyed note).
+        if (typeof prior.url === 'string' && prior.url) saveUrl = prior.url;
     }
-    const note = await io.notes.save({ ...clean, url });
+    const note = await io.notes.save({ ...clean, url: saveUrl });
     return { ok: true, note };
 }
 
 async function handleNoteDelete(message, io) {
     if (typeof message.id !== 'string' || !NOTE_ID_RE.test(message.id)) return BAD;
     // Only delete a note that belongs to this page.
-    const { url } = await resolveArchived(message.url, io);
-    const mine = asList(await io.notes.forUrl(url));
+    const { candidates } = await resolveArchived(message.url, io);
+    const mine = await notesFor(candidates, io);
     if (!mine.some((n) => n.id === message.id)) return BAD;
     await io.notes.remove(message.id);
     return { ok: true };
@@ -301,13 +327,24 @@ export async function handleOverlayMessage(message, sender, io = defaultIo) {
             case 'xray:overlay:openInSidePanel':
                 if (!validUrl(message.url)) return BAD;
                 await io.loadFlags();
-                if (!io.isEnabled('inlineOverlay')) return { ok: false, error: 'disabled' };
+                if (!io.isEnabled('inlineOverlay')) return DISABLED;
                 return await handleOpenInSidePanel(message, sender, io);
             case 'xray:overlay:card':
             case 'xray:overlay:note:save':
             case 'xray:overlay:note:delete': {
                 if (!validUrl(message.url)) return BAD;
                 if (!senderAllowed(sender, message, io)) return FORBIDDEN;
+                // Flag off = no overlay surface at all: the card is a static
+                // web-accessible resource, so without this a page could
+                // frame it to write notes or probe the archive.
+                await io.loadFlags();
+                if (!io.isEnabled('inlineOverlay')) return DISABLED;
+                // The page-embedded card honours "Hide on this site" like
+                // lookup does; the tabless side panel (our own page) does not.
+                if (sender.tab) {
+                    const off = await io.readSiteOff();
+                    if (Array.isArray(off) && off.includes(hostOf(message.url))) return DISABLED;
+                }
                 if (message.type === 'xray:overlay:card') return await handleCard(message, io);
                 if (message.type === 'xray:overlay:note:save') return await handleNoteSave(message, io);
                 return await handleNoteDelete(message, io);

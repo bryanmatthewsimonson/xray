@@ -50,3 +50,14 @@ test('LOOKUP_ALLOWED_KEYS contains none of the private-text keys', () => {
         assert.ok(!LOOKUP_ALLOWED_KEYS.includes(bad), bad);
     }
 });
+
+test('every content-script capture runs with the overlay suspended', async () => {
+    // UI.openReader is the single capture entry; in the content script it
+    // may only be reached through capturePage (withOverlaySuspended), so a
+    // new capture trigger cannot let overlay markers into an extraction.
+    const { readFile } = await import('node:fs/promises');
+    const src = await readFile(new URL('../src/content/index.js', import.meta.url), 'utf8');
+    const calls = src.match(/UI\.openReader\(/g) || [];
+    assert.equal(calls.length, 1, 'exactly one direct UI.openReader call');
+    assert.match(src, /withOverlaySuspended\(overlayHandle, \(\) => UI\.openReader\(opts\)\)/);
+});

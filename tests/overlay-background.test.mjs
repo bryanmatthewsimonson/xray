@@ -66,10 +66,11 @@ const pageSender = { url: URL1, tab: { id: 1, url: URL1 } };
 const panelSender = { url: EXT + 'src/sidepanel/index.html' };
 const lookup = (io, url = URL1) => handleOverlayMessage({ type: 'xray:overlay:lookup', url }, pageSender, io);
 
-test('lookup: unarchived -> [] and no model reads', async () => {
+test('lookup: unarchived with no notes -> [] and no claim / extraction / finding reads', async () => {
     const io = makeIo({ archived: {} });
+    statefulNotes(io);
     assert.deepEqual(await lookup(io), { ok: true, items: [] });
-    assert.deepEqual(io.reads, ['article']);
+    assert.deepEqual(io.reads, ['article'], 'no claims / extraction / findings reads');
 });
 
 test('lookup: flag off -> [] and nothing read', async () => {
@@ -288,4 +289,95 @@ test('card sender: wrong or missing sender.id is refused', async () => {
             { type: 'xray:overlay:card', url: URL1, itemIds: [] }, iframeSender(URL1, { id }), makeIo());
         assert.equal(r.error, 'forbidden', String(id));
     }
+});
+
+// ---- I2: personal notes on pages that are not archived ----------------
+
+test('unarchived URL: a saved note is returned by lookup and card; other kinds stay empty', async () => {
+    const io = makeIo({ archived: {} });
+    statefulNotes(io);
+    const saved = await handleOverlayMessage(
+        { type: 'xray:overlay:note:save', url: URL1, note: { text: 'SECRET mine', quote: 'beta' } }, iframeSender(), io);
+    assert.equal(saved.ok, true);
+    const id = 'note:' + saved.note.id;
+    const r = await lookup(io);
+    assert.deepEqual(r.items.map((i) => [i.id, i.kind]), [[id, 'note']]);
+    assert.ok(!JSON.stringify(r).includes('SECRET'), 'lookup still carries no note text');
+    const card = await handleOverlayMessage({ type: 'xray:overlay:card', url: URL1, itemIds: [id] }, iframeSender(), io);
+    assert.equal(card.ok, true);
+    assert.deepEqual(card.items.map((i) => i.id), [id]);
+    assert.equal(card.items[0].detail.text, 'SECRET mine');
+    assert.ok(!io.reads.includes('claims') && !io.reads.includes('findings') && !io.reads.includes('extraction'));
+});
+
+test('unarchived URL with no notes: lookup and card both return []', async () => {
+    const io = makeIo({ archived: {} });
+    statefulNotes(io);
+    assert.deepEqual(await lookup(io), { ok: true, items: [] });
+    const card = await handleOverlayMessage({ type: 'xray:overlay:card', url: URL1, itemIds: ['note:' + NOTE_ID] }, iframeSender(), io);
+    assert.deepEqual(card, { ok: true, items: [] });
+});
+
+test('note saved on youtu.be before archiving is found once the watch URL is archived', async () => {
+    const yt = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+    const tab = 'https://youtu.be/dQw4w9WgXcQ';
+    const archived = {};
+    const io = makeIo({ archived });
+    const map = statefulNotes(io);
+    const saved = await handleOverlayMessage(
+        { type: 'xray:overlay:note:save', url: tab, note: { text: 'early', seconds: 5 } }, iframeSender(tab), io);
+    assert.equal(saved.ok, true);
+    assert.equal(map.get(saved.note.id).url, Utils.normalizeUrl(yt), 'keyed under the canonical watch URL');
+    // Before archiving, the youtu.be page still shows it.
+    assert.ok((await lookup(io, tab)).items.some((i) => i.id === 'note:' + saved.note.id));
+    archived[Utils.normalizeUrl(yt)] = { articleHash: 'h', markdown: 'one two three' };
+    for (const u of [tab, yt]) {
+        const r = await lookup(io, u);
+        assert.ok(r.items.some((i) => i.id === 'note:' + saved.note.id), u);
+    }
+});
+
+test('a legacy note keyed under youtu.be is still found, edited in place and deletable', async () => {
+    const yt = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+    const tab = 'https://youtu.be/dQw4w9WgXcQ';
+    const io = makeIo({ archived: { [Utils.normalizeUrl(yt)]: { articleHash: 'h', markdown: 'x' } } });
+    const map = statefulNotes(io);
+    map.set(NOTE_ID, { id: NOTE_ID, url: Utils.normalizeUrl(tab), text: 'old', seconds: 3 });
+    assert.ok((await lookup(io, tab)).items.some((i) => i.id === 'note:' + NOTE_ID));
+    const ed = await handleOverlayMessage(
+        { type: 'xray:overlay:note:save', url: tab, note: { id: NOTE_ID, text: 'new' } }, iframeSender(tab), io);
+    assert.equal(ed.ok, true);
+    assert.equal(map.get(NOTE_ID).url, Utils.normalizeUrl(tab));
+    assert.equal(map.size, 1);
+    const del = await handleOverlayMessage({ type: 'xray:overlay:note:delete', url: tab, id: NOTE_ID }, iframeSender(tab), io);
+    assert.deepEqual(del, { ok: true });
+});
+
+// ---- I3: card and note handlers honour the flag and "Hide on this site" ----
+
+test('flag off: card, note:save and note:delete are all refused', async () => {
+    const io = makeIo({ flag: false });
+    const map = statefulNotes(io);
+    map.set(NOTE_ID, { id: NOTE_ID, url: Utils.normalizeUrl(URL1), text: 'keep' });
+    const card = await handleOverlayMessage({ type: 'xray:overlay:card', url: URL1, itemIds: ['note:' + NOTE_ID] }, iframeSender(), io);
+    const save = await handleOverlayMessage({ type: 'xray:overlay:note:save', url: URL1, note: { text: 'x' } }, iframeSender(), io);
+    const del = await handleOverlayMessage({ type: 'xray:overlay:note:delete', url: URL1, id: NOTE_ID }, iframeSender(), io);
+    for (const r of [card, save, del]) assert.deepEqual(r, { ok: false, error: 'disabled' });
+    assert.equal(map.size, 1);
+    assert.equal(map.get(NOTE_ID).text, 'keep');
+    // The side panel path is refused too.
+    const panel = await handleOverlayMessage({ type: 'xray:overlay:card', url: URL1, itemIds: [] }, panelSender, io);
+    assert.deepEqual(panel, { ok: false, error: 'disabled' });
+});
+
+test('site switched off: the page-embedded card, save and delete are refused', async () => {
+    const io = makeIo({ siteOff: ['example.com'] });
+    const map = statefulNotes(io);
+    map.set(NOTE_ID, { id: NOTE_ID, url: Utils.normalizeUrl(URL1), text: 'keep' });
+    const card = await handleOverlayMessage({ type: 'xray:overlay:card', url: URL1, itemIds: ['claim:c1'] }, iframeSender(), io);
+    const save = await handleOverlayMessage({ type: 'xray:overlay:note:save', url: URL1, note: { text: 'x' } }, iframeSender(), io);
+    const del = await handleOverlayMessage({ type: 'xray:overlay:note:delete', url: URL1, id: NOTE_ID }, iframeSender(), io);
+    for (const r of [card, save, del]) assert.deepEqual(r, { ok: false, error: 'disabled' });
+    assert.equal(map.size, 1);
+    assert.equal(io.reads.filter((r) => r !== 'notes').length, 0, 'no archive reads');
 });

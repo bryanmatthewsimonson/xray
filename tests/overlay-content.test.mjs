@@ -28,7 +28,7 @@ globalThis.chrome = {
     }
 };
 
-const { startOverlay, collectSegments, captureSelection } = await import('../src/content/overlay.js');
+const { startOverlay, collectSegments, captureSelection, withOverlaySuspended, pinLabel } = await import('../src/content/overlay.js');
 const { Storage } = await import('../src/shared/storage.js');
 
 // ---- minimal DOM stub ------------------------------------------------------
@@ -183,7 +183,7 @@ test('overlapping items nest marks and share one pin per end position', async ()
     assert.equal(pins[0].getAttribute('data-xr-ov-ids'), 'c1,e1');
 });
 
-test('pin click and Show all dispatch xr-ov:open', async () => {
+test('pin click and Show all call env.onOpen (no DOM event)', async () => {
     page('Alpha beta gamma delta.');
     lookupReturns([claim('c1', 'beta gamma')]);
     const events = [];
@@ -415,4 +415,126 @@ test('unknown item kinds are skipped, never put in a className', async () => {
     start(); await flush();
     assert.deepEqual(marksOf().map((m) => m.getAttribute('data-xr-ov')), ['c1']);
     assert.equal(chipText(), 'X-Ray: 1 notes');
+});
+
+// ---- I1: the overlay is suspended around captures ---------------------
+
+const overlayNodes = () => [
+    ...all(doc.documentElement, (e) => /\bxr-ov-/.test(e.className) || /^xr-ov-/.test(e.id))
+];
+
+test('capture with the overlay active: the extractor sees no xr-ov-* nodes, then the overlay is re-placed', async () => {
+    // Twitter-shaped: the live tweet text is read straight from the page.
+    const art = page('Alpha beta gamma delta.');
+    const before = doc.body.innerHTML;
+    lookupReturns([claim('c1', 'beta gamma'), { ...claim('n1', 'delta'), kind: 'note' }]);
+    let closes = 0;
+    const h = start({ onClose: () => closes++ }); await flush();
+    assert.ok(overlayNodes().length > 0, 'overlay drawn before capture');
+    let seen = null;
+    await withOverlaySuspended(h, async () => {
+        seen = { html: doc.body.innerHTML, text: art.textContent, nodes: overlayNodes().length };
+    });
+    assert.equal(seen.nodes, 0);
+    assert.equal(seen.html, before);
+    assert.ok(!seen.html.includes('xr-ov'));
+    assert.equal(seen.text, 'Alpha beta gamma delta.');
+    assert.ok(closes >= 1, 'the card frame is closed');
+    await flush();
+    assert.equal(marksOf().length, 2, 'markers re-placed after capture');
+    assert.ok(chipOf());
+    assert.ok(doc.head.childNodes.some((n) => n.id === 'xr-ov-style'));
+});
+
+test('a failing capture still resumes the overlay', async () => {
+    page('Alpha beta gamma delta.');
+    lookupReturns([claim('c1', 'beta gamma')]);
+    const h = start(); await flush();
+    await assert.rejects(withOverlaySuspended(h, async () => {
+        assert.equal(overlayNodes().length, 0);
+        throw new Error('extract failed');
+    }), /extract failed/);
+    await flush();
+    assert.equal(marksOf().length, 1);
+});
+
+test('while suspended, URL polls, observer re-adds and refresh draw nothing', async () => {
+    page('Alpha beta gamma delta.');
+    lookupReturns([claim('c1', 'beta gamma')]);
+    const h = start(); await flush();
+    h.suspend();
+    const sent = _sent.length;
+    win.location.href = 'https://example.com/b';
+    mock.timers.tick(1000); await flush();
+    h.refresh(); await flush();
+    assert.equal(overlayNodes().length, 0);
+    assert.equal(_sent.length, sent, 'no lookup while suspended');
+    h.resume(); await flush();
+    assert.equal(_sent[_sent.length - 1].url, 'https://example.com/b');
+    assert.equal(marksOf().length, 1);
+});
+
+test('an in-flight lookup that resolves during a capture does not place markers', async () => {
+    page('Alpha beta gamma delta.');
+    let release;
+    _lookupImpl = () => new Promise((r) => { release = () => r({ ok: true, items: [claim('c1', 'beta gamma')] }); });
+    const h = start(); await flush();
+    h.suspend();
+    release(); await flush();
+    assert.equal(overlayNodes().length, 0);
+    lookupReturns([claim('c1', 'beta gamma')]);
+    h.resume(); await flush();
+    assert.equal(marksOf().length, 1);
+});
+
+// ---- I4: review state and judgments shown in the page ------------------
+
+const extraction = (id, exact, reviewState) => ({ ...claim(id, exact), kind: 'extraction', anchor: null, reviewState });
+const pinsOf = () => all(doc.body, (e) => e.className === 'xr-ov-pin');
+
+test('pinLabel: fixed strings only, per review state and judgment kind', () => {
+    assert.equal(pinLabel([claim('c1', 'x')]), 'X-Ray');
+    assert.equal(pinLabel([extraction('e1', 'x', 'unreviewed')]), 'X-Ray · unreviewed model proposal');
+    assert.equal(pinLabel([extraction('e1', 'x', 'accepted')]), 'X-Ray · accepted');
+    assert.equal(pinLabel([extraction('e1', 'x', 'rejected')]), 'X-Ray · rejected');
+    assert.equal(pinLabel([extraction('e1', 'x', 'weird<b>')]), 'X-Ray · unreviewed model proposal');
+    assert.equal(pinLabel([{ ...claim('c1', 'x'), judgmentKinds: ['assessment'] }]), 'X-Ray · assessed');
+    assert.equal(pinLabel([{ ...claim('c1', 'x'), judgmentKinds: ['verdict'] }]), 'X-Ray · verdict');
+    assert.equal(pinLabel([{ ...claim('c1', 'x'), judgmentKinds: ['verdict', 'assessment', '<script>'] }]), 'X-Ray · assessed · verdict');
+    assert.equal(pinLabel([extraction('e1', 'x', 'accepted'), { ...claim('c1', 'x'), judgmentKinds: ['verdict'] }]),
+        'X-Ray 2 · accepted · verdict');
+});
+
+test('extraction pins carry the review state as text', async () => {
+    page('Alpha beta gamma delta.', 'Second paragraph here.');
+    lookupReturns([extraction('e1', 'beta gamma', 'unreviewed'), extraction('e2', 'Second', 'accepted')]);
+    start(); await flush();
+    assert.deepEqual(pinsOf().map((p) => p.textContent), ['X-Ray · unreviewed model proposal', 'X-Ray · accepted']);
+    assert.ok(marksOf().every((m) => /\bxr-ov-extraction\b/.test(m.className)));
+});
+
+test('rejected extraction rows are not marked in the page by default, but stay listed', async () => {
+    page('Alpha beta gamma delta.');
+    lookupReturns([extraction('e1', 'beta gamma', 'rejected'), claim('c1', 'delta')]);
+    const events = [];
+    start({ onOpen: (d) => events.push(d) }); await flush();
+    assert.deepEqual(marksOf().map((m) => m.getAttribute('data-xr-ov')), ['c1']);
+    assert.ok(!pinsOf().some((p) => /rejected/.test(p.textContent)));
+    assert.equal(chipText(), 'X-Ray: 1 notes · 1 rejected');
+    all(doc.body, (e) => e.className === 'xr-ov-show-all')[0].click();
+    assert.deepEqual(events[0].itemIds, ['e1', 'c1'], 'list mode still gets it (hidden behind Show rejected there)');
+    assert.deepEqual(events[0].unlocatedIds, [], 'a hidden rejected row is not "not located"');
+});
+
+test('judged claims get the xr-ov-judged class and a judgment pin label', async () => {
+    page('Alpha beta gamma delta.', 'Second paragraph here.');
+    lookupReturns([
+        { ...claim('c1', 'beta gamma'), judgmentKinds: ['assessment', 'verdict'] },
+        claim('c2', 'Second')
+    ]);
+    start(); await flush();
+    const byId = Object.fromEntries(marksOf().map((m) => [m.getAttribute('data-xr-ov'), m.className]));
+    assert.match(byId.c1, /\bxr-ov-judged\b/);
+    assert.doesNotMatch(byId.c2, /xr-ov-judged/);
+    assert.deepEqual(pinsOf().map((p) => p.textContent), ['X-Ray · assessed · verdict', 'X-Ray']);
 });

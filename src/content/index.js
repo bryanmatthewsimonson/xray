@@ -12,11 +12,20 @@ import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
 import { Signer } from '../shared/signer.js';
 import { NIP07Client } from './nip07-client.js';
 import { UI } from './ui.js';
-import { startOverlay } from './overlay.js';
+import { startOverlay, withOverlaySuspended } from './overlay.js';
 import { mountFrame } from './overlay-frame.js';
 import { isWatchPage, videoSeconds } from './overlay-youtube.js';
 import { installBufferListener, configureInterceptor } from '../shared/api-hook-buffer.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
+
+// The inline overlay's handle, once started (flag on). Every capture runs
+// with it suspended, so no overlay node can reach the extracted DOM.
+let overlayHandle = null;
+
+/** Capture this page (UI.openReader) with the inline overlay suspended. */
+function capturePage(opts) {
+    return withOverlaySuspended(overlayHandle, () => UI.openReader(opts));
+}
 
 async function init() {
     // Initialize storage (migrates from any legacy GM storage if present).
@@ -168,7 +177,7 @@ async function init() {
                 notify: (m) => UI.showToast(m, 'warning'),
                 onChanged: () => overlay && overlay.refresh()
             });
-            overlay = startOverlay({
+            overlay = overlayHandle = startOverlay({
                 window, document, chrome,
                 onOpen: (d) => frame.open(d),
                 onClose: () => frame.close(),
@@ -200,7 +209,7 @@ async function maybeAutomationCapture() {
         // toolbar would naturally allow.
         setTimeout(() => {
             try {
-                UI.openReader();
+                capturePage().catch((err) => Utils.error('Automation capture failed:', err));
                 document.documentElement.dataset.xrayCaptured = 'ok';
             } catch (err) {
                 document.documentElement.dataset.xrayCaptured = 'error';
@@ -270,14 +279,15 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
         try {
             switch (msg && msg.type) {
                 case 'xray:capture':
-                    UI.openReader();
+                    capturePage().catch((err) => Utils.error('Capture failed:', err));
                     sendResponse({ ok: true });
                     break;
                 case 'xray:capture:transcribe':
                     // "Capture & transcribe locally" (YouTube menu item).
                     // Same fire-and-forget ack as xray:capture — the ack
                     // means "content script alive", not "capture done".
-                    UI.openReader({ transcribe: true });
+                    capturePage({ transcribe: true })
+                        .catch((err) => Utils.error('Capture failed:', err));
                     sendResponse({ ok: true });
                     break;
                 case 'xray:getPubkey':

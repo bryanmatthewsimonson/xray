@@ -26,9 +26,76 @@ const STYLE_ID = 'xr-ov-style';
 const KINDS = new Set(['claim', 'extraction', 'finding', 'note']);
 const SKIP_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
 
+// Pin labels are built ONLY from these fixed strings (never item content):
+// extraction review state as text, not colour alone (spec §4; labels per
+// the constraints: open -> "unreviewed model proposal").
+export const PIN_REVIEW_LABELS = Object.freeze({
+    unreviewed: 'unreviewed model proposal',
+    accepted: 'accepted',
+    rejected: 'rejected'
+});
+export const PIN_JUDGMENT_LABELS = Object.freeze({
+    assessment: 'assessed',
+    verdict: 'verdict'
+});
+const own = (obj, key) => typeof key === 'string' && Object.prototype.hasOwnProperty.call(obj, key);
+
+function reviewKey(it) {
+    return own(PIN_REVIEW_LABELS, it.reviewState) ? it.reviewState : 'unreviewed';
+}
+
+/** Rejected extraction rows: hidden from the page by default (list mode has "Show rejected"). */
+function isRejected(it) {
+    return it.kind === 'extraction' && it.reviewState === 'rejected';
+}
+
+function isJudged(it) {
+    return it.kind === 'claim' && Array.isArray(it.judgmentKinds) && it.judgmentKinds.length > 0;
+}
+
+/**
+ * Pin text for the items sharing one pin: "X-Ray" (or "X-Ray N"), then
+ * each distinct review state / judgment kind in a fixed order, e.g.
+ * "X-Ray · unreviewed model proposal" or "X-Ray 2 · accepted · verdict".
+ */
+export function pinLabel(group) {
+    const list = Array.isArray(group) ? group : [];
+    const tags = [];
+    const add = (t) => { if (!tags.includes(t)) tags.push(t); };
+    for (const key of Object.keys(PIN_REVIEW_LABELS)) {
+        if (list.some((it) => it && it.kind === 'extraction' && reviewKey(it) === key)) add(PIN_REVIEW_LABELS[key]);
+    }
+    for (const key of Object.keys(PIN_JUDGMENT_LABELS)) {
+        if (list.some((it) => it && isJudged(it) && it.judgmentKinds.includes(key))) add(PIN_JUDGMENT_LABELS[key]);
+    }
+    const base = list.length > 1 ? 'X-Ray ' + list.length : 'X-Ray';
+    return [base, ...tags].join(' · ');
+}
+
+/**
+ * Run `fn` (a capture) with the overlay's page DOM fully removed, then
+ * put it back — even when `fn` throws. Captures read the live DOM in
+ * several handlers, so suspending is the guarantee; overlay-strip.js is
+ * the second line of defence.
+ */
+export async function withOverlaySuspended(handle, fn) {
+    if (handle && typeof handle.suspend === 'function') {
+        try { handle.suspend(); } catch (err) { Utils.error('overlay: suspend failed', err); }
+    }
+    try {
+        return await fn();
+    } finally {
+        if (handle && typeof handle.resume === 'function') {
+            try { handle.resume(); } catch (err) { Utils.error('overlay: resume failed', err); }
+        }
+    }
+}
+
 const CSS = `
 .xr-ov-mark{background:rgba(255,213,0,.32);border-radius:2px;color:inherit}
-.xr-ov-claim,.xr-ov-extraction{background:rgba(255,213,0,.32)}
+.xr-ov-claim{background:rgba(255,213,0,.32)}
+.xr-ov-claim.xr-ov-judged{background:rgba(190,120,255,.30);text-decoration:underline dotted}
+.xr-ov-extraction{background:rgba(120,210,120,.30)}
 .xr-ov-finding{background:rgba(255,120,80,.28)}
 .xr-ov-note{background:rgba(90,170,255,.28)}
 .xr-ov-pin{display:inline-block;margin:0 2px;padding:0 5px;font:600 10px/16px system-ui,sans-serif;color:#fff;background:#3b3b8f;border-radius:8px;cursor:pointer;vertical-align:super;user-select:none}
@@ -210,9 +277,12 @@ export function startOverlay(env = {}) {
     const onOpen = typeof env.onOpen === 'function' ? env.onOpen : () => {};
     const onClose = typeof env.onClose === 'function' ? env.onClose : () => {};
     const getVideoSeconds = typeof env.getVideoSeconds === 'function' ? env.getVideoSeconds : () => null;
-    if (!win || !doc || !chromeApi || !chromeApi.runtime) return { teardown() {} };
+    if (!win || !doc || !chromeApi || !chromeApi.runtime) {
+        return { teardown() {}, refresh() {}, suspend() {}, resume() {} };
+    }
 
     let dead = false;
+    let suspended = 0;         // > 0 while a capture runs: draw nothing
     let gen = 0;               // invalidates in-flight lookups
     let items = [];            // cached LookupItems for the current URL
     const noHash = (u) => String(u).split('#')[0];
@@ -356,7 +426,7 @@ export function startOverlay(env = {}) {
         // splits text nodes and would invalidate later offsets.
         const planned = [];
         textUnresolved = [];
-        for (const it of items) {
+        for (const it of visibleItems()) {
             let loc = null;
             if (!index.oversize) {
                 try {
@@ -381,7 +451,7 @@ export function startOverlay(env = {}) {
                 const to = i === ei ? loc.endOffset : fr[fr.length - 1].e;
                 const made = wrapPiece(fragsOf(ref), from, to, () => {
                     const m = doc.createElement('mark');
-                    m.className = 'xr-ov-mark xr-ov-' + it.kind;
+                    m.className = 'xr-ov-mark xr-ov-' + it.kind + (isJudged(it) ? ' xr-ov-judged' : '');
                     m.setAttribute('data-xr-ov', it.id);
                     return m;
                 });
@@ -396,8 +466,8 @@ export function startOverlay(env = {}) {
             for (const [k, g] of pinGroups) {
                 if (k.ref === lastKey.ref && k.end === lastKey.end) { key = k; break; }
             }
-            if (key) pinGroups.get(key).ids.push(it.id);
-            else pinGroups.set(lastKey, { lastMark, ids: [it.id] });
+            if (key) { pinGroups.get(key).ids.push(it.id); pinGroups.get(key).items.push(it); }
+            else pinGroups.set(lastKey, { lastMark, ids: [it.id], items: [it] });
         }
         for (const g of pinGroups.values()) {
             let outer = g.lastMark;
@@ -405,7 +475,7 @@ export function startOverlay(env = {}) {
             const pin = doc.createElement('span');
             pin.className = 'xr-ov-pin';
             pin.setAttribute('data-xr-ov-ids', g.ids.join(','));
-            pin.textContent = g.ids.length > 1 ? 'X-Ray ' + g.ids.length : 'X-Ray';
+            pin.textContent = pinLabel(g.items);
             pin.addEventListener('click', (ev) => {
                 try { ev.preventDefault(); ev.stopPropagation(); } catch (_) { /* synthetic */ }
                 fireOpen({ itemIds: g.ids.slice(), rect: rectOf(pin), mode: 'cards' });
@@ -416,10 +486,17 @@ export function startOverlay(env = {}) {
         recount();
     }
 
+    function visibleItems() {
+        return items.filter((it) => !isRejected(it));
+    }
+
     function buildChip() {
         removeChip();
         if (!items.length) return;
-        const text = 'X-Ray: ' + items.length + ' notes' + (unresolved ? ' · ' + unresolved + ' not located' : '');
+        const rejected = items.length - visibleItems().length;
+        const text = 'X-Ray: ' + visibleItems().length + ' notes'
+            + (unresolved ? ' · ' + unresolved + ' not located' : '')
+            + (rejected ? ' · ' + rejected + ' rejected' : '');
         chip = doc.createElement('div');
         chip.className = 'xr-ov-chip';
         const label = doc.createElement('button');
@@ -511,7 +588,7 @@ export function startOverlay(env = {}) {
 
     function onQuiet() {
         observerTimer = null;
-        if (dead || !items.length) return;
+        if (dead || suspended || !items.length) return;
         // Re-add markers the page's framework wiped, or place items whose
         // text only just arrived. Capped so a hostile page can't loop us.
         if ((marksLost() || unresolved > 0) && reAdds < MAX_READD) {
@@ -527,7 +604,7 @@ export function startOverlay(env = {}) {
 
     function startYouTube(myGen) {
         if (!isWatchPage(currentUrl)) return;
-        const timed = items.filter((i) => typeof i.seconds === 'number' && isFinite(i.seconds) && i.seconds >= 0);
+        const timed = visibleItems().filter((i) => typeof i.seconds === 'number' && isFinite(i.seconds) && i.seconds >= 0);
         if (!timed.length) return;
         // Called on every (re)layout: ticks move when the duration changes.
         const onLocated = (r) => {
@@ -553,9 +630,10 @@ export function startOverlay(env = {}) {
         unresolved = 0;
         unresolvedIds = [];
         currentUrl = win.location.href;
+        if (suspended) return;
         if (await isSiteOff(currentUrl)) return;
         const got = await lookup(currentUrl);
-        if (dead || myGen !== gen || !got) return;
+        if (dead || suspended || myGen !== gen || !got) return;
         items = got.filter((it) => it && KINDS.has(it.kind) && typeof it.id === 'string');
         if (!items.length) return;
         try {
@@ -621,9 +699,34 @@ export function startOverlay(env = {}) {
 
     /** Re-look-up and redraw (after the card saved or deleted a note). */
     function refresh() {
-        if (dead) return;
+        if (dead || suspended) return;
         apply().catch((err) => Utils.error('overlay: refresh failed', err));
     }
 
-    return { teardown, refresh };
+    /**
+     * Remove every overlay node from the page (marks, pins, chip, style,
+     * YouTube strip, card frame) and draw nothing until resume(). Used
+     * around captures so no xr-ov-* node reaches the extractor.
+     */
+    function suspend() {
+        if (dead) return;
+        suspended++;
+        gen++;                 // an in-flight lookup must not place
+        stopObserver();
+        stopYouTube();
+        try { onClose(); } catch (err) { Utils.error('overlay: onClose failed', err); }
+        guarded(() => { removeMarkers(); removeChip(); });
+        if (styleEl && styleEl.parentNode) styleEl.parentNode.removeChild(styleEl);
+        styleEl = null;
+    }
+
+    /** Undo suspend(): re-look-up and redraw. */
+    function resume() {
+        if (dead || !suspended) return;
+        suspended--;
+        if (suspended) return;
+        apply().catch((err) => Utils.error('overlay: resume failed', err));
+    }
+
+    return { teardown, refresh, suspend, resume };
 }

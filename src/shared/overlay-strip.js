@@ -3,7 +3,10 @@
 // (content-extractor.js) and the evidentiary HTML snapshots
 // (html-snapshot.js, FB / IG / TikTok). The markers must never reach a
 // capture: pin text ("X-Ray") would change the canonical article hash,
-// and the card iframe has no place in evidence.
+// and the card iframe has no place in evidence. This is the SECOND line
+// of defence: the content script suspends the overlay (no xr-ov-* node
+// in the live page) for the whole of every capture
+// (content/overlay.js withOverlaySuspended).
 //
 // Pins, the chip, the injected style, the card iframe and the YouTube
 // progress-bar strip/ticks are removed;
