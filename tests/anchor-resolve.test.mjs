@@ -63,6 +63,18 @@ test('resolve: fuzzy accepts one-word drift ≥ 0.7, rejects > 200 chars', () =>
     assert.equal(resolve(idx, { quote: 'completely different sentence about cats' }).range, null);
 });
 
+test('resolve: page over 2 MB → none (no confident anchor on a truncated index)', () => {
+    const filler = 'x'.repeat(1024 * 1024);
+    const idx = buildTextIndex([
+        { ref: 'a', text: 'unique needle here' },
+        { ref: 'b', text: filler }, { ref: 'c', text: filler }, { ref: 'd', text: 'unique needle here' }
+    ]);
+    assert.equal(idx.oversize, true);
+    const r = resolve(idx, { quote: 'unique needle here' });
+    assert.deepEqual([r.range, r.confidence, r.method], [null, 0, 'none']);
+    assert.equal(buildTextIndex([{ ref: 'a', text: 'small' }]).oversize, false);
+});
+
 test('resolve: spans segments and locate() maps back to refs', () => {
     const idx = buildTextIndex([{ ref: 'p1', text: 'one two' }, { ref: 'p2', text: 'three four' }]);
     const r = resolve(idx, { quote: 'two three' });

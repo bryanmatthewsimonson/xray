@@ -82,12 +82,13 @@ export function normalizeForMatch(s) {
 export function buildTextIndex(segments) {
     let text = '';
     const map = [];
+    let oversize = false;
     for (const seg of segments || []) {
         if (!seg) continue;
         const n = normalizeWithMap(seg.text, true);
         if (!n.text) continue;
         const sep = text.length > 0 ? 1 : 0;
-        if (text.length + sep + n.text.length > MAX_PAGE_CHARS) break;
+        if (text.length + sep + n.text.length > MAX_PAGE_CHARS) { oversize = true; break; }
         if (sep) text += ' ';
         const start = text.length;
         text += n.text;
@@ -95,7 +96,10 @@ export function buildTextIndex(segments) {
         // offset inside the segment's original text.
         map.push({ start, end: text.length, ref: seg.ref, rawStart: n.idx[0], rawIdx: n.idx });
     }
-    return { text, map };
+    // oversize: the page exceeded MAX_PAGE_CHARS, so the index is a partial
+    // prefix; resolve() refuses to anchor against it (a quote unique in the
+    // prefix may also occur in the dropped tail).
+    return { text, map, oversize };
 }
 
 export function locate(index, start, end) {
@@ -171,7 +175,7 @@ function bestApproxMatch(q, t) {
 
 function fuzzyMatch(text, quote) {
     const L = quote.length;
-    if (L < 4 || L > FUZZY_MAX_QUOTE || text.length > MAX_PAGE_CHARS) return null;
+    if (L < 4 || L > FUZZY_MAX_QUOTE) return null;
     const pad = Math.ceil(L * 0.2) + 5;
     const chunk = Math.min(CHUNK_SIZE, L);
     // Cheap prefilter: only run the edit-distance DP around places where a
@@ -218,6 +222,7 @@ function selectorsOf(item) {
 }
 
 export function resolve(index, item) {
+    if (index.oversize) return { range: null, confidence: 0, method: 'none' };
     const text = index.text;
     const selectors = selectorsOf(item);
     for (const sel of selectors) {
