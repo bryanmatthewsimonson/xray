@@ -508,3 +508,26 @@ test('mergeStorageValue: map-shape guard — non-maps and malformed JSON keep lo
     assert.equal(typeof enc.value, 'string');
     assert.deepEqual(JSON.parse(enc.value), { a: 1, b: 2 });
 });
+test('page_notes from file accrue by id, local wins on conflict', async () => {
+    _stateStore.clear();
+    _stateStore.set('page_notes', JSON.stringify({
+        pn_shared: { id: 'pn_shared', url: 'https://example.com/a', text: 'LOCAL note' },
+        pn_local: { id: 'pn_local', url: 'https://example.com/a', text: 'only mine' }
+    }));
+    await mergeBackup({
+        format: BACKUP_FORMAT,
+        exportedAt: '2026-07-20T00:00:00.000Z',
+        includesSourceBytes: false,
+        storage: {
+            page_notes: JSON.stringify({
+                pn_shared: { id: 'pn_shared', url: 'https://example.com/a', text: 'FOREIGN note' },
+                pn_foreign: { id: 'pn_foreign', url: 'https://example.com/b', text: 'theirs' }
+            })
+        },
+        databases: {}
+    });
+    const notes = JSON.parse(_stateStore.get('page_notes'));
+    assert.equal(notes.pn_shared.text, 'LOCAL note', 'local wins');
+    assert.equal(notes.pn_foreign.text, 'theirs', 'foreign note accrued');
+    assert.ok(notes.pn_local, 'nothing local deleted');
+});

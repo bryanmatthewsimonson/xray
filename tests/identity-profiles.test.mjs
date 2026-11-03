@@ -55,6 +55,7 @@ test('WORKSPACE_CLEAR_KEYS is pinned exactly', () => {
         'entity_dedupe_dismissals', 'follow_sets',
         'incorporated_artifacts', 'incorporation_dismissals',
         'case_hypotheses', 'hypothesis_edges',
+        'page_notes',   // inline overlay phase 1 — local personal notes
         'published_mentions'   // E4 — mention-note publish stamps
     ]);
 });

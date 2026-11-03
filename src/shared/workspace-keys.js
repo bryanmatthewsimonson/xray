@@ -37,6 +37,7 @@ export const WORKSPACE_CONTENT_KEYS = Object.freeze([
     'incorporation_dismissals', // Phase 25.3 declined proposals
     'case_hypotheses',          // Phase 26 hypothesis records
     'hypothesis_edges',         // Phase 26 claim→hypothesis edges
+    'page_notes',               // Inline overlay phase 1 — local personal notes
     'published_mentions'        // E4 mention-note idempotence ledger —
                                 // publish stamps for THIS workspace's corpus
 ]);
