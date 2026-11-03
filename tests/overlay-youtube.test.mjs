@@ -24,7 +24,7 @@ globalThis.chrome = {
     }
 };
 
-const { mountYouTube, isWatchPage, videoSeconds, AUTO_CLOSE_MS, PLAYER_WAIT_MS } =
+const { mountYouTube, isWatchPage, videoSeconds, AUTO_CLOSE_MS, PLAYER_WAIT_MS, RECHECK_MS } =
     await import('../src/content/overlay-youtube.js');
 const { startOverlay } = await import('../src/content/overlay.js');
 const { stripOverlayNodes, OVERLAY_REMOVE_SELECTOR } = await import('../src/shared/overlay-strip.js');
@@ -86,11 +86,14 @@ const mount = (items, extra = {}) => {
     const h = mountYouTube({
         document: doc,
         onOpen: (d) => { opens.push(d); extra.onOpenHook && extra.onOpenHook(d); },
-        onClose: () => closes.push(1)
+        onLocated: extra.onLocated,
+        onClose: () => { closes.push(1); delete doc.registry['.xr-ov-frame']; }
     }, items);
     handles.push(h);
     return h;
 };
+const adOn = () => { doc.registry['.html5-video-player.ad-showing'] = new El('div'); };
+const adOff = () => { delete doc.registry['.html5-video-player.ad-showing']; };
 const ticks = () => (bar.childNodes[0] ? bar.childNodes[0].childNodes : []);
 
 beforeEach(() => {
@@ -134,6 +137,7 @@ test('auto-pop fires once per crossing and re-arms when playback leaves the wind
     assert.equal(opens.length, 1);
     assert.deepEqual(opens[0].itemIds, ['a']);
     assert.equal(opens[0].mode, 'cards');
+    assert.equal(opens[0].auto, true);
     assert.equal(typeof opens[0].rect.top, 'number');
     timeTo(video, 99.5); timeTo(video, 100); timeTo(video, 101);
     assert.equal(opens.length, 1);           // still inside: no repeat
@@ -224,6 +228,95 @@ test('ticks and strip are in the capture-strip selector', () => {
     assert.match(OVERLAY_REMOVE_SELECTOR, /\.xr-ov-yt-strip/);
     assert.match(OVERLAY_REMOVE_SELECTOR, /\.xr-ov-yt-tick/);
     assert.equal(typeof stripOverlayNodes, 'function');
+});
+
+test('ad playing at mount: no ticks, nothing unlocated until the ad ends; no pop during an ad', async () => {
+    adOn();
+    video.duration = 15;                       // the ad's duration
+    const located = [];
+    const h = mount([item('a', 100)], { onLocated: (r) => located.push(r) });
+    mock.timers.tick(PLAYER_WAIT_MS * 2);      // past the 10 s give-up
+    assert.equal(bar.childNodes.length, 0);
+    assert.equal(located.length, 0, 'nothing reported (so nothing marked unlocated)');
+    adOff(); video.duration = 600;
+    mock.timers.tick(250);
+    assert.equal(ticks().length, 1);
+    assert.deepEqual((await h.ready).located, ['a']);
+});
+
+test('crossing during an ad does not pop; videoSeconds and currentSeconds are null', () => {
+    const h = mount([item('a', 100)]);
+    adOn();
+    timeTo(video, 100);
+    assert.equal(opens.length, 0);
+    assert.equal(videoSeconds(doc), null);
+    assert.equal(h.currentSeconds(), null);
+    adOff();
+    assert.equal(videoSeconds(doc), 100);
+});
+
+test('ad-interrupting also counts as an ad', () => {
+    doc.registry['.html5-video-player.ad-interrupting'] = new El('div');
+    mount([item('a', 100)]);
+    assert.equal(bar.childNodes.length, 0);
+    assert.equal(videoSeconds(doc), null);
+});
+
+test('duration changes after mount: ticks repositioned, past-end item becomes located', async () => {
+    const reports = [];
+    mount([item('a', 150), item('b', 900)], { onLocated: (r) => reports.push(r) });
+    assert.deepEqual(ticks().map((x) => x.style.left), ['25%']);
+    video.duration = 1800;
+    video.dispatchEvent({ type: 'durationchange' });
+    assert.deepEqual(ticks().map((x) => x.style.left), [(150 / 1800 * 100) + '%', '50%']);
+    assert.deepEqual(reports.at(-1), { located: ['a', 'b'], unlocated: [] });
+    assert.equal(bar.childNodes.length, 1, 'old strip replaced, not stacked');
+});
+
+test('duration NaN between videos drops stale ticks until metadata arrives', () => {
+    mount([item('a', 100)]);
+    video.duration = NaN;
+    video.dispatchEvent({ type: 'durationchange' });
+    assert.equal(bar.childNodes.length, 0);
+    video.duration = 300;
+    video.dispatchEvent({ type: 'loadedmetadata' });
+    assert.equal(ticks().length, 1);
+});
+
+test('player re-render: replaced bar and video are picked up by the slow re-check', () => {
+    mount([item('a', 100)]);
+    const oldBar = bar;
+    const oldVideo = video;
+    bar = new El('div'); video = makeVideo(600);
+    doc.registry['video.html5-main-video'] = video;
+    doc.registry['.ytp-progress-bar-container'] = bar;
+    mock.timers.tick(RECHECK_MS);
+    assert.equal(oldBar.childNodes.length, 0, 'old strip removed');
+    assert.equal(ticks().length, 1, 'strip re-attached to the new bar');
+    timeTo(video, 100);
+    assert.equal(opens.length, 1, 'timeupdate works on the new video');
+    timeTo(oldVideo, 300); timeTo(oldVideo, 100);
+    assert.equal(opens.length, 1, 'old video listener removed');
+});
+
+test('strip detached by the page is re-attached; the re-check stops on teardown', () => {
+    const h = mount([item('a', 100)]);
+    bar.removeChild(bar.childNodes[0]);
+    mock.timers.tick(RECHECK_MS);
+    assert.equal(ticks().length, 1);
+    h.teardown();
+    assert.equal(bar.childNodes.length, 0);
+    const bar2 = new El('div');
+    doc.registry['.ytp-progress-bar-container'] = bar2;
+    mock.timers.tick(RECHECK_MS * 3);
+    assert.equal(bar2.childNodes.length, 0, 'no interval left running');
+});
+
+test('auto-pop does not replace a card the user already has open', () => {
+    doc.registry['.xr-ov-frame'] = new El('iframe');   // user's pin card
+    mount([item('a', 100)]);
+    timeTo(video, 100);
+    assert.equal(opens.length, 0);
 });
 
 // ---- integration through startOverlay --------------------------------------

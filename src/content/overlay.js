@@ -235,6 +235,7 @@ export function startOverlay(env = {}) {
     let busy = false;          // true while WE mutate the DOM
     let yt = null;             // YouTube ticks handle (watch pages only)
     const ytLocated = new Set(); // ids a YouTube tick locates (not 'not located')
+    let textUnresolved = [];   // ids the page text could not place
 
     // -- hand-off to the card UI ----------------------------------
     // An isolated-world callback, NOT a DOM event: page scripts can both
@@ -333,9 +334,13 @@ export function startOverlay(env = {}) {
     }
 
     function markUnresolved(id) {
-        if (ytLocated.has(id)) return;   // a progress-bar tick locates it
-        unresolved++;
-        unresolvedIds.push(id);
+        textUnresolved.push(id);
+    }
+
+    /** 'Not located' = not placed in the text AND not located by a tick. */
+    function recount() {
+        unresolvedIds = textUnresolved.filter((id) => !ytLocated.has(id));
+        unresolved = unresolvedIds.length;
     }
 
     function place() {
@@ -350,8 +355,7 @@ export function startOverlay(env = {}) {
         // Resolve EVERYTHING against the pristine index first: wrapping
         // splits text nodes and would invalidate later offsets.
         const planned = [];
-        unresolved = 0;
-        unresolvedIds = [];
+        textUnresolved = [];
         for (const it of items) {
             let loc = null;
             if (!index.oversize) {
@@ -409,6 +413,7 @@ export function startOverlay(env = {}) {
             outer.parentNode.insertBefore(pin, outer.nextSibling);
             pins.push(pin);
         }
+        recount();
     }
 
     function buildChip() {
@@ -524,16 +529,18 @@ export function startOverlay(env = {}) {
         if (!isWatchPage(currentUrl)) return;
         const timed = items.filter((i) => typeof i.seconds === 'number' && isFinite(i.seconds) && i.seconds >= 0);
         if (!timed.length) return;
-        const handle = mountYouTube({ window: win, document: doc, onOpen: fireOpen, onClose }, timed);
-        yt = handle;
-        handle.ready.then((r) => {
-            if (dead || myGen !== gen || yt !== handle) return;
+        // Called on every (re)layout: ticks move when the duration changes.
+        const onLocated = (r) => {
+            if (dead || myGen !== gen) return;
+            ytLocated.clear();
             for (const id of r.located) ytLocated.add(id);
-            // Located by a tick: no longer 'not located' in the chip or list.
-            unresolvedIds = unresolvedIds.filter((id) => !ytLocated.has(id));
-            unresolved = unresolvedIds.length;
+            recount();
             guarded(buildChip);
-        }).catch((err) => Utils.error('overlay: youtube locate failed', err));
+        };
+        const handle = mountYouTube({
+            window: win, document: doc, onOpen: fireOpen, onClose, onLocated
+        }, timed);
+        yt = handle;
     }
 
     async function apply() {

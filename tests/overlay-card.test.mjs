@@ -469,6 +469,23 @@ test('new-note CSP fallback: toast only, no side-panel focus written', async () 
     }
 });
 
+test('auto-pop CSP fallback: frame dropped silently, no side panel, no toast', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+        const t = makeFrameEnv();
+        const f = mountFrame(t.env);
+        f.open({ itemIds: ['claim:c1'], rect: RECT, mode: 'cards', auto: true });
+        mock.timers.tick(1500);
+        await flush();
+        assert.equal(t.sent.length, 0, 'no openInSidePanel');
+        assert.equal(t.notices.length, 0, 'no toast');
+        assert.equal(t.frame.parentNode, null, 'the dead frame is removed');
+        f.close();
+    } finally {
+        mock.timers.reset();
+    }
+});
+
 test('frame: only the card src origin is accepted', () => {
     const t = makeFrameEnv();
     const f = mountFrame(t.env);

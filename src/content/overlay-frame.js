@@ -164,8 +164,11 @@ export function mountFrame(env = {}) {
         }
     }
 
-    async function fallback(itemIds, mode) {
+    async function fallback(itemIds, mode, auto) {
         close();
+        // An auto-pop (YouTube playback) the page blocks is dropped silently:
+        // no side panel takeover, no toast the user did not ask for.
+        if (auto) return;
         if (mode === 'new-note') {
             // The side panel is read-only: pointing it at an empty item
             // list would only clobber a useful focus. Say so instead.
@@ -187,6 +190,7 @@ export function mountFrame(env = {}) {
         close();
         const d = detail && typeof detail === 'object' ? detail : {};
         const mode = MODES.has(d.mode) ? d.mode : 'cards';
+        const auto = d.auto === true;
         const itemIds = idList(d.itemIds);
         anchorRect = d.rect || null;
         height = FRAME_HEIGHT;
@@ -224,7 +228,7 @@ export function mountFrame(env = {}) {
         }
         timer = setTimeout(() => {
             timer = null;
-            if (pending) fallback(itemIds, mode);
+            if (pending) fallback(itemIds, mode, auto);
         }, FALLBACK_MS);
     }
 
