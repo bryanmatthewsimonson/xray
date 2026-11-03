@@ -10,13 +10,14 @@
 // model is never asked to characterize its own panel), and the
 // session cache.
 //
-// A lens run is a DERIVED VIEW: session-cached per capture id in
-// chrome.storage.session, never durably written — no
+// A lens run is a DERIVED VIEW. Today it is session-cached per capture
+// id in chrome.storage.session and not durably written — no
 // chrome.storage.local, no IndexedDB, no relay pool. The cache helpers
-// below deliberately DO NOT use the house `storage.session ||
-// storage.local` fallback: falling back would durably write a derived
-// view and break the zero-durable-writes guarantee (guard-tested in
-// 16.4). No session area simply means no cache.
+// below do not use the house `storage.session || storage.local`
+// fallback, so a run is never written to lasting storage by accident.
+// This is current behaviour, not a rule: a lasting local cache is
+// allowed (maintainer ruling 2026-09-26, R-025) and would be its own
+// feature PR. No session area simply means no cache.
 
 import { treatAsLiving, admissibleAuthorities } from './jurisdiction-model.js';
 import { validateLensToolInput } from './lens-schemas.js';
@@ -338,9 +339,10 @@ export function assembleLensPanel({ target, jurisdictionReadings = [], failures 
 
 export const LENS_SESSION_PREFIX = 'xray:lensread:';
 
-// NO storage.local fallback, deliberately (see module header): the
-// derived view must never be durably written. Firefox ≥128 (the
-// manifest floor) and Chrome both ship storage.session.
+// NO storage.local fallback, deliberately (see module header): today
+// the cache is session-only, and a fallback would write lasting data
+// by accident. Firefox ≥128 (the manifest floor) and Chrome both ship
+// storage.session.
 function sessionArea() {
     if (typeof browser !== 'undefined' && browser.storage && browser.storage.session) {
         return browser.storage.session;

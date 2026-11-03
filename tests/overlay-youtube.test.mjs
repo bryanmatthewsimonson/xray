@@ -402,13 +402,11 @@ test('youtube: overlay teardown removes the ticks; non-watch pages get none', as
 
 test('youtube: new-note command with no selection uses the injected video-seconds hook', async () => {
     const win = overlayWin('https://www.youtube.com/watch?v=abc');
-    const listeners = new Set();
-    const api = { ...globalThis.chrome, runtime: { ...globalThis.chrome.runtime, onMessage: { addListener: (f) => listeners.add(f), removeListener: (f) => listeners.delete(f) } } };
-    const h = startOverlay({ window: win, document: doc, chrome: api, onOpen: (d) => opens.push(d), getVideoSeconds: () => videoSeconds(doc) });
+    const h = startOverlay({ window: win, document: doc, chrome: globalThis.chrome, onOpen: (d) => opens.push(d), getVideoSeconds: () => videoSeconds(doc) });
     handles.push(h);
     await flush();
     video.currentTime = 73;
-    for (const f of listeners) f({ type: 'xray:overlay:addNote' });
+    h.addNote();
     assert.equal(opens.at(-1).mode, 'new-note');
     assert.deepEqual(opens.at(-1).draft, { seconds: 73 });
 });

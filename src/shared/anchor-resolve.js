@@ -2,9 +2,8 @@
 // Builds a normalized text index over opaque segments (the content script
 // supplies DOM text nodes as `ref`s), resolves W3C-style quote selectors /
 // bare quotes to a range in that index, maps ranges back to (ref, raw
-// offset), and turns a quote into a media time (seconds).
-
-import { timeRangeOfSpan } from './diarized-transcript.js';
+// offset). Quote -> seconds lives in quote-seconds.js, so the content
+// bundle never pulls in the transcript/event-builder chain.
 
 export const ACCEPT_CONFIDENCE = 0.7;
 export const FUZZY_MAX_QUOTE = 200;
@@ -250,37 +249,4 @@ export function resolve(index, item) {
         if (f) return { range: { start: f.start, end: f.end }, confidence: f.score, method: 'fuzzy' };
     }
     return { range: null, confidence: 0, method: 'none' };
-}
-
-// ------------------------------------------------------------------
-// Quote -> seconds
-// ------------------------------------------------------------------
-
-function rawSpanOf(source, quote) {
-    if (typeof source !== 'string' || !source) return null;
-    const idx = buildTextIndex([{ ref: 'src', text: source }]);
-    const r = resolve(idx, { quote });
-    if (!r.range) return null;
-    const loc = locate(idx, r.range.start, r.range.end);
-    return loc ? { start: loc.startOffset, end: loc.endOffset } : null;
-}
-
-export function quoteToSeconds(quote, article) {
-    if (!quote || !article) return null;
-    const hasTimeMap = Array.isArray(article.timeMap) && article.timeMap.length > 0;
-    for (const src of [article.markdown, article.content]) {
-        const span = rawSpanOf(src, quote);
-        if (!span) continue;
-        if (hasTimeMap) {
-            const t = timeRangeOfSpan(article.timeMap, span.start, span.end);
-            return t ? t.startSec : null;
-        }
-        const before = src.slice(0, span.start);
-        const re = /&t=(\d+)s/g;
-        let last = null;
-        let m;
-        while ((m = re.exec(before)) !== null) last = m[1];
-        return last == null ? null : Number(last);
-    }
-    return null;
 }

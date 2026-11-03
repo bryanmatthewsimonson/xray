@@ -403,7 +403,14 @@ export function buildClaimInput(prop, { entityIdByRef = {}, articleText = '', so
             ...(g.method !== 'exact' ? { proposed_quote: String(prop.quote || '').trim() } : {})
         } : null,
         about,
-        is_key:       prop.is_key === true,
+        // UA.1 guard rail 6: the ARTICLE pass never writes claim.is_key
+        // — `is_key` is case-scoped, and its only writers are the
+        // reduce's promotion proposal and the human checkbox at corpus
+        // level. Article-relative keyness is `load_bearing` on the atom
+        // (display-only in the review modal). This deliberately applies
+        // to parked import-time batches too — their old is_key stars
+        // display but no longer write.
+        is_key:       false,
         suggested_by: suggestedBy
     };
 }

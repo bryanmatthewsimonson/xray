@@ -316,4 +316,4 @@ Executed subagent-driven. Tasks 2–8 and 10 complete; Task 1 (spike) and Task 9
 
 - Parked — suspend() teardown steps not individually wrapped; a throw in stopYouTube leaves marks during that one capture — Ruling: real, deferred; overlay-strip clone stripping is the second line of defence for Readability/snapshot paths, and the page recovers on resume — cost if wrong: one capture with pin text in Markdown.
 - Parked — capture triggered before startOverlay finishes init runs unsuspended — Ruling: real, narrow window, deferred — cost if wrong: same as above, rarely.
-- Parked — THREAT_MODEL G8 "not what" wording outdated by I4 pin labels (page can read review-state/judgment-kind labels) — Ruling: real doc residual, hand to security-threat-modeler review — cost if wrong: threat model understates by-design exposure.
+- Parked — THREAT_MODEL G11 (was G8) "not what" wording outdated by I4 pin labels (page can read review-state/judgment-kind labels) — Ruling: real doc residual, hand to security-threat-modeler review — cost if wrong: threat model understates by-design exposure.

@@ -1,0 +1,70 @@
+{
+  "builder": {
+    "fn": "EventBuilder.buildEntityRelationshipEvent",
+    "module": "src/shared/event-builder.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "",
+    "created_at": 1700000000,
+    "id": "fa31f744b107462e528b2da5d323e06d56fabab79a5415da8bc992323c2d484d",
+    "kind": 32125,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "b3a1a63dfd105f44ef752f29f728fcbf17de61adddd4e61f07083ac404f4ffbb7484def2aac61348979b641277408141dad7c01b02d35c0d6358484b6f79fdac",
+    "tags": [
+      [
+        "d",
+        "entity_8f345c643bec5da6:https://example.com/story:about"
+      ],
+      [
+        "r",
+        "https://example.com/story"
+      ],
+      [
+        "p",
+        "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+        "",
+        "about"
+      ],
+      [
+        "entity-name",
+        "Jane Roe"
+      ],
+      [
+        "entity-type",
+        "person"
+      ],
+      [
+        "relationship",
+        "about"
+      ],
+      [
+        "client",
+        "xray"
+      ],
+      [
+        "claim-ref",
+        "claim_c6bfed4695f9ee16"
+      ]
+    ]
+  },
+  "inputs": {
+    "articleUrl": "https://example.com/story",
+    "claimId": "claim_c6bfed4695f9ee16",
+    "entity": {
+      "id": "entity_8f345c643bec5da6",
+      "keypair": {
+        "pubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"
+      },
+      "name": "Jane Roe",
+      "type": "person"
+    },
+    "relationshipType": "about",
+    "userPubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+  },
+  "kind": 32125,
+  "notes": "Entity<->article edge as the reader emits it (resolveRelationshipsToPublish: relationshipType about|source, claim-ref). No builder test existed before this fixture.",
+  "rebuild": "exact",
+  "shape": "entity-article",
+  "signer": "TV1"
+}

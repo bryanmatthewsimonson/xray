@@ -90,7 +90,7 @@ test('every known credential constant is in CREDENTIAL_STORAGE_KEYS', () => {
 
 test('backup.js imports the credential constants instead of restating strings', () => {
     const src = read('src/shared/backup.js');
-    assert.match(src, /import \{ LLM_KEY_STORAGE \} from '\.\/llm-prompts\.js'/);
+    assert.match(src, /import \{ LLM_KEY_STORAGE(?:, [A-Z_]+)* \} from '\.\/llm-prompts\.js'/);
     assert.match(src, /TRANSCRIBER_TOKEN_STORAGE, ASSEMBLYAI_KEY_STORAGE, DEEPGRAM_KEY_STORAGE/);
     // The one legitimate string mention left is in comments; the
     // exclusion list itself must be built from the imported class.
@@ -107,6 +107,22 @@ test('no credential value appears anywhere in a full backup', async () => {
     for (const secret of Object.values(SECRETS)) {
         assert.ok(!json.includes(secret), `credential value ${secret} leaked into the backup JSON`);
     }
+});
+
+// The newer-models list is derived from ONE key's Anthropic account
+// (JOURNAL 2026-09-29): restored onto another install it would offer
+// models that install's key may not be able to call.
+test('the discovered-models list never rides in a backup, and a restore never writes it', async () => {
+    const { LLM_DISCOVERED_MODELS_STORAGE } = await import('../src/shared/llm-prompts.js');
+    const list = { fetched_at: '2026-10-01T00:00:00.000Z', models: [{ id: 'claude-opus-6', label: 'Claude Opus 6', created_at: '2026-10-01T00:00:00.000Z' }] };
+    seedStorage();
+    _stateStore.set(LLM_DISCOVERED_MODELS_STORAGE, list);
+    const backup = await collectBackup({ includeSourceBytes: true });
+    assert.ok(!(LLM_DISCOVERED_MODELS_STORAGE in backup.storage), 'the list leaked into backup.storage');
+
+    _stateStore.delete(LLM_DISCOVERED_MODELS_STORAGE);
+    await applyBackup({ ...backup, storage: { ...backup.storage, [LLM_DISCOVERED_MODELS_STORAGE]: list } });
+    assert.equal(_stateStore.has(LLM_DISCOVERED_MODELS_STORAGE), false, 'a hand-edited file wrote the list');
 });
 
 test('restore leaves every stored credential untouched', async () => {
@@ -281,4 +297,29 @@ test('the shareable export button exists and is wired', () => {
     const src = read('src/options/index.js');
     assert.match(src, /backup-download-shareable'\)\.addEventListener\('click', backupDownloadShareable\)/);
     assert.match(src, /shareable: true/);
+});
+
+// ---- LLM job records never travel (JOURNAL 2026-09-05) --------------
+
+test('LLM job records (xray:llm-job:*) never export, never restore, never merge, and survive a restore', async () => {
+    const { jobStorageKey } = await import('../src/shared/llm-jobs.js');
+    seedStorage();
+    const liveKey = jobStorageKey('corpus-reduce:case1:hash1');
+    const liveRec = { id: 'corpus-reduce:case1:hash1', pass: 'corpus-reduce', status: 'done', updatedAt: 5, result: { ok: true, briefInput: { summary: 'PAID-RESULT' } } };
+    _stateStore.set(liveKey, liveRec);
+
+    const backup = await collectBackup({ includeSourceBytes: true });
+    assert.ok(!(liveKey in backup.storage), 'a job record rode the export');
+    assert.ok(!JSON.stringify(backup).includes('PAID-RESULT'), 'the raw model output leaked into the backup JSON');
+
+    // A file that smuggles one in: restore must not write it, and must
+    // not remove the live one either (it is not in the restore's scope).
+    backup.storage[jobStorageKey('corpus-map:smuggled')] = { id: 'corpus-map:smuggled', status: 'done', result: { ok: true } };
+    await applyBackup(backup);
+    assert.ok(!_stateStore.has(jobStorageKey('corpus-map:smuggled')), 'restore wrote a smuggled job record');
+    assert.deepEqual(_stateStore.get(liveKey), liveRec, 'restore clobbered a live job record');
+
+    const summary = await mergeBackup(backup);
+    assert.ok(!_stateStore.has(jobStorageKey('corpus-map:smuggled')), 'merge wrote a smuggled job record');
+    assert.ok(summary, 'merge ran');
 });

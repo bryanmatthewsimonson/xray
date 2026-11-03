@@ -1,0 +1,110 @@
+{
+  "builder": {
+    "fn": "buildPredictionEntryEvent",
+    "module": "src/shared/audit/builders.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "Rates will fall by December.",
+    "created_at": 1700000000,
+    "id": "8fc55780e98d6ea54180e0e1fed6e1958292dba17046988915b363c9f22d02e1",
+    "kind": 30058,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "06431ec467b392bef1b31cb5562012affe46fca1b8c0dbf90166e55d75cc3d39706b535f2979768f3c544baddf19d07eb219e74ab0c5c914ef9fdf16abbc9219",
+    "tags": [
+      [
+        "d",
+        "pred:0457ed636125cf56"
+      ],
+      [
+        "x",
+        "8985c947c93381b7710bec87af9ab745569fce4fa35b50c2cf5ab769ede07cd6"
+      ],
+      [
+        "r",
+        "https://example.com/story"
+      ],
+      [
+        "i",
+        "https://example.com/story"
+      ],
+      [
+        "k",
+        "web"
+      ],
+      [
+        "prediction-type",
+        "explicit"
+      ],
+      [
+        "hedge",
+        "confident"
+      ],
+      [
+        "attribution",
+        "named_source"
+      ],
+      [
+        "attributed-name",
+        "Chair Powell"
+      ],
+      [
+        "horizon",
+        "by the end of the year"
+      ],
+      [
+        "horizon-iso",
+        "2026-12-31"
+      ],
+      [
+        "tractability",
+        "publicly_resolvable"
+      ],
+      [
+        "quote",
+        "rates will come down before December"
+      ],
+      [
+        "criteria",
+        "Fed funds target below current on Dec 31"
+      ],
+      [
+        "module-version",
+        "1.0"
+      ],
+      [
+        "auditor",
+        "model",
+        "anthropic/claude-sonnet-4-6"
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "articleHash": "8985c947c93381b7710bec87af9ab745569fce4fa35b50c2cf5ab769ede07cd6",
+    "articleUrl": "https://example.com/story",
+    "attributedName": "Chair Powell",
+    "attribution": "named_source",
+    "auditor": {
+      "id": "anthropic/claude-sonnet-4-6",
+      "kind": "model"
+    },
+    "criteria": "Fed funds target below current on Dec 31",
+    "evidenceQuote": "rates will come down before December",
+    "hedgeLevel": "confident",
+    "horizon": "by the end of the year",
+    "horizonIso": "2026-12-31",
+    "moduleVersion": "1.0",
+    "predictionText": "Rates will fall by December.",
+    "predictionType": "explicit",
+    "tractability": "publicly_resolvable"
+  },
+  "kind": 30058,
+  "notes": "d = pred:sha16(hash|normalized text); content is the prediction text ONLY.",
+  "rebuild": "exact",
+  "shape": "prediction-entry",
+  "signer": "TV1"
+}

@@ -1,0 +1,77 @@
+{
+  "builder": {
+    "fn": "EventBuilder.buildArticleEvent",
+    "module": "src/shared/event-builder.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "---\n**Source**: [The Story](https://example.com/story)\n**Publisher**: Example Daily | **Author**: Jane Reporter\n**Published**: November 13, 2023 | **Archived**: September 14, 2026\n---\n\n# The Story\n\nThe agency moved slowly in January, the Times reported.\n\nA second paragraph with a [link](https://example.org/ref).\n",
+    "created_at": 1700000000,
+    "id": "b7c208eb2847b20842d604381389cfeacc3eba254d92e0a8e88ca864e3f2f252",
+    "kind": 30023,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "0f6dff881dfd7b9e63129b44cda03e075136ab822e89e6f291277bce333363d844a38d2bfb52751d777465977f1bf59732665b92414f0e04f673b7a205a51db1",
+    "tags": [
+      [
+        "d",
+        "ab116c15d8ac8b52"
+      ],
+      [
+        "title",
+        "The Story"
+      ],
+      [
+        "published_at",
+        "1699913600"
+      ],
+      [
+        "r",
+        "https://example.com/story"
+      ],
+      [
+        "x",
+        "edbfdd4d15ce8965aa656558e7ae9b268836eb1fe92f94bc88cc9e23908876b3"
+      ],
+      [
+        "client",
+        "xray"
+      ],
+      [
+        "author",
+        "Jane Reporter"
+      ],
+      [
+        "site_name",
+        "Example Daily"
+      ],
+      [
+        "t",
+        "article"
+      ],
+      [
+        "t",
+        "example-com"
+      ]
+    ]
+  },
+  "inputs": {
+    "article": {
+      "_contentIsMarkdown": true,
+      "byline": "Jane Reporter",
+      "content": "# The Story\n\nThe agency moved slowly in January, the Times reported.\n\nA second paragraph with a [link](https://example.org/ref).\n",
+      "domain": "example.com",
+      "publishedAt": 1699913600,
+      "siteName": "Example Daily",
+      "title": "The Story",
+      "url": "https://example.com/story"
+    },
+    "claims": [],
+    "entities": [],
+    "userPubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+  },
+  "kind": 30023,
+  "notes": "Content bakes the wall-clock/locale `**Archived**` date (event-builder.js buildArticleEvent) and created_at is Date.now inline, so the event is pinned once; the test compares tags exactly and content with the Published|Archived header line stripped (ARTICLE_DATE_LINE_RE). Entity tags never emit today (Storage.entities.get is a dead stub); entities/claims are passed empty.",
+  "rebuild": "verify-only",
+  "shape": "capture-article",
+  "signer": "TV1"
+}

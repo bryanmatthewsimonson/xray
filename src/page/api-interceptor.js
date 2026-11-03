@@ -11,12 +11,16 @@
 // touches, so a hook there sees nothing. To intercept what the
 // page calls, we have to be in the page's globals.
 //
-// Activation model: this script is NOT auto-injected via manifest
-// content_scripts. A platform handler decides on-demand to inject
-// it via `chrome.scripting.executeScript({ world: 'MAIN', files:
-// ['dist/api-interceptor.bundle.js'] })`. Once installed, it stays
-// passive until told what to capture via the activation message
-// described below.
+// Activation model: manifest.json registers the built bundle
+// (`dist/api-interceptor.bundle.js`) as a `world: "MAIN"` content
+// script at `document_start` on *.instagram.com, *.facebook.com,
+// *.fb.com and *.youtube.com, so the wrappers are in place before the
+// page's own JS runs. Nothing injects it on demand. It captures
+// nothing until the content script (`src/content/index.js`, at
+// document_idle) posts that host's patterns as an
+// `xr:apihook:configure` message via `configureInterceptor()` in
+// `src/shared/api-hook-buffer.js`; a response that arrives before
+// that message is not captured.
 //
 // Wire protocol (all postMessages tagged with the X-Ray nonce):
 //
@@ -30,8 +34,8 @@
 //      (we hold a `.clone().text()` of the response).
 //
 //   3. Content → page: { type: 'xr:apihook:teardown' }
-//      Restores the original fetch + XHR. Called on tab unload or
-//      when the platform handler decides we're done.
+//      Restores the original fetch + XHR. Nothing in src/ sends it
+//      today, so the hook stays installed for the life of the page.
 
 (function () {
     if (window.__xrApiHookInstalled) return;
@@ -59,8 +63,8 @@
 
     /**
      * Returns true if a request URL + headers match any configured
-     * pattern. Pure function — exported via `window.__xrTestMatch`
-     * for unit-test access.
+     * pattern. Not exported (this file can export nothing); its
+     * unit-tested twin is `src/shared/api-pattern.js`.
      */
     function matchesAnyPattern(url, headers) {
         if (!activePatterns.length) return false;

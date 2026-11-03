@@ -5,6 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { sseResponse } from './helpers/sse.mjs';
 
 // Stateful storage stub (the audit-llm pattern): consent-gate tests
 // need get() to reflect what set() stored.
@@ -175,14 +176,11 @@ test('extract pass: returns the forced tool\'s spans; never trusts a missing too
     const originalFetch = globalThis.fetch;
     try {
         // Happy path: a tool_use block with spans.
-        globalThis.fetch = async () => ({
-            ok: true,
-            json: async () => ({
-                model: 'claude-test',
-                stop_reason: 'tool_use',
-                content: [{ type: 'tool_use', name: EXTRACT_TOOL_NAME,
-                    input: { spans: [{ kind: 'paragraph', text: 'Hello.', page: 1 }] } }]
-            })
+        globalThis.fetch = async () => sseResponse({
+            model: 'claude-test',
+            stop_reason: 'tool_use',
+            content: [{ type: 'tool_use', name: EXTRACT_TOOL_NAME,
+                input: { spans: [{ kind: 'paragraph', text: 'Hello.', page: 1 }] } }]
         });
         let res = await runExtractPass({ pdfBase64: 'QQ==', mode: 'transcription' });
         assert.equal(res.ok, true);
@@ -190,19 +188,14 @@ test('extract pass: returns the forced tool\'s spans; never trusts a missing too
         assert.equal(res.model, 'claude-test');
 
         // No tool block → a clear failure, never a silent empty success.
-        globalThis.fetch = async () => ({
-            ok: true,
-            json: async () => ({ stop_reason: 'end_turn', content: [{ type: 'text', text: 'I refuse.' }] })
-        });
+        globalThis.fetch = async () => sseResponse(
+            { stop_reason: 'end_turn', content: [{ type: 'text', text: 'I refuse.' }] });
         res = await runExtractPass({ pdfBase64: 'QQ==', mode: 'structure' });
         assert.equal(res.ok, false);
         assert.match(res.error, /did not return structured spans/);
 
         // max_tokens → the honest too-long error.
-        globalThis.fetch = async () => ({
-            ok: true,
-            json: async () => ({ stop_reason: 'max_tokens', content: [] })
-        });
+        globalThis.fetch = async () => sseResponse({ stop_reason: 'max_tokens', content: [] });
         res = await runExtractPass({ pdfBase64: 'QQ==', mode: 'structure' });
         assert.equal(res.ok, false);
         assert.match(res.error, /too long/);

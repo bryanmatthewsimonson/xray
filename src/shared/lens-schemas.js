@@ -6,7 +6,7 @@
 // audit/findings-schemas.js so the two families cannot fork it).
 //
 // Three layers:
-//   1. MODEL_OUTPUT_SCHEMA — the shape the forced tool asks of the
+//   1. MODEL_OUTPUT_SCHEMA — the shape the pass's tool asks of the
 //      model, per jurisdiction call. lens-prompt.js builds the tool
 //      input_schema FROM this object, so the model is guided by the
 //      exact shape the validator enforces (the findings-schemas

@@ -15,7 +15,7 @@ import { Utils } from './utils.js';
 import { EventBuilder } from './event-builder.js';
 import { createGroundingIndex } from './quote-grounding.js';
 import { CLAIM_RELATIONSHIPS } from './assessment-taxonomy.js';
-import { walk, obj, str, nullableStr, arr, en } from './schema-walker.js';
+import { walk, obj, str, nullableStr, arr, en, bool } from './schema-walker.js';
 import { deriveArticleRows } from './case-dossier.js';
 import { canonicalIdOf } from './entity-model.js';
 import { MAX_MEMBER_INPUT_CHARS, MAP_PROMPT_VERSION, CORPUS_PROMPT_VERSION } from './corpus-prompts.js';
@@ -25,6 +25,35 @@ import { MAX_MEMBER_INPUT_CHARS, MAP_PROMPT_VERSION, CORPUS_PROMPT_VERSION } fro
 // ------------------------------------------------------------------
 
 async function sha16(s) { return (await Crypto.sha256(String(s || ''))).slice(0, 16); }
+
+/**
+ * The ONE unit-shape builder (UA.1). Every producer of a map-stage
+ * unit — buildMemberUnits below, and the reader's article pass
+ * (shared/article-pass.js), which runs OUTSIDE any case — assembles
+ * text/title/url through THIS function, so the cache key
+ * (corpusExtractKey over corpusMapRequest) is byte-identical wherever
+ * the extract is first paid for. Never hand-build a lookalike unit: a
+ * one-character drift in text, title, or url silently orphans every
+ * extract keyed by the other path.
+ *
+ * `article` is the canonical article object (an archive row's
+ * `rec.article`, or the reader's `hashableArticle(state.article)` —
+ * the same object the archive stores, so the two assemble the same
+ * body). `claims` start empty; buildMemberUnits attaches the member's
+ * claim set afterwards (claims never ride the map request or its key).
+ */
+export function articleMemberUnit({ article, articleHash = null, url = null, title = null }) {
+    const full = EventBuilder.assembleArticleBody(article) || '';
+    return {
+        article_hash: articleHash,
+        url,
+        title: title || null,
+        text: full.slice(0, MAX_MEMBER_INPUT_CHARS),
+        truncated: full.length > MAX_MEMBER_INPUT_CHARS,
+        total_chars: full.length,
+        claims: []
+    };
+}
 
 /**
  * Build the map-stage units: one per `deriveArticleRows` row that has
@@ -63,8 +92,6 @@ export async function buildMemberUnits(data, { assessmentsByClaim = {} } = {}) {
     for (const row of rows) {
         const rec = recByUrl.get(row.url) || null;
         if (!rec || !rec.article) continue;   // only archive-backed members feed the corpus
-        const full = EventBuilder.assembleArticleBody(rec.article) || '';
-        const text = full.slice(0, MAX_MEMBER_INPUT_CHARS);
         const id = rec.articleHash || (`url:${await sha16(row.url)}`);
         // Key-first then oldest-first then id (the case-export order),
         // so a truncating consumer keeps the key claims and the set is
@@ -73,18 +100,14 @@ export async function buildMemberUnits(data, { assessmentsByClaim = {} } = {}) {
             (b.is_key ? 1 : 0) - (a.is_key ? 1 : 0)
             || (a.created || 0) - (b.created || 0)
             || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-        units.push({
-            article_hash: id,
-            url: row.url,
-            title: row.title || null,
-            text,
-            truncated: full.length > MAX_MEMBER_INPUT_CHARS,
-            total_chars: full.length,
-            claims: rowClaims.map((c) => ({
-                id: c.id, text: c.text, quote: c.quote || null, is_key: !!c.is_key,
-                stance: (c.id in assessmentsByClaim) ? assessmentsByClaim[c.id] : null
-            }))
+        const unit = articleMemberUnit({
+            article: rec.article, articleHash: id, url: row.url, title: row.title
         });
+        unit.claims = rowClaims.map((c) => ({
+            id: c.id, text: c.text, quote: c.quote || null, is_key: !!c.is_key,
+            stance: (c.id in assessmentsByClaim) ? assessmentsByClaim[c.id] : null
+        }));
+        units.push(unit);
     }
     return units;
 }
@@ -192,8 +215,8 @@ export function computeEntitySummary(data, memberByHash) {
 
 /**
  * The EXACT map-stage request for one member unit — the ONE builder
- * shared by the Analyze run, the Pre-analyze pass, the capture prepay,
- * and the entity-page map, so an extract cached ahead of time carries
+ * shared by the Analyze run, the Pre-analyze pass, the Suggest-time
+ * prepay, and the entity-page map, so an extract cached ahead of time carries
  * precisely the cache key any later consumer computes (corpusExtractKey
  * fingerprints this shape). A change here is a map-input change: bump
  * MAP_PROMPT_VERSION.
@@ -240,6 +263,27 @@ export async function corpusExtractKey(request, promptVersion = MAP_PROMPT_VERSI
         title: mm.title || '',
         url: mm.url || ''
     }));
+}
+
+/**
+ * The LOAD-BEARING SUBSET of a corpus-v8 extract — what the reduce and
+ * the entity page consume (UA.1 guard rail 5: the reduce input stays
+ * bounded; parity with the pre-v8 selective key_assertions list, while
+ * comprehensiveness lives in the full extract for the Suggest modal
+ * and the durable layer).
+ *
+ * STRICT `load_bearing === true`: every extract reaching a reduce path
+ * is v8-shaped (fetched or freshly run under the v8 cache key), so an
+ * unflagged atom is simply not load-bearing — never a compat case. The
+ * record-derived rows (unionExtractWithRecord / reduceExtractFromRecord)
+ * deliberately do NOT pass through this filter: their own cap has
+ * always bounded them, and pre-v8 record atoms carry no flag.
+ */
+export function loadBearingSubset(extract) {
+    const atoms = (extract && extract.key_assertions) || [];
+    const kept = atoms.filter((a) => a && a.load_bearing === true);
+    if (kept.length === atoms.length) return extract;
+    return { ...extract, key_assertions: kept };
 }
 
 /**
@@ -426,9 +470,24 @@ export function digestDossier(dossier, { claims = [], auditRollup = null } = {})
 // Validators (schema-walker)
 // ------------------------------------------------------------------
 
+// corpus-v8: atoms carry `text` (authored paraphrase) and
+// `load_bearing` (+ why when flagged). Both stay OPTIONAL here —
+// the tool schema requires them, but a model that omits one on one
+// atom must not invalidate the whole paid extract; consumers default
+// (text falls back to the quote in the review surface, an unflagged
+// atom is simply not load-bearing).
+// corpus-v9: `entities` (+ per-atom `about` refs) join, equally
+// lenient — an extract with no entities is a valid extract whose
+// Suggest surface simply proposes none.
 const MAP_SCHEMA = obj({
     position: obj({ summary: str(), side_label: nullableStr() }),
-    key_assertions: arr(obj({ quote: str({ minLength: 1 }), claim_ref: nullableStr(), why_load_bearing: str() }, ['quote'])),
+    key_assertions: arr(obj({
+        quote: str({ minLength: 1 }), text: str(), load_bearing: bool(),
+        claim_ref: nullableStr(), why_load_bearing: str(), about: arr(str())
+    }, ['quote'])),
+    entities: arr(obj({
+        ref: str(), name: str({ minLength: 1 }), type: str(), mention: str()
+    }, ['name'])),
     source_references: arr(obj({ quote: str({ minLength: 1 }), target_hint: str() }, ['quote'])),
     open_questions: arr(str())
 }, ['position']);
@@ -451,9 +510,129 @@ const BRIEF_SCHEMA = obj({
     }, ['kind']))
 }, ['summary']);
 
+/**
+ * The v9 DECORATIONS (entities, per-atom about refs) are lenient to
+ * the point of pruning: consumers already drop a nameless entity row
+ * and coerce a wrong-typed about (entityProposalsFromExtract /
+ * claimProposalsFromExtract), so ONE malformed decoration must never
+ * void a whole paid extract — validation walks this sanitized VIEW of
+ * the decorations while the extract's CORE (position, atoms, sources,
+ * open questions) keeps its strict contract. The stored extract stays
+ * raw; tolerance lives in the consumers, exactly as tested.
+ *
+ * PER-ROW ONLY (2026-08-13). The tolerance covers malformed ROWS INSIDE
+ * a list. It must NOT cover a wrong-typed LIST, and it silently did:
+ * a non-array `entities` was coerced to `[]` here, the walk passed, and
+ * the RAW wrong-typed extract was then cached and folded into the
+ * durable record. The result was an article that is entity-blind
+ * FOREVER — the content-keyed cache re-serves it on every later
+ * Suggest, and the loss reads as "this article names nobody" rather
+ * than "this extract is broken". That is exactly the whole-extract
+ * blindness the two refusals below exist to prevent; they just never
+ * checked the type. A wrong-typed list is now left RAW so the walk
+ * rejects it ("expected array, got object"), which re-runs the pass —
+ * and, because the cache-hit path re-validates, retroactively
+ * invalidates any poisoned entry already stored.
+ *
+ * `null` stays tolerated as "none": a model writing `"entities": null`
+ * is saying nothing was found, which is a real and benign answer.
+ */
+/**
+ * Losslessly repair a corpus extract whose top-level list fields the
+ * model DOUBLE-ENCODED — the JSON text of an array where the array
+ * should be. Field-found 2026-08-22: a live Suggest failed with
+ * "$.entities expected array, got string" on a payload that was sitting
+ * right there inside the string.
+ *
+ * Tool input schemas are advisory to the model, so this shape arrives
+ * occasionally on long outputs. One JSON.parse recovers the exact rows;
+ * anything that does not parse to an array is LEFT ALONE for the
+ * validator's honest type error — no guessing, no coercion to [].
+ *
+ * The distinction from the 2026-08-13 reversal (see the test file's
+ * history note) is load-bearing: that harm was validation-VIEW leniency
+ * over a raw cached value, which poisoned the cache forever. This
+ * returns a repaired EXTRACT the caller validates, caches and folds —
+ * the string never survives into storage — and every parsed row then
+ * faces the same walk, pruning and blindness refusals as a native list.
+ *
+ * @returns {{extract: object, repaired: string[]}} repaired field names,
+ *   for the caller's logging; empty when nothing needed repair.
+ */
+export function repairCorpusExtract(input) {
+    if (!input || typeof input !== 'object') return { extract: input, repaired: [] };
+    const extract = { ...input };
+    const repaired = [];
+    for (const field of ['key_assertions', 'entities', 'source_references', 'open_questions']) {
+        const value = extract[field];
+        if (typeof value !== 'string' || value.trim()[0] !== '[') continue;
+        let parsed;
+        try { parsed = JSON.parse(value); } catch (_) { continue; }
+        if (!Array.isArray(parsed)) continue;
+        extract[field] = parsed;
+        repaired.push(field);
+    }
+    return { extract, repaired };
+}
+
+function decorationTolerantView(input) {
+    if (!input || typeof input !== 'object') return input;
+    const view = { ...input };
+    if ('entities' in view) {
+        if (view.entities === null || view.entities === undefined) view.entities = [];
+        else if (!Array.isArray(view.entities)) { /* leave raw — the walk must reject it */ }
+        else {
+            view.entities = view.entities
+                .filter((e) => e && typeof e === 'object'
+                    && typeof e.name === 'string' && e.name.trim())
+                .map((e) => ({
+                    ref: typeof e.ref === 'string' ? e.ref : '',
+                    name: e.name,
+                    type: typeof e.type === 'string' ? e.type : '',
+                    mention: typeof e.mention === 'string' ? e.mention : ''
+                }));
+        }
+    }
+    if (Array.isArray(view.key_assertions)) {
+        view.key_assertions = view.key_assertions.map((a) => {
+            if (!a || typeof a !== 'object' || !('about' in a)) return a;
+            const copy = { ...a };
+            if (Array.isArray(a.about)) copy.about = a.about.filter((r) => typeof r === 'string');
+            else delete copy.about;
+            return copy;
+        });
+    }
+    return view;
+}
+
 export function validateCorpusExtract(input) {
     const errors = [];
-    walk(input, MAP_SCHEMA, '$', errors);
+    walk(decorationTolerantView(input), MAP_SCHEMA, '$', errors);
+    // Per-row leniency must not become whole-extract blindness — the
+    // two systematic-malformation refusals (an extract that would cache
+    // forever with a capability silently missing re-runs instead; the
+    // cache hit would mask the loss permanently):
+    //
+    // 1. A NON-EMPTY assertion list where NO atom carries load_bearing
+    //    would be permanently position-only for the reduce and the
+    //    entity page (loadBearingSubset strips everything). One missing
+    //    flag is tolerated (absent = not load-bearing); all-`false` is
+    //    a real model judgment and stays valid.
+    const atoms = (input && Array.isArray(input.key_assertions)) ? input.key_assertions : [];
+    if (atoms.length > 0 && atoms.every((a) => !a || !('load_bearing' in a))) {
+        errors.push('$.key_assertions: no atom carries load_bearing — malformed map output');
+    }
+    // 2. A NON-EMPTY entities list where NO row carries both a name and
+    //    a mention would be permanently entity-blind for Suggest (every
+    //    row drops at the converter). One bad row is pruned above; a
+    //    wholesale-unusable list means the call malformed — re-run. An
+    //    EMPTY list (an article naming nothing) stays valid.
+    const ents = (input && Array.isArray(input.entities)) ? input.entities : [];
+    if (ents.length > 0 && ents.every((e) => !e
+            || typeof e.name !== 'string' || !e.name.trim()
+            || typeof e.mention !== 'string' || !e.mention.trim())) {
+        errors.push('$.entities: no row carries a name and mention — malformed map output');
+    }
     return { ok: errors.length === 0, errors };
 }
 

@@ -15,7 +15,7 @@ globalThis.chrome = globalThis.chrome || {
 const {
     speakerDisplayMap, turnsFromSegments, timeFragmentSelector, timeRangeOfSpan,
     diarizedHeading, buildDiarizedBody, diarizedTrackEntry, extractionMethodFor,
-    providerDisplayName
+    providerDisplayName, capturedBodyFor
 } = await import('../src/shared/diarized-transcript.js');
 const { timeRangeFromAnchor, pageFromAnchor } = await import('../src/shared/claim-model.js');
 const { buildTranscriptSection, upsertTranscriptSection } = await import('../src/shared/transcript-article.js');
@@ -112,7 +112,7 @@ test('diarizedHeading: language label when known, bare local form otherwise', ()
 
 test('buildDiarizedBody: Description renamed, suffixed heading, &t=Ns links, speakers bolded', () => {
     const { markdown, transcriptMeta, heading } = buildDiarizedBody({
-        capturedMarkdown: CAPTURED, watchUrl: WATCH,
+        capturedMarkdown: CAPTURED, mediaUrl: WATCH, platform: 'youtube',
         result: { language: 'en', segments: segs() }
     });
     // 1. The relay round-trip trap: the bare heading must be GONE
@@ -140,7 +140,7 @@ test('buildDiarizedBody: native transcript sections are dropped, prior versions 
     const withNative = CAPTURED + '\n\n## Transcript — English (auto-generated, origin language)\n\n'
         + '[`0:00`](https://www.youtube.com/watch?v=abc123DEF45&t=0s) old unlabeled cues here\n';
     const { markdown } = buildDiarizedBody({
-        capturedMarkdown: withNative, watchUrl: WATCH,
+        capturedMarkdown: withNative, mediaUrl: WATCH, platform: 'youtube',
         result: { language: 'en', segments: segs() }
     });
     assert.ok(!markdown.includes('old unlabeled cues here'), 'native auto-cue section superseded');
@@ -149,7 +149,7 @@ test('buildDiarizedBody: native transcript sections are dropped, prior versions 
 
 test('buildDiarizedBody: timeMap offsets index the FINAL markdown exactly', () => {
     const { markdown, timeMap } = buildDiarizedBody({
-        capturedMarkdown: CAPTURED, watchUrl: WATCH,
+        capturedMarkdown: CAPTURED, mediaUrl: WATCH, platform: 'youtube',
         result: { language: 'en', segments: segs() }
     });
     assert.ok(timeMap.length > 0);
@@ -165,13 +165,13 @@ test('buildDiarizedBody: timeMap offsets index the FINAL markdown exactly', () =
 
 test('buildDiarizedBody: throws on empty segments (never adopt an empty body)', () => {
     assert.throws(() => buildDiarizedBody({
-        capturedMarkdown: CAPTURED, watchUrl: WATCH, result: { segments: [] }
+        capturedMarkdown: CAPTURED, mediaUrl: WATCH, platform: 'youtube', result: { segments: [] }
     }), /no usable segments/);
 });
 
 test('the Phase 22 bare-heading upsert can never clobber the diarized section', () => {
     const { markdown } = buildDiarizedBody({
-        capturedMarkdown: CAPTURED, watchUrl: WATCH,
+        capturedMarkdown: CAPTURED, mediaUrl: WATCH, platform: 'youtube',
         result: { language: 'en', segments: segs() }
     });
     const attached = upsertTranscriptSection(markdown, '## Transcript\n\npasted attach\n');
@@ -245,7 +245,7 @@ test('diarizedHeading: cloud providers are named — the body is durable, "local
 
 test('buildDiarizedBody: a cloud result names its provider in the heading', () => {
     const { markdown, heading } = buildDiarizedBody({
-        capturedMarkdown: CAPTURED, watchUrl: WATCH,
+        capturedMarkdown: CAPTURED, mediaUrl: WATCH, platform: 'youtube',
         result: {
             language: 'en', segments: segs(),
             model_info: { provider: 'assemblyai', asr_model: 'universal' }
@@ -264,4 +264,144 @@ test('diarizedTrackEntry: cloud runs name the engine, keep the replace-slot role
     assert.equal(entry.displayName, 'Deepgram (diarized, en)');
     assert.equal(entry.role, 'local-diarized');
     assert.equal(entry.events.length, 4);
+});
+
+test('buildDiarizedBody: a generic media URL gets #t= links and no Description rename', () => {
+    const EPISODE = 'https://mormonstories.org/podcast/ep-1/';
+    const captured = '# Episode 1\n\n## Description\n\nShow notes here.\n';
+    const { markdown, heading } = buildDiarizedBody({
+        capturedMarkdown: captured, mediaUrl: EPISODE, platform: 'podcast',
+        result: { language: 'en', segments: segs() }
+    });
+    // The YouTube-only round-trip rename must NOT fire off YouTube.
+    assert.ok(/^## Description$/m.test(markdown), 'bare Description heading left alone');
+    assert.ok(!markdown.includes('## Description — YouTube'), 'no YouTube rename off YouTube');
+    // Generic Media-Fragments deep links, never the &t=Ns form.
+    assert.ok(markdown.includes(`](${EPISODE}#t=0)`), 'generic #t= link form');
+    assert.ok(!markdown.includes('&t=0s'), 'no YouTube &t=Ns links off YouTube');
+    // The suffixed heading still protects against a later paste-attach.
+    assert.equal(heading, 'Transcript — English (local, diarized)');
+    assert.ok(markdown.includes(`## ${heading}`));
+});
+
+test('buildDiarizedBody: the legacy watchUrl parameter still works', () => {
+    const { markdown } = buildDiarizedBody({
+        capturedMarkdown: CAPTURED, watchUrl: WATCH, platform: 'youtube',
+        result: { language: 'en', segments: segs() }
+    });
+    assert.ok(markdown.includes(`](${WATCH}&t=0s)`));
+});
+
+test('adoption APPENDS the transcript — the captured body survives verbatim', () => {
+    // Field question 2026-08-16: "the transcription appears to completely
+    // replace the article content rather than being added to it."
+    // The composer does not: base is preserved and the section appended.
+    // Locked explicitly, because the show notes on a podcast capture are
+    // the only human-written context the transcript sits in, and losing
+    // them silently would be a content-loss bug rather than a display one.
+    const base = [
+        '# Episode 6: Healing',
+        '',
+        'What does healing look like after childhood sexual abuse?',
+        '',
+        'Episode Transcript: https://drive.google.com/file/d/abc/view',
+        '',
+        'Additional resources at ArchitectureOfAbuse.com'
+    ].join('\n');
+    const { markdown } = buildDiarizedBody({
+        capturedMarkdown: base,
+        mediaUrl: 'https://cdn.example.com/ep.mp3',
+        platform: '',
+        result: {
+            language: 'en',
+            segments: [{ start: 1, end: 2, speaker: 'SPEAKER_00', text: 'Hi.' }],
+            model_info: { provider: 'deepgram' }
+        }
+    });
+    // Every line of the capture is still there, in order, before the
+    // transcript heading.
+    const cut = markdown.indexOf('## Transcript');
+    assert.ok(cut > 0, 'the transcript section must be appended, not prepended');
+    const head = markdown.slice(0, cut);
+    for (const line of base.split('\n').filter(Boolean)) {
+        assert.ok(head.includes(line), `the capture lost: ${line}`);
+    }
+    assert.match(markdown, /## Transcript — English \(Deepgram, diarized\)/);
+});
+
+test('a RE-transcription replaces only the prior transcript section', () => {
+    // The one thing adoption is allowed to remove. Everything above the
+    // old heading must survive a second run.
+    const base = '# Ep\n\nShow notes that must survive.\n\n'
+        + '## Transcript — English (AssemblyAI, diarized)\n\nold turn text\n';
+    const { markdown } = buildDiarizedBody({
+        capturedMarkdown: base,
+        mediaUrl: 'https://cdn.example.com/ep.mp3',
+        platform: '',
+        result: {
+            language: 'en',
+            segments: [{ start: 1, end: 2, speaker: 'SPEAKER_00', text: 'New.' }],
+            model_info: { provider: 'deepgram' }
+        }
+    });
+    assert.ok(markdown.includes('Show notes that must survive.'), 'the capture was dropped');
+    assert.ok(!markdown.includes('old turn text'), 'the prior transcript should be replaced');
+    assert.ok(!markdown.includes('(AssemblyAI, diarized)'));
+    assert.match(markdown, /\(Deepgram, diarized\)/);
+});
+
+// ------------------------------------------------------------------
+// The captured body a transcript composes ONTO.
+//
+// Field-found 2026-08-16: a transcribed podcast episode lost its entire
+// show notes — in the Markdown tab, not just the render. The cause is
+// upstream of every transcript path: `content-extractor.js` keeps
+// `content` as HTML at capture time and lets markdown "happen
+// downstream", so a GENERIC capture (Readability — which is every
+// podcast page) carries no `.markdown` at all. Adoption read
+// `a.markdown || ''` and therefore composed onto an EMPTY base,
+// silently discarding the article.
+//
+// It was invisible until now because the companion path was
+// YouTube-first, and the YouTube handler composes its own markdown.
+// Direct cloud transcription made podcast pages the main case.
+// ------------------------------------------------------------------
+
+test('capturedBodyFor: a capture with markdown uses it verbatim', () => {
+    assert.equal(capturedBodyFor({ markdown: '# Kept', content: '<p>ignored</p>' }, () => 'WRONG'),
+        '# Kept');
+});
+
+test('capturedBodyFor: a capture with only HTML is converted, never dropped', () => {
+    // The bug. Before the fix this returned '' and the transcript
+    // replaced the article.
+    const html = '<p>Show notes that must survive.</p>';
+    assert.equal(capturedBodyFor({ content: html }, (h) => `MD(${h})`), `MD(${html})`);
+});
+
+test('capturedBodyFor: an empty capture is empty, not a crash', () => {
+    assert.equal(capturedBodyFor({}, () => 'x'), '');
+    assert.equal(capturedBodyFor(null, () => 'x'), '');
+    assert.equal(capturedBodyFor({ content: '<p>hi</p>' }, null), '');
+});
+
+test('a transcript composed onto an HTML-only capture keeps the body', () => {
+    // End to end through the composer, which is what adoption calls.
+    const body = capturedBodyFor(
+        { content: '<p>What does healing look like after childhood sexual abuse?</p>' },
+        (h) => h.replace(/<\/?p>/g, '')
+    );
+    const { markdown } = buildDiarizedBody({
+        capturedMarkdown: body,
+        mediaUrl: 'https://cdn.example.com/ep.mp3',
+        platform: '',
+        result: {
+            language: 'en',
+            segments: [{ start: 1, end: 2, speaker: 'SPEAKER_00', text: 'Hi.' }],
+            model_info: { provider: 'deepgram' }
+        }
+    });
+    assert.ok(markdown.includes('What does healing look like'),
+        'the captured article must survive a transcription');
+    assert.ok(markdown.indexOf('What does healing') < markdown.indexOf('## Transcript'));
 });

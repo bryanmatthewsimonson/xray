@@ -1,0 +1,127 @@
+{
+  "db": "xray-portal",
+  "producedBy": {
+    "commitOfRung": "857ce3f",
+    "generator": "tests/tools/gen-idb-fixtures.mjs",
+    "note": "the 857ce3f rowFromRecord literal (with dTag): addressable, replaceable and regular events, plus the one `sync` meta row. Every event is really signed by TV1."
+  },
+  "schema": {
+    "events": {
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "keyPath": "addr",
+          "name": "addr",
+          "unique": false
+        },
+        {
+          "keyPath": "created_at",
+          "name": "created_at",
+          "unique": false
+        },
+        {
+          "keyPath": "kind",
+          "name": "kind",
+          "unique": false
+        },
+        {
+          "keyPath": "pubkey",
+          "name": "pubkey",
+          "unique": false
+        }
+      ],
+      "keyPath": "id"
+    },
+    "meta": {
+      "autoIncrement": false,
+      "indexes": [],
+      "keyPath": "key"
+    }
+  },
+  "stores": {
+    "events": [
+      {
+        "addr": "0:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "created_at": 1700000001,
+        "dTag": "",
+        "event": {
+          "content": "{\"name\":\"Followed\"}",
+          "created_at": 1700000001,
+          "id": "31fa9a47e80b4c80afaa409fd37a943f2433f786bbc35befc02c0dfb5ae68836",
+          "kind": 0,
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "sig": "d72e3ac09584d281a27e84817290de4fa39ffa640216561f9b9d7459884c857c9115cba1e8e64153918836843a1a8eba658e657418da05f5b2b04f29f7768cf4",
+          "tags": []
+        },
+        "firstSeenAt": 1700000005,
+        "id": "31fa9a47e80b4c80afaa409fd37a943f2433f786bbc35befc02c0dfb5ae68836",
+        "kind": 0,
+        "lastSeenAt": 1700000005,
+        "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "relays": [
+          "wss://relay.example"
+        ]
+      },
+      {
+        "addr": "",
+        "created_at": 1700000002,
+        "dTag": "",
+        "event": {
+          "content": "A note.",
+          "created_at": 1700000002,
+          "id": "8207e6a2d3cc9d5039ba610ba308c83849307ee8a872167cd3cf016aa6dd0f2d",
+          "kind": 1,
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "sig": "8f8b0998798bb8d64ffa8ded5e74d34bbd46b99d6b33f08d8ebfc647079eacd3efb0d94fcffcd03051a8ff8de44846f4ad615a1549f5967b9111a5c54861950f",
+          "tags": []
+        },
+        "firstSeenAt": 1700000005,
+        "id": "8207e6a2d3cc9d5039ba610ba308c83849307ee8a872167cd3cf016aa6dd0f2d",
+        "kind": 1,
+        "lastSeenAt": 1700000005,
+        "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "relays": [
+          "wss://relay.example"
+        ]
+      },
+      {
+        "addr": "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:a1",
+        "created_at": 1700000000,
+        "dTag": "a1",
+        "event": {
+          "content": "# Article A",
+          "created_at": 1700000000,
+          "id": "83a62182829714d32e2358bc011a07061e0aba661e987eaec1dd4b53888b89c2",
+          "kind": 30023,
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "sig": "42e0f0ec591c4e3fd9b0b0b23ac060cae6b1269e3b247cc76afe0937ade7a43fca34a445d4d9376476eb6ee10a2d8fa3c6a20ebd0b325d1ce26578163dba2a7a",
+          "tags": [
+            [
+              "d",
+              "a1"
+            ]
+          ]
+        },
+        "firstSeenAt": 1700000005,
+        "id": "83a62182829714d32e2358bc011a07061e0aba661e987eaec1dd4b53888b89c2",
+        "kind": 30023,
+        "lastSeenAt": 1700000005,
+        "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "relays": [
+          "wss://relay.example"
+        ]
+      }
+    ],
+    "meta": [
+      {
+        "key": "sync",
+        "value": {
+          "authorsKey": "103ee1186ab1be072d8cfe795413e6c03b4b72ceff24e1f6bf29806cfc65eee6",
+          "lastSyncAt": 1700000005,
+          "relaysKey": "4be6a2c446d4d7ede8ef8cfcdd865409dd491d4acf3e2476283ea0e514b90a3c"
+        }
+      }
+    ]
+  },
+  "version": 1
+}

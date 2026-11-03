@@ -19,6 +19,7 @@ import { articleHash } from '../shared/audit/article-hash.js';
 import { EntityModel, installEntityStorageBridge } from '../shared/entity-model.js';
 import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { saveArticle, putSourceDocument } from '../shared/archive-cache.js';
+import { addArticlesToCase } from '../shared/case-membership.js';
 import { parseEpub } from '../shared/epub-parse.js';
 
 // A pathological EPUB (thousands of micro spine items) shouldn't spawn an
@@ -46,7 +47,16 @@ export function buildChapterArticle({ chapter, meta, epubHash, bookEntityId, boo
     const idPart = encodeURIComponent(String((chapter && chapter.id) || index));
     return {
         url: `file:///imported/epub/${epubHash.slice(0, 16)}/${idPart}`,
-        title: (chapter && chapter.title) || `Chapter ${index + 1}`,
+        // The BOOK name leads the title (field feedback 2026-08-23: bare
+        // "Chapter 2" in a 600-item archive list identifies nothing, and
+        // pirated EPUBs carry junk spine pages whose fallback titles
+        // collide with real chapters). Untitled spine items fall back to
+        // their spine id — "SS_recommendpage" is honest where an
+        // invented "Chapter 28" was misleading. Title feeds the hash, so
+        // this shapes NEW imports; a re-import updates rows in place
+        // (same content-derived URLs) and picks the new names up.
+        title: `${(meta && meta.title) || 'Untitled book'} — ${(chapter && chapter.title)
+            || (chapter && chapter.id ? String(chapter.id) : `Chapter ${index + 1}`)}`,
         byline: (meta && meta.author) || '',
         siteName: (meta && meta.title) || '',              // Publisher = book title
         publishedAt: (meta && meta.date) || null,           // release date (unix s)
@@ -79,7 +89,7 @@ export async function chapterArticleHash(article) {
  * @param {{ onProgress?: (done:number,total:number)=>void }} [opts]
  * @returns {Promise<{ bookEntityId:string, title:string, chapters:number, images:number, capped:boolean }>}
  */
-export async function importEpub(bytes, { onProgress } = {}) {
+export async function importEpub(bytes, { onProgress, caseEntityId = null } = {}) {
     // Self-init the entity infra so this works from any extension page.
     try { installEntityStorageBridge(); } catch (_) { /* idempotent */ }
     try { await LocalKeyManager.init(); } catch (err) { Utils.error('book import: key init', err); }
@@ -114,6 +124,7 @@ export async function importEpub(bytes, { onProgress } = {}) {
     const capped = parsed.chapters.length > MAX_CHAPTERS;
     const chapters = capped ? parsed.chapters.slice(0, MAX_CHAPTERS) : parsed.chapters;
     let saved = 0;
+    const savedUrls = [];
     for (let i = 0; i < chapters.length; i++) {
         const article = buildChapterArticle({
             chapter: chapters[i], meta: parsed.meta, epubHash,
@@ -123,18 +134,34 @@ export async function importEpub(bytes, { onProgress } = {}) {
             article._articleHash = await chapterArticleHash(article);
             await saveArticle({ article, source: 'capture' });
             saved += 1;
+            savedUrls.push(article.url);
         } catch (err) { Utils.error('book import: chapter save', err); }
         if (onProgress) { try { onProgress(i + 1, chapters.length); } catch (_) { /* display only */ } }
     }
 
-    return { bookEntityId: bookEntity.id, title, chapters: saved, images, capped };
+    // Maintainer ruling 2026-08-23: books imported while a case is
+    // active JOIN the case — every chapter becomes a member, so the
+    // book's content is reachable by the case dashboard and the corpus
+    // analysis rather than sitting caseless in the library. One tagging
+    // call for all chapters; a failure here must not void the import
+    // (the chapters are saved — the user can add them to the case by
+    // hand), so it degrades to a caseTagged: false the panel discloses.
+    let caseTagged = false;
+    if (caseEntityId && savedUrls.length) {
+        try {
+            await addArticlesToCase(caseEntityId, savedUrls);
+            caseTagged = true;
+        } catch (err) { Utils.error('book import: case tagging', err); }
+    }
+
+    return { bookEntityId: bookEntity.id, title, chapters: saved, images, capped, caseTagged };
 }
 
 /**
  * Mount the "Import book (EPUB)…" panel: a file picker, a progress line, and a
  * result that links to the new book's dossier. Toggle-closed by the caller.
  */
-export function mountBookImport(host, { onDone } = {}) {
+export function mountBookImport(host, { caseEntityId = null, onDone } = {}) {
     host.replaceChildren();
     const card = el('div', 'xr-bookimport');
     card.appendChild(el('h3', 'xr-bookimport__title', '📖 Import a book (EPUB)'));
@@ -151,10 +178,15 @@ export function mountBookImport(host, { onDone } = {}) {
     go.type = 'button';
     go.disabled = true;
     input.addEventListener('change', () => { go.disabled = !(input.files && input.files[0]); });
+    // PR-3: a way out, same idiom as the transcript / URL importers —
+    // this panel had none.
+    const closeBtn = el('button', 'xr-portal__btn xr-portal__btn--ghost', 'Close');
+    closeBtn.type = 'button';
+    closeBtn.addEventListener('click', () => card.remove());
 
     const status = el('div', 'xr-bookimport__status');
     const row = el('div', 'xr-bookimport__row');
-    row.append(input, go);
+    row.append(input, go, closeBtn);
     card.append(row, status);
     host.appendChild(card);
 
@@ -167,13 +199,15 @@ export function mountBookImport(host, { onDone } = {}) {
         try {
             const buf = await file.arrayBuffer();
             const res = await importEpub(buf, {
+                caseEntityId,
                 onProgress: (done, total) => { status.textContent = `Importing ${done}/${total} chapters…`; }
             });
             status.replaceChildren();
             const done = el('div', 'xr-bookimport__done',
                 `Imported “${res.title}” — ${res.chapters} chapter${res.chapters === 1 ? '' : 's'}`
                 + (res.images ? `, ${res.images} image${res.images === 1 ? '' : 's'}` : '')
-                + (res.capped ? ` (capped at ${MAX_CHAPTERS})` : '') + '.');
+                + (res.capped ? ` (capped at ${MAX_CHAPTERS})` : '')
+                + (res.caseTagged ? ' · added to case' : '') + '.');
             const open = el('a', 'xr-bookimport__open', 'Open the book →');
             open.href = `#dossier=${res.bookEntityId}`;
             open.addEventListener('click', () => {

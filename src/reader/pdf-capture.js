@@ -464,11 +464,16 @@ export async function capturePdfToArticle({ url = '', file = null } = {}) {
             // viewport as the text runs (then y-flip) so a /Rotate page's
             // links land on the words they underline — the identical
             // discipline, and the reason this isn't done in raw space.
+            // Corner by corner: pdf.js 6 has no convertToViewportRectangle
+            // (calling it threw into the catch below, so no PDF ever
+            // produced a link); the viewport transform carries /Rotate,
+            // so the two opposite corners still bound the viewed rect.
             let annots = [];
             try {
                 annots = (await page.getAnnotations()).reduce((out, a) => {
                     if (!a || a.subtype !== 'Link' || !a.url || !Array.isArray(a.rect)) return out;
-                    const [rx0, ry0, rx1, ry1] = viewport.convertToViewportRectangle(a.rect);
+                    const [rx0, ry0] = viewport.convertToViewportPoint(a.rect[0], a.rect[1]);
+                    const [rx1, ry1] = viewport.convertToViewportPoint(a.rect[2], a.rect[3]);
                     out.push({
                         url: a.url,
                         x0: Math.min(rx0, rx1),

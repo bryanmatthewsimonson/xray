@@ -1,0 +1,64 @@
+{
+  "db": "xray-archive",
+  "producedBy": {
+    "commitOfRung": "ecfec1b",
+    "generator": "tests/tools/gen-idb-fixtures.mjs",
+    "note": "articles rows are the ecfec1b literal: no articleHash/priorVersions (811929e, no bump) and no captureUrl (e775c44, no bump)."
+  },
+  "schema": {
+    "articles": {
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "keyPath": "cachedAt",
+          "name": "cachedAt",
+          "unique": false
+        },
+        {
+          "keyPath": "lastAccessed",
+          "name": "lastAccessed",
+          "unique": false
+        },
+        {
+          "keyPath": "publishedToRelay",
+          "name": "publishedToRelay",
+          "unique": false
+        }
+      ],
+      "keyPath": "urlHash"
+    }
+  },
+  "stores": {
+    "articles": [
+      {
+        "article": {
+          "content": "<p>Article A body.</p>",
+          "title": "Article A",
+          "url": "https://example.com/a"
+        },
+        "cachedAt": 1700000000,
+        "lastAccessed": 1700000060,
+        "publishedEventId": null,
+        "publishedToRelay": false,
+        "source": "capture",
+        "url": "https://example.com/a",
+        "urlHash": "2dce0a4c50441bfc"
+      },
+      {
+        "article": {
+          "content": "<p>Article B body.</p>",
+          "title": "Article B",
+          "url": "https://example.com/b"
+        },
+        "cachedAt": 1700000100,
+        "lastAccessed": 1700000100,
+        "publishedEventId": "4c63cd635b68470f62fcab2b1ec909e025d48994b1a93b8b4e5178a92390573d",
+        "publishedToRelay": true,
+        "source": "relay",
+        "url": "https://example.com/b",
+        "urlHash": "d7fe568b31ae0fb9"
+      }
+    ]
+  },
+  "version": 1
+}

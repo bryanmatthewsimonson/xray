@@ -15,12 +15,42 @@ codebase — here's what you need to know.
   [`docs/ROADMAP.md`](docs/ROADMAP.md) and the relevant phase issue.
   Sub-phase progress belongs as comments on the phase issue, not as
   orphan branches.
-- **Engineering journal.** [`docs/JOURNAL.md`](docs/JOURNAL.md) is
-  the chronological log of bugs, design decisions, and external
-  platform changes. **Add an entry** when fixing a bug whose root
-  cause isn't obvious from the diff, when making a design choice
-  future-you might reasonably second-guess, or when working around
-  something a third party changed. Keep entries tight.
+- **Engineering journal.** The JOURNAL is the chronological log of
+  bugs, design decisions, and external platform changes. Entries live
+  in `docs/journal/YYYY-MM.md` — one file per month, oldest first.
+  **Append a new entry at the BOTTOM** of the current month's file,
+  then run `npm run docs:journal` to regenerate the index at
+  [`docs/JOURNAL.md`](docs/JOURNAL.md) (generated — never edit it by
+  hand; `tests/journal-index.test.mjs` fails when it is stale).
+  **Add an entry** when fixing a bug whose root cause isn't obvious
+  from the diff, when making a design choice future-you might
+  reasonably second-guess, or when working around something a third
+  party changed. Keep entries tight.
+  **The generator never discards text.** When `npm run docs:journal`
+  refuses (exit 1) it has listed what it does not recognise — a
+  heading that is not `## YYYY-MM-DD — title` on a calendar date, or
+  an entry in the index whose heading already exists in its month with
+  a different body — and written nothing. Fix the heading; or make the
+  edit in the monthly file and delete the copy from the index.
+  **A branch from before the split** (its entry prepended into
+  `docs/JOURNAL.md`) has two ways home, both one command past the
+  merge: `git rebase origin/main` does not conflict (the union rule
+  comes from main) and leaves your entry in the index, then `npm run
+  docs:journal` moves it into its month; `git merge origin/main`
+  CONFLICTS in `docs/JOURNAL.md` (git reads the union rule from the
+  side you have checked out, which does not have it yet) — do not
+  hand-resolve: run `npm run docs:journal` on the conflicted file
+  (the markers are boundaries to it), `git add docs/JOURNAL.md
+  docs/journal`, commit. GitHub's "Update branch" button is that
+  merge and will report the conflict; resolve it locally the same way.
+  **Why `main` never carries a stale index.** Two PRs that each append
+  to the same month and each regenerate the index would union in merge
+  order while the generator sorts — but `main`'s branch protection
+  requires an up-to-date branch, so the second PR merges `main` first,
+  its CI runs the drift guard on the merged tree, and a stale index is
+  red there, one `npm run docs:journal` from green. No bot writes to
+  `main`. If that protection is ever relaxed, the same guard goes red
+  on `main`'s own push CI: loud, never silent.
 - **Smoke test.** [`docs/SMOKE_TEST.md`](docs/SMOKE_TEST.md) is the
   manual checklist that exercises every shipped surface, phase by phase.
   Run it before any release tag, after any cross-cutting refactor, or
@@ -80,7 +110,26 @@ web-ext build          # produces a .zip in web-ext-artifacts/
 ## Testing before you submit
 
 - `npm test` green.
+- `npm run docs:journal -- --check` exits 0 — the JOURNAL index matches the monthly files (the drift guard in `tests/journal-index.test.mjs`; a new entry means a regenerated `docs/JOURNAL.md` in the same PR).
 - `npm run build` green (no errors, no new warnings).
+- `npm run smoke` green — the browser smoke loads the built extension
+  in headless Chromium (`npx playwright install chromium` once per
+  machine). CI runs the same scenarios; `pages` gates every PR (every
+  extension page must run its init to the ready stamp with no uncaught
+  exception and no product `console.error`), the MA.6 walk is advisory
+  until the flip recorded in `docs/JOURNAL.md` 2026-09-07. A new
+  extension page joins `pages` by ending its init with
+  `markReady('<dir>')` (`src/shared/smoke-anchors.js`).
+- The golden fixtures still pass. `tests/fixtures/{idb,wire,backup}/`
+  pin every shipped IndexedDB schema rung, every emitted NOSTR kind,
+  and the backup envelope; `tests/structure-guards.test.mjs` pins the
+  import graph, the message set, and per-surface ceilings (all
+  shrink-only). If you bumped a `DB_VERSION`, changed a builder's
+  tags/content, or changed the backup envelope, regenerate with
+  `node tests/tools/gen-{idb,wire,backup}-fixtures.mjs`, commit the
+  diff, and call the change out in the PR (`Wire format:` for
+  anything a relay consumer would see). A fixture diff you did not
+  intend is a regression, not a fixture to refresh.
 - Load in Chrome and smoke-test whatever path you touched end to
   end. For platform handlers: capture + publish on a live page, not
   just a static fixture.
@@ -89,6 +138,31 @@ web-ext build          # produces a .zip in web-ext-artifacts/
   CSP.
 
 `web-ext lint` must pass. CI runs it on every push and PR.
+
+## Branch hygiene
+
+`scripts/branch-hygiene.mjs` enforces RESET_PLAN §9's branch rules
+(the weekly `hygiene.yml` runs it report-only; enforcement happens only
+when a human dispatches it with `--apply`):
+
+- `main` is never touched; neither is any branch with an open PR.
+- A branch whose tip is already an ancestor of `main` is deleted, no tag.
+- A branch with no open PR and no commit for fourteen days is tagged
+  `archive/<name-with-slashes-as-dashes>-<yyyymmdd of the tip>` and then
+  deleted — the tag lands first, and the delete is refused if it did not.
+- Branch names are `<lane>/<topic>` (`fix/…`, `feat/…`, `docs/…`,
+  `claude/…`); violations are reported, never acted on.
+- At most four open non-dependabot PRs (drafts count); over the cap the
+  apply run opens or updates one tracking issue.
+
+Local dry run (nothing is written without `--apply`; needs a full-history
+clone and an up-to-date `origin/main`):
+
+    node scripts/branch-hygiene.mjs --today YYYY-MM-DD --json /tmp/hygiene.json
+
+Restore an archived branch:
+
+    git fetch origin tag archive/<x> && git checkout -b <lane>/<topic> archive/<x>
 
 ## Signing key safety
 
@@ -193,6 +267,18 @@ put back afterwards.
 ## Pull requests
 
 - One concern per PR. Don't rename + refactor + add a feature in one go.
+- Fill in the template's **Contract** lines (RESET_PLAN §8):
+  `Verification layer:`, `Wire format:` when a wire-lane builder or
+  publisher changed, `Docs:`, `Interpretive steps (n):`, and
+  `Cross-lane: <reason>` if your `src/` edits span more than one lane
+  (`scripts/lanes.mjs`). A `fix:` PR needs a `tests/` change or a
+  `no-test rationale:` line; a PR touching a process file (`.github/**`,
+  `.claude/skills/**`, `docs/SMOKE_TEST.md`, this file, `CLAUDE.md`)
+  adds a JOURNAL entry or cites one as "JOURNAL YYYY-MM-DD". The
+  `PR body` workflow (`scripts/pr-body-check.mjs`) checks all of it and
+  prints one line per failure with the fix; it re-runs when you edit the
+  description. It is not a required check unless the maintainer makes it
+  one in branch protection. Dependabot PRs are skipped.
 - Flag behavior changes that affect the NOSTR event wire format
   explicitly — those have compatibility consequences for anyone
   consuming X-Ray's events.
@@ -203,13 +289,37 @@ put back afterwards.
 Mirrors [`docs/CONSTITUTION.md`](docs/CONSTITUTION.md) Art. 11 and
 Art. 13 — the constitution governs where this summary and it disagree.
 
-- **Merge authority.** The maintainer alone merges to `main`. Agents
-  (Claude) author PRs and never merge. A maintainer merge is the
-  ratifying act for any normative change.
+- **Merge authority.** The maintainer's explicit, recorded instruction
+  approves every change to `main` and is the ratifying act for any
+  normative change. Who presses the merge button is mechanical. Agents
+  (Claude) author PRs. The instruction is recorded in the maintainer's
+  own words, on the PR or in [`docs/RULINGS.md`](docs/RULINGS.md),
+  before the merge. A standing instruction counts only as a ledger row,
+  in the maintainer's own words, that names the class of change it
+  covers.
 - **Decision recording.** Every decision that accepts a design, kills
-  a feature, or resolves an open question gets a
-  [`docs/JOURNAL.md`](docs/JOURNAL.md) entry with date and rationale.
+  a feature, or resolves an open question gets a JOURNAL entry
+  (appended at the bottom of `docs/journal/YYYY-MM.md`; the index at
+  [`docs/JOURNAL.md`](docs/JOURNAL.md) is regenerated) with date and
+  rationale. A maintainer ruling is also a row in
+  [`docs/RULINGS.md`](docs/RULINGS.md) that quotes the maintainer's own
+  words; the JOURNAL entry cites its R-id instead of restating it.
   Agent–maintainer disagreements are recorded, not silently resolved.
+- **Markers** (RESET_PLAN §4.4 item 1; adopted by R-022). A constraint
+  stated in a design doc, kickoff, PR body, guard-test header or
+  prompt file carries one of three markers:
+  `[RULING: maintainer YYYY-MM-DD R-id]` — the maintainer decided; the
+  R-id is a row in [`docs/RULINGS.md`](docs/RULINGS.md).
+  `[INTERPRETATION: <agent>, YYYY-MM-DD — default: <x>; ask: <one line>]`
+  — an agent's reading, with its suggested default and one question
+  for the maintainer.
+  `[ENGINEERING-FACT: <measured how>]` — something measured.
+  A constraint in those places with no marker is an INTERPRETATION.
+  A guard test carries `// Provenance: R-NNN` or
+  `// Provenance: INTERPRETATION (YYYY-MM-DD) — expires <date+90d>`
+  (RESET_PLAN §4.4 item 3); `scripts/provenance-expiry.mjs` lists
+  expired ones weekly and never fails a build;
+  `tests/rulings-guards.test.mjs` fails on an R-id the ledger lacks.
 - **Kill-and-revisit.** Kills are recorded with rationale and left
   git-recoverable. A killed plan is not frozen doctrine — inherited
   decisions may be re-argued on merits. Only an explicit red line
@@ -222,3 +332,23 @@ Art. 13 — the constitution governs where this summary and it disagree.
 - **Guards stay green.** PRs touching normative docs must keep
   `tests/constitution-guards.test.mjs` (and every family's guard
   tests) green. A red guard is a bug or an unratified amendment.
+
+## The soak rule (adopted 2026-08-23, maintainer ruling)
+
+A PR that changes runtime behavior — features and behavioral fixes
+alike — is **not merged the day it is opened**. It sits on its branch
+through at least one real casework session with the branch loaded in
+the maintainer's browser, and merges only after that use.
+
+Why, from the record: during the 2026-08 direct-cloud wave, every
+field-found defect was discovered within hours of real use — five of
+them AFTER same-day merges, each requiring a follow-up PR to main. The
+same discovery one day earlier is the same bug caught pre-merge. The
+suite cannot observe what a person sees (docs/JOURNAL.md 2026-08-16,
+three entries), so real use IS a verification layer, and the soak is
+how it runs before merge instead of after.
+
+Exempt: documentation-only and skill-only changes, and CI-config
+changes — nothing a browser session can observe. The maintainer may
+waive the soak explicitly for an urgent fix; waiving it silently is how
+the wave shipped its bugs.

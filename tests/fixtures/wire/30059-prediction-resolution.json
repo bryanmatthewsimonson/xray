@@ -1,0 +1,114 @@
+{
+  "builder": {
+    "fn": "buildPredictionResolutionEvent",
+    "module": "src/shared/audit/builders.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "Rates rose; the prediction failed on its own criteria.",
+    "created_at": 1700000000,
+    "id": "c9ca758907ed59a9be7a81880af113124a8306d157ed51ff7eb3f3618efe73f9",
+    "kind": 30059,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "7d6b2eebf91a1c569c5ee56f0242795b23ac77189776755f9e326a5d312a461b5666df6031f4c0bfe7a18da81de80e9ba19ceab967c66c0280c3d6b770cefbb9",
+    "tags": [
+      [
+        "d",
+        "res:69a61efb3c0ad429"
+      ],
+      [
+        "a",
+        "30058:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:pred:1111111111111111",
+        "",
+        "prediction"
+      ],
+      [
+        "x",
+        "8985c947c93381b7710bec87af9ab745569fce4fa35b50c2cf5ab769ede07cd6"
+      ],
+      [
+        "outcome",
+        "false"
+      ],
+      [
+        "confidence",
+        "0.9"
+      ],
+      [
+        "resolved-at",
+        "2027-01-15T00:00:00Z"
+      ],
+      [
+        "evidence",
+        "url",
+        "https://example.org/data",
+        "the December print"
+      ],
+      [
+        "evidence",
+        "nostr_event",
+        "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:abcd1234abcd1234",
+        "captured follow-up"
+      ],
+      [
+        "a",
+        "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:abcd1234abcd1234"
+      ],
+      [
+        "evidence",
+        "quote",
+        "rates ended the year higher",
+        "from the follow-up"
+      ],
+      [
+        "auditor",
+        "human",
+        "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+      ],
+      [
+        "p",
+        "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "",
+        "auditor"
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "articleHash": "8985c947c93381b7710bec87af9ab745569fce4fa35b50c2cf5ab769ede07cd6",
+    "auditor": {
+      "id": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+      "kind": "human"
+    },
+    "confidence": 0.9,
+    "evidence": [
+      {
+        "description": "the December print",
+        "kind": "url",
+        "value": "https://example.org/data"
+      },
+      {
+        "description": "captured follow-up",
+        "kind": "nostr_event",
+        "value": "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:abcd1234abcd1234"
+      },
+      {
+        "description": "from the follow-up",
+        "kind": "quote",
+        "value": "rates ended the year higher"
+      }
+    ],
+    "notes": "Rates rose; the prediction failed on its own criteria.",
+    "outcome": "false",
+    "predictionCoord": "30058:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:pred:1111111111111111",
+    "resolvedAt": "2027-01-15T00:00:00Z"
+  },
+  "kind": 30059,
+  "notes": "Typed evidence (url / nostr_event / quote); human auditor (TV1) adds [p, id, \"\", auditor].",
+  "rebuild": "exact",
+  "shape": "prediction-resolution",
+  "signer": "TV1"
+}

@@ -105,13 +105,48 @@ body.xr-portal {
 
 /* ---------------- identity strip ---------------- */
 
+/* PR-8 (D2): a <details> — one summary line visible, the chips + viewer
+   box + settings button behind it. */
 .xr-portal__identity {
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--xr-border);
+}
+
+.xr-portal__identity-summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--xr-text-dim);
+  list-style: none;
+}
+
+.xr-portal__identity-summary::-webkit-details-marker { display: none; }
+
+.xr-portal__identity-summary::after {
+  content: ' ▸';
+}
+
+.xr-portal__identity[open] .xr-portal__identity-summary::after {
+  content: ' ▾';
+}
+
+.xr-portal__identity-summary:hover {
+  color: var(--xr-text);
+}
+
+.xr-portal__identity-body {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--xr-border);
+  padding: 8px 0 4px;
+}
+
+/* PR-8 (D1): the header's two select-as-menus — the case switcher's
+   pill, borrowed; neutral border so the ACTIVE CASE pill stays the one
+   accent-bordered element in the header. */
+.xr-portal__menu {
+  border-color: var(--xr-border);
+  cursor: pointer;
 }
 
 .xr-portal__chips {
@@ -189,6 +224,20 @@ body.xr-portal {
   padding: 6px 10px;
   font-size: 13px;
   cursor: pointer;
+}
+
+/* The "More" overflow (PR-7): a <select> dressed as a tab, so the
+   folded types keep their live counts and one click reaches any of
+   them. Same idiom as the case view's "Sources" menu. */
+.xr-tab-more {
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 10px;
+}
+
+.xr-tab-more:hover {
+  color: var(--xr-text);
 }
 
 .xr-tab--active {
@@ -421,6 +470,29 @@ body.xr-portal {
   color: var(--xr-text-dim);
   font-size: 13px;
   overflow-wrap: anywhere;
+}
+
+/* PR-5 (C2): the visible inspector opener beside each row title. */
+.xr-row__inspect {
+  border: none;
+  background: transparent;
+  color: var(--xr-text-dim);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+}
+
+.xr-row__inspect:hover,
+.xr-row__inspect:focus-visible {
+  color: var(--xr-accent);
+}
+
+/* PR-5 (B3): the timeline's one-line affordance, shown while unbrushed. */
+.xr-portal__timeline-hint {
+  font-size: 11px;
+  color: var(--xr-text-dim);
+  margin-top: 4px;
 }
 
 .xr-row__badges {
@@ -1305,3 +1377,7 @@ button.xr-badge--case { cursor: pointer; background: transparent; }
 /* MA.7 — an imported review decision, shown but never mistaken for the
    user's own (the merge records it attributed and applies nothing). */
 .xr-extr__imported { border-left: 2px solid var(--xr-warning); padding-left: 8px; }
+
+/* Case view — People & organizations (local-first, 2026-08-23): the
+   counting legend above the chips. */
+.xr-case__members .xr-view__dossier-line { margin: 8px 0 6px; font-size: 12px; }

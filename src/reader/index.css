@@ -984,6 +984,15 @@ body {
   overflow-y: auto;
 }
 
+/* Inline failure line (e.g. entity creation refused without a local
+   primary) — the popover must say why, not silently do nothing. */
+.xr-tagger-popover__error {
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--xr-danger, #c0504d);
+}
+
 .xr-tagger-popover__result {
   width: 100%;
   display: flex;
@@ -1374,6 +1383,15 @@ body {
   background: var(--xr-surface);
 }
 
+/* Inline create-failure line (e.g. entity creation refused without a
+   local primary) — the picker must say why, not read as a dead button. */
+.xr-claim-modal__picker-error {
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--xr-danger, #c0504d);
+}
+
 .xr-claim-modal__picker-match {
   display: flex;
   align-items: center;
@@ -1549,7 +1567,7 @@ body {
   border-radius: 10px;
 }
 
-/* --- Extracted assertions (MA.2b) — the per-article view of the
+/* --- Claim proposals (MA.2b) — the per-article view of the
    durable map artifacts. Read-only: quotes locate in the body, triage
    happens in the portal case dashboard. Deliberately plain — these are
    proposals awaiting a human, never findings. */

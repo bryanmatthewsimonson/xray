@@ -1,0 +1,181 @@
+{
+  "db": "xray-events",
+  "producedBy": {
+    "commitOfRung": "a81bda1",
+    "generator": "tests/tools/gen-idb-fixtures.mjs",
+    "note": "the a81bda1 recordPublished literal (address by eventAddress; no signedAt/flush/ledger) — the FIVE address-rule cases the v1->v2 migration recomputes: confirmed d-tagged, assumed-only, kind-0 null address, d-less null address, empty-d \"kind:pubkey:\". Every event is really signed by TV1."
+  },
+  "schema": {
+    "published_events": {
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "keyPath": "address",
+          "name": "address",
+          "unique": false
+        },
+        {
+          "keyPath": "articleUrl",
+          "name": "articleUrl",
+          "unique": false
+        },
+        {
+          "keyPath": "kind",
+          "name": "kind",
+          "unique": false
+        },
+        {
+          "keyPath": "publishedAt",
+          "name": "publishedAt",
+          "unique": false
+        }
+      ],
+      "keyPath": "eventId"
+    }
+  },
+  "stores": {
+    "published_events": [
+      {
+        "address": "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:article-1",
+        "articleUrl": "https://example.com/a",
+        "createdAt": 1700000000,
+        "event": {
+          "content": "# Article A",
+          "created_at": 1700000000,
+          "id": "027a947edd63e3b12dac1351e77fb25615c40c74544e566c44abcace36eb523e",
+          "kind": 30023,
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "sig": "bf1a0b32435987956bb2479af6d181cf2789002ab19c2247333cc758e0225cdc9b569b2fa50d53d78fa348824b51df72259b010a0899ca4b31dd0cdbe18ca51c",
+          "tags": [
+            [
+              "d",
+              "article-1"
+            ]
+          ]
+        },
+        "eventId": "027a947edd63e3b12dac1351e77fb25615c40c74544e566c44abcace36eb523e",
+        "kind": 30023,
+        "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "publishedAt": 1700001000,
+        "relays": [
+          {
+            "assumed": false,
+            "success": true,
+            "url": "wss://relay.example"
+          }
+        ]
+      },
+      {
+        "address": "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_x",
+        "articleUrl": null,
+        "createdAt": 1700000001,
+        "event": {
+          "content": "A claim.",
+          "created_at": 1700000001,
+          "id": "12042db6aff98ad81a61d81e854e65d9dbfa5da3bc079c743189f97d416740bd",
+          "kind": 30040,
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "sig": "83d12dbc067205b6b744aba4abecba5a63577bf43b02ae5cbc1e1d05240c7d0f70ef63e8aa58d3a21313b6dfdd5d219ff7bc5f24bfdaaef6d0f2c22a1e5b2913",
+          "tags": [
+            [
+              "d",
+              "claim_x"
+            ]
+          ]
+        },
+        "eventId": "12042db6aff98ad81a61d81e854e65d9dbfa5da3bc079c743189f97d416740bd",
+        "kind": 30040,
+        "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "publishedAt": 1700002000,
+        "relays": [
+          {
+            "assumed": true,
+            "success": true,
+            "url": "wss://relay.example"
+          }
+        ]
+      },
+      {
+        "address": null,
+        "articleUrl": null,
+        "createdAt": 1700000002,
+        "event": {
+          "content": "{\"name\":\"Fixture\"}",
+          "created_at": 1700000002,
+          "id": "297c09a578c54f6bd1a15f6052b59bd038152530af63fd7a42dc67dfc636ea0b",
+          "kind": 0,
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "sig": "4175363c40650552d006e139eca1c4f3dba7b7045098246be51e455bdfb09b6951996f2c89c2c0d7dfa5ad4262bc6b8760d410d0583bcdb24eb7cb814b819ca7",
+          "tags": []
+        },
+        "eventId": "297c09a578c54f6bd1a15f6052b59bd038152530af63fd7a42dc67dfc636ea0b",
+        "kind": 0,
+        "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "publishedAt": 1700003000,
+        "relays": [
+          {
+            "assumed": false,
+            "success": true,
+            "url": "wss://relay.example"
+          }
+        ]
+      },
+      {
+        "address": null,
+        "articleUrl": null,
+        "createdAt": 1700000003,
+        "event": {
+          "content": "",
+          "created_at": 1700000003,
+          "id": "79c3528003bc8f8a47f248576ce2912a313b1a57018fc0b64ba6c4f12414d334",
+          "kind": 30078,
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "sig": "d95013332685ced8bd390b00cde5d274dc05971301c70b53dc12be4fc0ce57c7f0eb987abfae9369bb9249b5b88d34b4087bf113fcb4ee539582462eb6fdf300",
+          "tags": []
+        },
+        "eventId": "79c3528003bc8f8a47f248576ce2912a313b1a57018fc0b64ba6c4f12414d334",
+        "kind": 30078,
+        "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "publishedAt": 1700004000,
+        "relays": [
+          {
+            "assumed": true,
+            "success": true,
+            "url": "wss://relay.example"
+          }
+        ]
+      },
+      {
+        "address": "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:",
+        "articleUrl": null,
+        "createdAt": 1700000004,
+        "event": {
+          "content": "Empty d.",
+          "created_at": 1700000004,
+          "id": "920ce350428a923cdf3476c6dcf180b6d8210ab0837d0f784cd0ff20e32eb00b",
+          "kind": 30040,
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "sig": "8d0d678858b92390a2d152647df8f1f03ae47ad31c7ffdf213a268aa900eb5d4554f64f78dba4333e5905bb85c636f4f48322a06f93d132a343e0d66f3148768",
+          "tags": [
+            [
+              "d",
+              ""
+            ]
+          ]
+        },
+        "eventId": "920ce350428a923cdf3476c6dcf180b6d8210ab0837d0f784cd0ff20e32eb00b",
+        "kind": 30040,
+        "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "publishedAt": 1700005000,
+        "relays": [
+          {
+            "assumed": false,
+            "success": true,
+            "url": "wss://relay.example"
+          }
+        ]
+      }
+    ]
+  },
+  "version": 1
+}

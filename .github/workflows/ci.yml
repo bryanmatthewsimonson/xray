@@ -25,7 +25,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       - name: Install dependencies
@@ -50,6 +50,16 @@ jobs:
           done < <(find src -name '*.js' -type f)
           exit "$fail"
 
+      - name: ESLint ratchet (no-undef, no-unused-vars)
+        # `node --check` is syntax-only: a reference to a deleted
+        # identifier (audit E17) passes it and throws at run time.
+        # eslint.config.mjs enables exactly two rules; today's
+        # violations are pinned per file in scripts/eslint-baseline.json,
+        # SHRINK-ONLY — a new violation is red, and so is a fixed one
+        # whose baseline entry was not lowered. The bare-console ratchet
+        # lives in tests/structure-guards.test.mjs (Rule 6), not here.
+        run: npm run lint:js
+
       - name: Build bundles (esbuild)
         run: npm run build
 
@@ -62,6 +72,33 @@ jobs:
         # "No tests yet; skipping." under a green checkmark.
         run: npm test
 
+      - name: Normalizer cross-language parity (reference side)
+        # The extension ships a JavaScript twin of the companion's
+        # providers/normalize.py (src/shared/provider-normalize.js),
+        # because direct cloud transcription runs with no companion in
+        # the loop. Both read tests/fixtures/normalizer-parity.json.
+        #
+        # npm test already checks the JS half and fails if normalize.py
+        # is edited (it pins the reference's sha256) — but it can never
+        # OBSERVE the Python behavior, so a fixture the reference no
+        # longer satisfies would sail through. This step is that
+        # observer.
+        #
+        # Deliberately NOT the companion's full suite: the companion is
+        # not part of the extension build or zip, and its siblings
+        # import yt-dlp/torch. The discover pattern is scoped to the one
+        # pure-stdlib file, which needs no uv, no venv, and no install —
+        # it runs on the runner's bare python3 in well under a second.
+        working-directory: companion/transcriber
+        run: python3 -m unittest discover -s tests -p 'test_shared_fixtures.py' -v
+
+      - name: Version lockstep (package.json == manifest.json)
+        # Until 2026-09-25 only release.yml checked this — after the
+        # undeletable `v*` tag was pushed. Now a PR that bumps one file
+        # and not the other is red here; release.yml keeps its
+        # tag-vs-files check as the belt.
+        run: npm run check:version
+
       - name: web-ext lint
         # Default: warnings non-fatal, errors fail the job.
         run: npx --no-install web-ext lint --source-dir . --self-hosted
@@ -69,10 +106,93 @@ jobs:
       - name: web-ext build
         run: npx --no-install web-ext build --source-dir . --artifacts-dir web-ext-artifacts --overwrite-dest
 
+      - name: Packaged-contents assertion
+        # The zip is a closed world: every file is required (derived from
+        # manifest.json, the esbuild configs, the HTML shells, runtime
+        # getURL paths, and pdf.js's cmaps/standard_fonts/wasm/iccs
+        # mirrored file-for-file), allowed, or a KNOWN leak (today's
+        # debt, ROAD_TO_1_0 B7 — shrink-only). Anything else is red.
+        run: npm run check:package
+
+      - name: Bundle-size budget
+        # Per-bundle and total byte ceilings in scripts/bundle-budget.json
+        # (+5% / +3% over 2026-09-25). A ceiling may be raised, in the PR
+        # that needs it, with the reason in the PR body.
+        run: npm run check:budget
+
       - name: Upload packaged extension
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: xray-unpacked-${{ github.sha }}
           path: web-ext-artifacts/*.zip
           if-no-files-found: error
+          retention-days: 14
+
+  browser-smoke:
+    # The one observer of the layer no unit test executes: the built
+    # bundles loaded as a real unpacked extension in headless Chromium.
+    # `npm run smoke` runs each scenario in its own process group under a
+    # hard timeout (tools/smoke/run.mjs). The launcher kills egress at the
+    # browser level — every launch proxies non-loopback traffic to a dead
+    # loopback port — and the walk additionally pins relays to
+    # ws://127.0.0.1:1 before anything is clickable; the job's own
+    # downloads (npm, Chromium, apt) happen before any browser starts
+    # (docs/RESET_PLAN.md R0; docs/THREAT_MODEL.md 2026-09-07).
+    #
+    #   pages — every extension page loads, runs its init to the ready
+    #           stamp, and throws nothing; product console.error fails it.
+    #           REQUIRED from day one. Window: load → ready → 0.5 s settle.
+    #   ma6   — the extraction-review / kind-30070 walk. REQUIRED since
+    #           2026-09-26 (JOURNAL of that date): the flip criterion of
+    #           JOURNAL 2026-09-07 — ten green runs, every red run with a
+    #           code cause — was met by 22 of 22 green runs of the
+    #           condition-wait walk (#395) and 0 red. A red run now blocks
+    #           the merge; its report names the failed condition, and the
+    #           re-render tripwire says when a portal background render
+    #           caused it (JOURNAL 2026-09-25). `--advisory=<name>` stays in
+    #           tools/smoke/run.mjs for the next new scenario. "Required" is
+    #           also main's branch protection, which already lists this
+    #           job's check.
+    name: browser smoke
+    # Pinned, not `ubuntu-latest`: Playwright's registry knows a fixed set
+    # of Ubuntu releases and `--with-deps` fails on one it does not know.
+    # Bump the image only together with the playwright devDependency.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build bundles (esbuild)
+        run: npm run build
+
+      - name: Install Chromium for Playwright
+        # The full Chromium, not headless_shell: only the full build can
+        # load an extension. The revision is pinned by the playwright
+        # devDependency's exact version in package.json — and Dependabot's
+        # weekly devDependency group rolls that pin, so a smoke failure on
+        # a `chore(deps-dev)` PR is a browser-roll finding, reviewed as
+        # such, never a flake. Measured 2026-09-07: ~25 s.
+        run: npx --no-install playwright install --with-deps chromium
+
+      - name: Browser smoke
+        run: npm run smoke
+
+      - name: Upload smoke output
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: smoke-${{ github.sha }}
+          path: tools/smoke/out/
+          if-no-files-found: warn
           retention-days: 14

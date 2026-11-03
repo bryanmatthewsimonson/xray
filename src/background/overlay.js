@@ -12,7 +12,7 @@ import { Utils } from '../shared/utils.js';
 import { Storage } from '../shared/storage.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { buildOverlay, toLookupItems, sanitizeAnchor } from '../shared/overlay-model.js';
-import { quoteToSeconds } from '../shared/anchor-resolve.js';
+import { quoteToSeconds } from '../shared/quote-seconds.js';
 import { PageNotes, MAX_NOTE_TEXT, NOTE_ID_RE } from '../shared/page-notes.js';
 import { ClaimModel } from '../shared/claim-model.js';
 import { AssessmentModel } from '../shared/assessment-model.js';

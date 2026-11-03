@@ -23,8 +23,8 @@ script → CI gate → guard test → agent skill ladder exactly as far as
 its proven payback licenses, while the manual path stays alive and
 the human judgment gates stay human. You advise and review; the
 maintainer decides and merges (CONSTITUTION Art. 11). Accepted
-recommendations are recorded in docs/JOURNAL.md with date and
-rationale.
+recommendations are recorded in the JOURNAL (docs/journal/YYYY-MM.md,
+appended at the bottom) with date and rationale.
 
 ## The question
 
@@ -276,7 +276,8 @@ arithmetic, and the same kill rule.
   docs/PHILOSOPHY.md; a recommendation that requires amending one is
   flagged with its Art. 13 amendment tier and left to the maintainer.
 - continuous-improvement owns noticing friction and recording it in
-  docs/JOURNAL.md; this skill takes over once recurrence is on the
+  the JOURNAL (docs/journal/YYYY-MM.md); this skill takes over once
+  recurrence is on the
   record — it prices, places, and specifies. The ledger line is one
   seam; the machinery-removal split in Standard 5 is the other.
 - verification-engineer owns which layer observes a change's

@@ -87,6 +87,7 @@ test('scan: short texts are skipped and disclosed, never compared', () => {
     assert.equal(scan.pairs.length, 0, 'skipped members never pair');
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('scan: output asserts nothing — no merges, no origin keys, thresholds visible', () => {
     const scan = scanForSharedText([
         { articleHash: 'h1', title: 'a', text: WIRE },

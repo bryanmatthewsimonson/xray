@@ -37,6 +37,7 @@
 //     background's note:save validation is the gate.
 
 import { renderCards, renderList, renderEditor, esc } from './render.js';
+import { markReady } from '../shared/smoke-anchors.js';
 
 export { renderCards, renderList, renderEditor } from './render.js';
 
@@ -334,4 +335,5 @@ export function startCard(env = {}) {
 if (typeof document !== 'undefined' && typeof location !== 'undefined'
     && /\/src\/overlay\/overlay-card\.html$/.test(location.pathname)) {
     startCard();
+    markReady('overlay');   // also when inert: the smoke opens this page top-level
 }

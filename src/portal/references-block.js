@@ -77,8 +77,13 @@ export function buildReferencesModel({
         const arch = archiveByUrl.get(u.url);
         const article = (arch && arch.article) || {};
         const run = runByHash.get(u.article_hash) || null;
-        const mr = run && (run.moduleResults || []).find((m) => m && m.module === 'source_quality');
-        const findings = (mr && mr.findings) || {};
+        // Stored run records: a truthy non-array moduleResults or a
+        // string findings payload is malformed, not fatal — read as
+        // empty (the known-unknowns block's field bug, 2026-08-30).
+        const moduleResults = run && Array.isArray(run.moduleResults) ? run.moduleResults : [];
+        const mr = moduleResults.find((m) => m && m.module === 'source_quality');
+        const findings = mr && mr.findings && typeof mr.findings === 'object' && !Array.isArray(mr.findings)
+            ? mr.findings : {};
         const rec = extractionByHash.get(u.article_hash) || null;
 
         const candidates = collectReferenceCandidates({

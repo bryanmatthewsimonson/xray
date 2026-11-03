@@ -1,0 +1,151 @@
+{
+  "builder": {
+    "fn": "buildExtractionAnalysisEvent",
+    "module": "src/shared/extraction-publish.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "{\"article_hash\":\"8985c947c93381b7710bec87af9ab745569fce4fa35b50c2cf5ab769ede07cd6\",\"article_url\":\"https://example.com/story\",\"assertions\":[{\"quote\":\"a verbatim span from the article\",\"status\":\"accepted\",\"claim\":\"30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_1\",\"why\":\"HUMAN rationale: this is the load-bearing step\",\"why_by\":\"user\",\"model_note\":\"MODEL RATIONALE about load-bearing-ness\",\"model_proposed_text\":\"MODEL PARAPHRASE of the claim\",\"generator\":{\"model\":\"claude-test\",\"prompt_version\":\"corpus-v7\",\"producer\":\"map\"}},{\"quote\":\"open span\",\"status\":\"unreviewed\",\"model_note\":\"MODEL RATIONALE about load-bearing-ness\",\"model_proposed_text\":\"MODEL PARAPHRASE of the claim\",\"generator\":{\"model\":\"claude-test\",\"prompt_version\":\"corpus-v7\",\"producer\":\"map\"}}],\"sources\":[],\"open_questions\":[],\"coverage\":{\"unreviewed\":1,\"accepted\":1,\"dismissed\":0,\"ungroundable_dropped\":2},\"withheld\":[{\"field\":\"merged_keys\",\"reason\":\"local cache fingerprints\"},{\"field\":\"assertions.ungroundable\",\"count\":2,\"reason\":\"proposed quotes that could not be located in the text; never stored, so no text exists to publish\"}]}",
+    "created_at": 1700000000,
+    "id": "c40d64f3eed4cc2c22e52a81c280e15555f18d9a15e5110c3e1fecc900b53dd6",
+    "kind": 30070,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "ddcd1fd3b7ed9c936329586db909f6fe02f1a5fd5126a245d09f16f0f1f69b200be026897d31f19b9649ef7dc8931ab3179d469d1ea319b4ff2f043bde5bfab2",
+    "tags": [
+      [
+        "d",
+        "xray-extraction:8985c947c93381b7710bec87af9ab745569fce4fa35b50c2cf5ab769ede07cd6"
+      ],
+      [
+        "title",
+        "Extraction analysis — The Story"
+      ],
+      [
+        "t",
+        "xray-extraction-analysis"
+      ],
+      [
+        "client",
+        "xray"
+      ],
+      [
+        "x",
+        "8985c947c93381b7710bec87af9ab745569fce4fa35b50c2cf5ab769ede07cd6"
+      ],
+      [
+        "unreviewed",
+        "1"
+      ],
+      [
+        "endorsed",
+        "1"
+      ],
+      [
+        "dismissed",
+        "0"
+      ],
+      [
+        "ungrounded-dropped",
+        "2"
+      ],
+      [
+        "published_at",
+        "1700000000"
+      ],
+      [
+        "r",
+        "https://example.com/story"
+      ],
+      [
+        "i",
+        "https://example.com/story"
+      ],
+      [
+        "k",
+        "web"
+      ],
+      [
+        "a",
+        "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:8985c947c93381b7",
+        "",
+        "article"
+      ],
+      [
+        "a",
+        "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_1",
+        "",
+        "endorsed"
+      ]
+    ]
+  },
+  "inputs": {
+    "articleCoord": "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:8985c947c93381b7",
+    "articleTitle": "The Story",
+    "articleUrl": "https://example.com/story",
+    "coordByClaimId": {
+      "claim_1": "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_1"
+    },
+    "record": {
+      "articleHash": "8985c947c93381b7710bec87af9ab745569fce4fa35b50c2cf5ab769ede07cd6",
+      "assertions": [
+        {
+          "accepted_claim_id": "claim_1",
+          "accepted_why": "HUMAN rationale: this is the load-bearing step",
+          "accepted_why_provenance": "user",
+          "end": 32,
+          "first_seen": {
+            "at": 1700000000,
+            "caseName": "COVID origins",
+            "model": "claude-test",
+            "producer": "map",
+            "promptVersion": "corpus-v7",
+            "scopeQuestion": "Where did it start?"
+          },
+          "key": "a:0-32",
+          "quote": "a verbatim span from the article",
+          "start": 0,
+          "status": "accepted",
+          "text": "MODEL PARAPHRASE of the claim",
+          "triaged_at": null,
+          "why": "MODEL RATIONALE about load-bearing-ness"
+        },
+        {
+          "accepted_claim_id": null,
+          "accepted_why": null,
+          "accepted_why_provenance": null,
+          "end": 99,
+          "first_seen": {
+            "at": 1700000000,
+            "caseName": "COVID origins",
+            "model": "claude-test",
+            "producer": "map",
+            "promptVersion": "corpus-v7",
+            "scopeQuestion": "Where did it start?"
+          },
+          "key": "a:90-99",
+          "quote": "open span",
+          "start": 90,
+          "status": "open",
+          "text": "MODEL PARAPHRASE of the claim",
+          "triaged_at": null,
+          "why": "MODEL RATIONALE about load-bearing-ness"
+        }
+      ],
+      "dropped_ungrounded": 2,
+      "merged_keys": [
+        "k1"
+      ],
+      "open_questions": [],
+      "positions": [],
+      "sources": [],
+      "title": "The Story",
+      "updatedAt": 1700000000,
+      "url": "https://example.com/story"
+    }
+  },
+  "kind": 30070,
+  "notes": "Whole-unit disclosure: one accepted atom (endorsed a ref) + one open atom; face-value counts on tags; r/i/k anchoring.",
+  "rebuild": "exact",
+  "shape": "extraction-analysis",
+  "signer": "TV1"
+}

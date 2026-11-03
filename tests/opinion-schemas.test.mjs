@@ -27,6 +27,7 @@ const {
 // Red line 2 — structural
 // ------------------------------------------------------------------
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('OP.2 red line 2: no stance-shaped property or enum anywhere in the family', () => {
     const keys = [];
     const enums = [];

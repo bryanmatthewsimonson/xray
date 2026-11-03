@@ -16,7 +16,7 @@ import { el, clear } from './dom.js';
 import { Utils } from '../shared/utils.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { collectEntityDossierData, buildEntityDossier } from '../shared/entity-dossier.js';
-import { buildMemberUnits, corpusMapRequest, corpusExtractKey, validateCorpusExtract } from '../shared/case-synthesis.js';
+import { buildMemberUnits, corpusMapRequest, corpusExtractKey, loadBearingSubset, validateCorpusExtract } from '../shared/case-synthesis.js';
 import {
     ENTITY_PAGE_PROMPT_VERSION,
     digestEntityDossier, validateEntityPage, filterKeyClaimIds, groundEntityPage,
@@ -29,6 +29,7 @@ import { getArticle } from '../shared/archive-cache.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { createGroundingIndex } from '../shared/quote-grounding.js';
 import { resolveActiveCaseRef } from '../shared/case-membership.js';
+import { runLlmJob, ackLlmJob, llmJobScopeKey, jobElapsedSeconds } from '../shared/llm-jobs.js';
 import { Signer } from '../shared/signer.js';
 import { Storage } from '../shared/storage.js';
 import { EntityModel } from '../shared/entity-model.js';
@@ -158,17 +159,46 @@ export function mountEntityPageBlock(host, { entityId } = {}) {
                 return;
             }
 
+            // UA.1 (corpus-v8): live extracts are comprehensive; the
+            // page reduce reads only the load-bearing subset (guard
+            // rail 5). The full extracts already folded into the
+            // durable records inside ensureExtracts.
+            const reduceExtracts = extracts.map((e) => ({ ...e, extract: loadBearingSubset(e.extract) }));
+
             status.textContent = 'Writing the page…';
             const claims = data.orbit.claims || [];
             const entityDigest = digestEntityDossier(dossier, {
                 claims, namesById: data.entityNamesById || {}
             });
-            const res = await sendMessage({ type: 'xray:llm:entity-page', request: {
-                entityDigest, extracts,
-                entityName: dossier.subject.name, entityType: dossier.subject.type,
-                caseName: frame.caseName, scopeQuestion: frame.scopeQuestion
-            } });
-            if (!res || !res.ok) throw new Error((res && res.error) || 'page synthesis failed');
+            // The page reduce as a JOB (shared/llm-jobs.js, JOURNAL
+            // 2026-09-05): scoped by subject + input fingerprint, so a
+            // page that finished after this tab went away is picked up
+            // by the next Generate instead of paid for again.
+            const inputHash = await entityPageInputHash(members, claims.map((c) => c.id));
+            const writeStartedAt = Date.now();
+            const res = await runLlmJob({
+                sendMessage, pass: 'entity-page', scopeKey: llmJobScopeKey(entityId, inputHash),
+                request: {
+                    entityDigest, extracts: reduceExtracts,
+                    entityName: dossier.subject.name, entityType: dossier.subject.type,
+                    caseName: frame.caseName, scopeQuestion: frame.scopeQuestion
+                },
+                onTick: (st) => {
+                    if (st.status !== 'running') return;
+                    // Anchored to the record's own start (survives a reload).
+                    status.textContent = `Writing the page… ${jobElapsedSeconds(st, writeStartedAt)}s`;
+                }
+            });
+            if (!res || !res.ok) {
+                // Which stage a retry re-runs: the member extracts are
+                // cached (free); the page-synthesis call is billed again.
+                const note = res && res.lost
+                    ? ' Retry re-runs only the page-synthesis call (billed again) — the member extracts are cached.'
+                    : res && res.swLost
+                        ? ' Lost contact with the service worker; if the call finished, its result is kept and the next Generate picks it up.'
+                        : '';
+                throw new Error(String((res && res.error) || 'page synthesis failed').replace(/\.$/, '') + '.' + note);
+            }
             const v = validateEntityPage(res.pageInput);
             if (!v.ok) throw new Error(`invalid page: ${v.errors[0] || 'schema mismatch'}`);
 
@@ -184,12 +214,14 @@ export function mountEntityPageBlock(host, { entityId } = {}) {
                 grounding,
                 model: res.model || null,
                 promptVersion: ENTITY_PAGE_PROMPT_VERSION,
-                inputHash: await entityPageInputHash(members, claims.map((c) => c.id)),
+                inputHash,
                 members: members.length,
                 analyzed: extracts.length,
                 createdAt: Math.floor(Date.now() / 1000)
             };
             await saveEntityPage(record);
+            // Saved page-side — release the job record.
+            if (res.jobId) ackLlmJob(sendMessage, res.jobId).catch(() => {});
             status.textContent = '';
             await render();
         } catch (err) {

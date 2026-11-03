@@ -23,6 +23,18 @@ export function clear(node) {
     while (node.firstChild) node.removeChild(node.firstChild);
 }
 
+/**
+ * Is `node` on screen as far as the portal can tell: in the document AND
+ * under no `hidden` ancestor. Connection alone is not enough — leaving a
+ * case view for the library only hides `#xr-view`, so the view the user
+ * left stays connected while nobody can see it. (A closed <details> is
+ * NOT hidden here: its content is one click away.) The render-only LLM
+ * job surfaces release their job record only onto a shown panel.
+ */
+export function isShown(node) {
+    return !!node && node.isConnected === true && !node.closest('[hidden]');
+}
+
 export function truncate(s, n) {
     const str = String(s || '').trim();
     return str.length > n ? str.slice(0, n - 1) + '…' : str;

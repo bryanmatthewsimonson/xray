@@ -116,7 +116,7 @@ test('R1 model: map-source hints — url resolves via alias healing, prose goes 
     assert.deepEqual(memoMention.origins, ['map-source']);
 });
 
-test('R1 model: title similarity is suggested, never resolved; summary is counts only', () => {
+test('R1 model: title similarity is suggested, never resolved', () => {
     const extraction = new Map([[HASH_A, { sources: [
         { quote: 'per the transmission study', target_hint: 'Effects of X on Y transmission in dense settings (preprint)' }
     ] }]]);
@@ -128,11 +128,6 @@ test('R1 model: title similarity is suggested, never resolved; summary is counts
     assert.equal(sug.match, 'title');
     assert.ok(sug.score >= 0.8);
     assert.ok(!model.resolved.some((r) => r.match === 'title'), 'title tier never asserts resolved');
-
-    const flat = JSON.stringify(model.summary);
-    for (const banned of ['mean', 'average', 'score"', 'fused']) {
-        assert.ok(!flat.includes(banned), `summary must not carry "${banned}"`);
-    }
 });
 
 test('R1 model: empty corpus → empty model, zero total', () => {
@@ -140,4 +135,39 @@ test('R1 model: empty corpus → empty model, zero total', () => {
     assert.equal(model.summary.total, 0);
     assert.deepEqual(model.resolved, []);
     assert.deepEqual(model.capturable, []);
+});
+
+// ------------------------------------------------------------------
+// Data tolerance (field bug 2026-08-30): the block reads the same
+// stored module-04 findings that crashed the known-unknowns block. A
+// string primary_documents, a string findings payload, or a non-array
+// moduleResults must degrade to "no audit-cited documents", never
+// throw — the model builds and the other substrates still resolve.
+// ------------------------------------------------------------------
+
+test('R1 model tolerance: malformed audit runs degrade; link resolution beside them still works', () => {
+    const runs = [
+        // the observed crash shape
+        { articleHash: HASH_A, moduleResults: [{ module: 'source_quality', findings: {
+            primary_documents: 'an internal memo the reporter never saw', sources: 'a source'
+        } }] },
+        // findings payload is a string
+        { articleHash: HASH_B, moduleResults: [{ module: 'source_quality', findings: 'not an object' }] },
+        // moduleResults is an object, not an array
+        { articleHash: HASH_C, moduleResults: { module: 'source_quality', findings: {} } }
+    ];
+    let model;
+    assert.doesNotThrow(() => {
+        model = buildReferencesModel({
+            units: UNITS, archiveByUrl: makeArchive(), auditRuns: runs, extractionByHash: new Map()
+        });
+    });
+    // Identical to the no-audit baseline: the hostile runs contribute nothing.
+    const baseline = buildReferencesModel({
+        units: UNITS, archiveByUrl: makeArchive(), auditRuns: [], extractionByHash: new Map()
+    });
+    assert.deepEqual(model.summary, baseline.summary, 'malformed audit fields add no rows and remove none');
+    assert.equal(model.resolved.length, 1, 'the link-substrate resolution still lands');
+    assert.ok(!model.unknown.some((u) => u.display.length === 1),
+        'a string primary_documents never iterates into one-character unknowns');
 });

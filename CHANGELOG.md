@@ -6,11 +6,303 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Sections per release: **Added** (new features), **Changed**
 (behavior changes for existing features), **Fixed** (bug fixes),
-**Removed**.
+**Removed**. A release may also carry **Wire format** (changes to the
+events X-Ray publishes, listed first because other NOSTR clients read
+them), **Security**, and **Docs & process**.
 
 ## [Unreleased]
 
-Nothing yet.
+Everything merged to `main` since v0.8.0, reconstructed on 2026-09-25
+from the merged pull requests (`git log --first-parent v0.8.0..main`,
+through #394, merged 2026-09-26) and the engineering journal (`docs/journal/`). Features
+marked default-off stay inert until their flag is turned on.
+
+### Wire format
+
+No event X-Ray published before changes meaning. Everything below is
+additive except two entries: the Instagram capture fix, which changes
+tag values on new captures, and the reservation of kinds 30050–30053
+and 9803, a retirement of kinds that were never emitted.
+
+- **New kind 30070, ExtractionAnalysis** — one addressable event per
+  author per article (`d` = `xray-extraction:<article hash>`) that
+  publishes the article's whole extraction layer: every
+  machine-proposed passage in every review state, the model's own
+  wording only in `model_`-prefixed fields, and endorsements only as
+  `a` pointers to separately signed kind-30040 claims. Behind the
+  default-off `extractionAnalysisPublishing` flag; marked published
+  only on a confirmed relay OK. Spec: `docs/NIP_DRAFT.md` §Kind 30070
+  (#269, #283).
+- **Kind 30056 audit modules** — the `t` module vocabulary gains the
+  opinion family (`premise_accuracy`, `logical_validity`,
+  `steel_manning`, `fact_interpretation_separation`,
+  `disclosure_transparency`, `originality_synthesis`), and opinion
+  aggregates carry `ceiling-source: heuristic:premise-accuracy/1.0`.
+  Consumers must not average a news aggregate with an opinion
+  aggregate (#300, #301, #302, #303).
+- **Transcripts on kind 30023** — `extraction-method` gains
+  `whisperx-<asr model>+<diarization model>` (the local companion) and
+  `<provider>-<model>` (AssemblyAI / Deepgram, through the companion or
+  direct), the transcript manifest's `format` gains `diarized`, and a
+  speaker bound to a person rides the existing `p` / `person` tags
+  with the speaker label as its mention context (#272, #285, #290,
+  #336, #337).
+- **Claim anchors** may carry a Media-Fragments time range
+  (`t=<start>,<end>`, seconds) in a `FragmentSelector`, pointing into
+  a transcript's media (#272).
+- **`platform` tag value `media`** on captures made from the portal's
+  Transcribe-a-URL panel (#334).
+- **PDF captures now carry `link` tags** (with their `r` tags), as HTML
+  captures always have; PDF link extraction had never worked on
+  pdf.js 6. The body and its `x` hash are unchanged (#391).
+- **Kinds 30050–30053 and 9803 are RESERVED, never emitted.** Scaffolded
+  in Phase 9a and never published; their builders are removed, clients
+  need no read path, and the numbers will not be reused (#317).
+- **Instagram captures on kind 30023: tag values change, no new kind
+  or tag name.** `r` and `d` are now the address X-Ray constructs from
+  the post's shortcode (`https://www.instagram.com/{p|reel|tv}/<code>/`),
+  never the page's `og:url`; a Reels-viewer capture (`/reels/<code>/`)
+  is filed under `…/reel/<code>/` and now carries the Instagram path's
+  tags (`shortcode`, `post_kind`, `platform`, `content_format`, …)
+  instead of the generic extractor's. When the page head names a
+  different page, nothing from it is published: `image`, `summary` and
+  the engagement counts are absent, and `author`, `author_handle` and
+  `platform_account` come only from the shortcode-matched GraphQL/SSR
+  item or the address. Already-published events are not superseded; a
+  re-capture publishes under the constructed address as a new `d`
+  (#368; the full tag-by-tag list is the JOURNAL 2026-09-25 entry
+  "Instagram's Reels viewer (`/reels/<code>/`) fell through to the
+  generic extractor, and a stale head still named the author").
+
+### Added
+
+- **A durable extraction layer.** The corpus map's per-article output
+  is now a kept record instead of a disposable cache: paid for once
+  per article, shared by every case and entity page, and reviewable on
+  the case dashboard (Accept mints a claim, Dismiss is remembered) and
+  in the reader. The reader's Suggest pass writes into the same layer
+  (#264, #268).
+- **Backup merge-import.** Import & merge adds what a backup holds
+  without deleting or overwriting anything local (#264).
+- **Store-first publishing (Phase 29.1, default-off
+  `storeFirstPublish`).** Every signed event is journaled before any
+  relay attempt, so a publish no relay accepts no longer loses the
+  signature (#279).
+- **Local YouTube transcription with speaker diarization** through the
+  optional companion service (default-off `localTranscription`), with
+  a Speakers dialog that binds each voice to a person and optional
+  local-model claim drafts (#272).
+- **Cloud transcription engines** — AssemblyAI and Deepgram — chosen
+  per video from the reader's engine picker, with their keys kept in
+  Settings (#285, #290, #297).
+- **Direct cloud transcription (default-off
+  `directCloudTranscription`)** — AssemblyAI or Deepgram transcribes a
+  media URL with no companion installed; a consent dialog names the
+  address being sent (#336, #337).
+- **Transcribe Anywhere** — transcription takes any public https media
+  URL, not only YouTube: podcast pages, "Transcribe from source" in
+  the Media & source dialog, and a portal "Transcribe a URL" panel
+  (#334).
+- **Find identity** — discovers a podcast's IDs, including from
+  Spotify links, to prefill the Media & source dialog (#273, #274,
+  #275).
+- **AI image descriptions (default-off `aiVision`)** — per-image
+  captions and word-for-word transcription of text in images; nothing
+  enters the article until you accept it, and the model is named
+  inline (#267).
+- **Opinion audits** — six methods for opinion pieces (premise
+  accuracy, logical validity, steel-manning, fact/interpretation
+  separation, disclosure, originality). The auditor picks the family
+  from the source type, and the case runner audits each member under
+  its own family (#287, #296, #300, #301, #302, #303).
+- **New analysis views** — on the case dashboard, references (cited
+  sources found in the corpus), shared-text detection across members,
+  framing and wording drift across coverage, and what the corpus could
+  not verify (#281, #292, #293); beside audit results, a reach view and
+  cohort context (#295), each module's scoring direction, and
+  run-to-run score changes (#294).
+- **Live companion status** in Settings, with the steps to recover
+  when it is not running (#311).
+- **A diagnostics log** — recent errors kept locally, copied from
+  Settings into a bug report, with a self-test button (#343, #345).
+- **Rename saved identity profiles** (#259).
+- **"Accept all open (N)"** per article on the claim-proposals block,
+  and "Link all covered" for proposals that repeat existing claims
+  (#361).
+- **Claude Opus 5** in the model list (#330).
+
+### Changed
+
+- **One Article Pass.** One LLM call per article now proposes both the
+  claims and the entities, shared by the reader's Suggest and the
+  corpus map, so an article is read and paid for once; import can run
+  it per page. Accepted entities go through a resolution ladder that
+  pre-selects only identity matches and merely ranks similar names. Every surface now says "claim proposal" (#323, #325, #326,
+  #327, #328, #329).
+- **Long captures.** The article pass reads up to 400,000 characters
+  (a four-hour transcript fits) instead of 60,000, output limits are
+  set per model, every LLM call streams, and a cut-off map result is
+  kept rather than thrown away. New installs default to Claude
+  Sonnet 5 (#330).
+- **Creating an entity needs a local primary identity.** X-Ray now
+  refuses instead of silently minting a key that cannot be recovered,
+  and NIP-07 users are told what works (#324).
+- **Backups.** The file you hand a colleague is a shareable copy with
+  no private keys (the full backup is for recovery only); every
+  credential is left out of every export; backups carry version
+  stamps, and restore refuses a file from a newer database. A blank
+  companion-token field now keeps the token — Clear removes it (#321).
+- **Portal usability pass** — imports join the active case, a real
+  Back button, plainer labels, five main tabs with the rest under
+  More, import panels that swap in one click, a visible ⓘ for the
+  inspector, and one Add ▾ menu with a ⋯ overflow (#346, #347, #349,
+  #350, #353, #354, #355).
+- **Source-quality audits** check the cited sources the corpus already
+  holds, and audit findings carry more context when joined to claims
+  (#291).
+- **Settings wording** — the audit route leads with the in-extension
+  path rather than a command-line tool, and the "Experimental" heading
+  is renamed for what it gates (#318).
+- **pdf.js** 6.1.200 → 6.3.289 (#305, #387).
+
+### Fixed
+
+- **The archive deleted the oldest capture once it held 500.** Saving
+  never evicts now, and the `unlimitedStorage` permission the archive
+  assumed is requested (#315).
+- **Three publish buttons reported success no relay confirmed** — the
+  entity page, the case brief and the inspector (#315).
+- **Two open extension pages could erase each other's entity keys.**
+  Key writes now merge into fresh storage under a lock (#392).
+- **A long corpus synthesis died at the browser's five-minute limit**
+  and lost a paid result. The corpus map, synthesis and entity-page
+  passes now run as background jobs that survive a reload and report
+  a worker restart plainly (#374, #390).
+- **Five more AI passes could lose a paid result the same way.**
+  Hypothesis edges, claim links, the forensic corpus pass, the
+  entity audit and the reader's Quick audit now run as background
+  jobs too, and the job door answers only X-Ray's own pages (#394).
+- **PDF links were never captured** (#391).
+- **Instagram filed one account's post under another account's
+  address.** After in-app navigation the page head can still describe
+  the previous page, and its `og:url` chose the capture's URL. The URL
+  is now built from the post's shortcode, the Reels viewer
+  (`/reels/<code>/`) is captured as an Instagram reel instead of a
+  generic page, a head rendered for another page is ignored, and a
+  reel scrolled to in the viewer gets its own author rather than
+  none, or the one a stale page head named (#368).
+- **Session records leaked until storage was full**, failing every new
+  capture; stale ones are now evicted, and a reader tab whose record
+  was evicted can still publish (#359, #369).
+- **Imported book chapters could not be opened** (#341).
+- **Accepting a forensic finding reloaded the case** and discarded the
+  paid review (#360).
+- **Case view "People & organizations"** listed only people named in
+  published claims; it now includes local entities (#351).
+- **Settings called a working signer "not configured"** (#349).
+- **Model output** — consumers stop trusting output by its shape
+  (#331), the import merge accepts any input without breaking (#332),
+  imports re-check quotes against the local text (#283), Suggest
+  recovers a double-encoded field instead of wasting the call (#339),
+  the corpus map gets one repair round for a malformed reply, and the
+  entity dossier no longer crashes on open (#358).
+- **Known unknowns** no longer fails on a malformed stored finding
+  (#373).
+- **Transcription** — adopting a transcript no longer replaces the
+  captured body; the consent dialog names the vendor that actually
+  runs; a lost submission is reported; companion errors lose their
+  terminal colour codes (#337); media URLs are found in a page's
+  JSON-LD (#336); the direct engine no longer tells every known
+  platform its media URLs expire (#338); AssemblyAI's renamed model
+  parameter is sent correctly (#290); and after the torch upgrade the
+  companion installs and runs again on Windows, CUDA machines and
+  macOS (#286, #298, #299).
+- **Workspace bindings** after a restore are shown honestly with a
+  repair mode, and stay editable once bound (#257, #258).
+
+### Removed
+
+- **The Phase-9a crowdsourced-metadata builders** (kinds 30050–30053
+  and 9803, never emitted) and eight feature flags nothing read
+  (#317).
+- **`autoPreAnalyze`, the separate Suggest LLM pass, and the
+  known-entity prompt vocabulary** — superseded by the One Article
+  Pass (#328).
+- **The moral lens's Settings checkbox.** The lens is parked, not
+  deleted: its modules, tests and `moralLens` flag stay so it can
+  return once tested on real casework (#318).
+
+### Security
+
+- **A captured page could forge a NIP-07 signature reply.** Request ids
+  are now unguessable, and every returned event is checked (pubkey,
+  kind, tags, content, `created_at`, BIP-340 signature) before use.
+  The bridge's unused nip04 methods and the capture hook's
+  page-writable globals are gone (#316). The bridge's
+  `web_accessible_resources` entry, removed in the same change, is
+  back: removing it broke NIP-07 detection (#320).
+- **Merge-import installed another person's private keys** from their
+  backup; it no longer does (#315). The companion token is no longer
+  shown on screen (#315, #321).
+- **Model-written image notes could inject markup** through the
+  reader's Markdown renderer; links and images are now escaped and
+  scheme-checked, and the image fetch refuses private-network
+  addresses (#267), including a trailing-dot hostname that slipped
+  past that check (#336).
+- **Transcript tag values are clamped** to a safe character set, so a
+  colon in a provider value cannot forge tag structure (#336).
+- **Content scripts no longer load a keystore** on web pages (#392).
+- **Supply chain** — the release workflow's actions are pinned,
+  `SECURITY.md` and Dependabot are added (#265), npm audit alerts are
+  resolved (#277), and the companion's `transformers` and `torch`
+  are bumped past advisories (#278, #284).
+
+### Docs & process
+
+- **Governance** — the project constitution, ratified
+  (`docs/CONSTITUTION.md`, machine-checked) (#261); the truth-systems
+  annex (#263); discipline standards (`docs/DISCIPLINES.md`) (#262);
+  the truth-infrastructure map (#270); the founding transcript,
+  vendored, with PHILOSOPHY amended (#280); a design review of the
+  governance corpus and a reconciliation questionnaire (#364, #366).
+- **Dev-process skills** in `.claude/skills/` — eight review
+  disciplines with a generated standards page (#306, #307), plus
+  hand-to-maintainer (#337), seam-and-invariant-check (#340),
+  ux-designer with the soak rule and agent smoke walks (#342), and
+  governance, a review aid for the governance corpus that reads the
+  sources and never rules, folded from a 453-line draft to 120 lines
+  (#397).
+- **Plans and designs** — the 1.0 readiness punch list, its kill-list
+  status and the NIP-07 identity write-up (#314, #319, #322); the
+  fresh-eyes audit and reset plan (#377); the event-store design for
+  Phase 29 (#276); the threat model (#316); the librarian seed and the
+  Margin design (#348, #367); the portal usability review (#344, #356,
+  #357).
+- **Journal and records** — the engineering journal split into monthly
+  files with a generated index (#382); a note reopening the 2026-07-03
+  consensus descope (#260); a walk record (#362); a CLAUDE.md fix
+  (#363); companion setup and stop instructions for users (#309,
+  #312).
+- **Example case briefs** under `EXAMPLE-case-briefs/` (#383, #384).
+- **CI and tests** — the browser smoke runs in CI, with structure
+  guards, golden fixtures and a branch-hygiene report (#379); CI's
+  build job and releases run on Node 22, and the engines floor is
+  `>=22` (#381; the browser-smoke job still pins Node 20); a
+  release now fails instead of publishing an empty body when its
+  CHANGELOG section is missing, and `npm run clean` works on Windows
+  (#318); CI now also gates an ESLint ratchet (`no-undef`,
+  `no-unused-vars`, against a shrink-only baseline), the
+  package.json/manifest.json version lockstep on every PR, the
+  packaged zip's contents, and a bundle-size budget (#396); the MA.6
+  smoke walk waits on conditions instead of sleeps and finds its
+  controls by `data-xr` anchors, the two preconditions for making it
+  required (#395); a hygiene run can keep named branches, so a parked
+  branch survives (#393); test fixes and additions (#271, #333, #352,
+  #389).
+- **Dependency bumps** (Dependabot): esbuild, playwright, web-ext,
+  fast-uri, js-yaml, adm-zip and GitHub Actions; nltk and lightning in
+  the companion (#304, #305, #371, #372, #375, #378, #380, #385, #386,
+  #388).
 
 ## [0.8.0] — 2026-07-20
 

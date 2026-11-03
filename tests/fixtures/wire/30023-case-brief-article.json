@@ -1,0 +1,154 @@
+{
+  "builder": {
+    "fn": "buildCaseBriefArticle",
+    "module": "src/shared/corpus-publish.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "# Case brief — COVID origins\n\n*A synthesis of 2 captured sources on **Where did it start?**. Every quote below is verbatim from a captured source — open the linked source to read it in context. Positions cite their sources by number — the full list is under **Sources** at the end. Compiled with [X-Ray](https://github.com/bryanmatthewsimonson/xray); this is a map of the disagreement, **not** a ruling.*\n\n## Summary\n\nTwo camps disagree on the origin.\n\n## Positions\n\n### Lab leak\n\nA research-related incident.\n\n*Held by:* \\[[1](https://example.com/leak)\\]\n\n### Zoonosis\n\nA natural spillover.\n\n*Held by:* \\[[2](https://example.com/zoo)\\]\n\n## Cruxes of disagreement\n\n### Does the genome show engineering?\n\n- **Lab leak:** The furin site is suspicious.\n- **Zoonosis:** The site occurs in nature.\n\n> No signatures of engineering were found.\n> — [The Zoonosis Case](https://example.com/zoo)\n\n*What would resolve it:* An early-case sequence from the market.\n\n## Load-bearing claims\n\n> The lab studied related coronaviruses.\n> — [The Lab-Leak Case](https://example.com/leak)\n> *Why it matters:* Establishes capability.\n\n## Coverage gaps\n\n- No primary lab records in the corpus.\n\n## Sources\n\n1. [The Lab-Leak Case](https://example.com/leak) — example.com\n2. [The Zoonosis Case](https://example.com/zoo) — example.com\n\n---\n\n*Compiled from 2 sources with [X-Ray](https://github.com/bryanmatthewsimonson/xray). No single number stands in for the case — X-Ray maps disagreement and grounds every quote; it does not rank or rule.*\n",
+    "created_at": 1700000000,
+    "id": "01411a6df5ca2a115b790fc61b03d3d79a00e8a03937fbec94bd5cca6a8ec0dd",
+    "kind": 30023,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "a0c1207411c96c298ad5666598ad459c57e969c8127d41a5fb1e6e86fb1394a287b1177de0a200ef40c866edf59778bb8e0e34a7c57ad201fc1c5c929d415093",
+    "tags": [
+      [
+        "d",
+        "xray-brief:entity_8d478ab5eac9a43d"
+      ],
+      [
+        "title",
+        "Case brief — COVID origins"
+      ],
+      [
+        "t",
+        "xray-case-brief"
+      ],
+      [
+        "client",
+        "xray"
+      ],
+      [
+        "published_at",
+        "1700000000"
+      ],
+      [
+        "a",
+        "30068:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:xray-brief:entity_8d478ab5eac9a43d"
+      ],
+      [
+        "a",
+        "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:aaaa1111",
+        "",
+        "member"
+      ],
+      [
+        "x",
+        "8f345c643bec5da64712b546114f94bbffbe5e4dacf6b89108e0da9dd37b1f20"
+      ],
+      [
+        "a",
+        "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:bbbb2222",
+        "",
+        "member"
+      ],
+      [
+        "x",
+        "8d478ab5eac9a43ddc6f3f426d55879bfcc2ab8262a48b54a4f467e91df2ac67"
+      ]
+    ]
+  },
+  "inputs": {
+    "caseName": "COVID origins",
+    "memberIndex": {
+      "8d478ab5eac9a43ddc6f3f426d55879bfcc2ab8262a48b54a4f467e91df2ac67": {
+        "coord": "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:bbbb2222",
+        "title": "The Zoonosis Case",
+        "url": "https://example.com/zoo"
+      },
+      "8f345c643bec5da64712b546114f94bbffbe5e4dacf6b89108e0da9dd37b1f20": {
+        "coord": "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:aaaa1111",
+        "title": "The Lab-Leak Case",
+        "url": "https://example.com/leak"
+      }
+    },
+    "record": {
+      "brief": {
+        "coverage_gaps": [
+          "No primary lab records in the corpus."
+        ],
+        "cruxes": [
+          {
+            "evidence_refs": [
+              {
+                "article_hash": "8d478ab5eac9a43ddc6f3f426d55879bfcc2ab8262a48b54a4f467e91df2ac67",
+                "quote": "No signatures of engineering were found."
+              }
+            ],
+            "question": "Does the genome show engineering?",
+            "sides": [
+              {
+                "position_label": "Lab leak",
+                "view": "The furin site is suspicious."
+              },
+              {
+                "position_label": "Zoonosis",
+                "view": "The site occurs in nature."
+              }
+            ],
+            "what_would_resolve": "An early-case sequence from the market."
+          }
+        ],
+        "load_bearing": [
+          {
+            "article_hash": "8f345c643bec5da64712b546114f94bbffbe5e4dacf6b89108e0da9dd37b1f20",
+            "claim_ref": null,
+            "quote": "The lab studied related coronaviruses.",
+            "why": "Establishes capability."
+          }
+        ],
+        "positions": [
+          {
+            "core_argument": "A research-related incident.",
+            "holders": [
+              {
+                "article_hash": "8f345c643bec5da64712b546114f94bbffbe5e4dacf6b89108e0da9dd37b1f20"
+              }
+            ],
+            "label": "Lab leak"
+          },
+          {
+            "core_argument": "A natural spillover.",
+            "holders": [
+              {
+                "article_hash": "8d478ab5eac9a43ddc6f3f426d55879bfcc2ab8262a48b54a4f467e91df2ac67"
+              }
+            ],
+            "label": "Zoonosis"
+          }
+        ],
+        "proposals": [
+          {
+            "claim_id": "c1",
+            "kind": "is_key"
+          }
+        ],
+        "summary": "Two camps disagree on the origin."
+      },
+      "caseId": "entity_8d478ab5eac9a43d",
+      "grounding": {
+        "checked": 5,
+        "dropped": 1
+      },
+      "members": 2,
+      "promptVersion": "corpus-v1"
+    },
+    "scopeQuestion": "Where did it start?",
+    "userPubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+  },
+  "kind": 30023,
+  "notes": "Sibling of the 30068 CaseBrief: marker t=xray-case-brief, d=xray-brief:<caseId>, reciprocal a cross-link. record.brief.proposals is present in the inputs precisely because it must NOT publish.",
+  "rebuild": "exact",
+  "shape": "case-brief-article",
+  "signer": "TV1"
+}

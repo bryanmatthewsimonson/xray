@@ -22,8 +22,9 @@ const { equivalencePubkeys } = await import('../src/shared/entity-equivalence.js
 const { EntityModel } = await import('../src/shared/entity-model.js');
 const { recordAccount, linkAccountToEntity } = await import('../src/shared/identity/account-registry.js');
 const { LocalKeyManager } = await import('../src/shared/local-key-manager.js');
+const { seedPrimary } = await import('./seed-primary.mjs');
 
-function reset() { _store.clear(); LocalKeyManager.keys.clear(); }
+function reset() { _store.clear(); LocalKeyManager.keys.clear(); seedPrimary(_store); }
 
 test('missing / unknown entity → empty set', async () => {
     reset();

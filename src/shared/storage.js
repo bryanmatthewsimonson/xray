@@ -13,6 +13,7 @@ import { Crypto } from './crypto.js';
 import {
   WORKSPACE_CONTENT_KEYS, WORKSPACE_DATABASES, DERIVED_CACHE_DATABASES, workspaceDbName
 } from './workspace-keys.js';
+import { usePagePointer, StoreRefusedError } from './workspace-keys.js';
 
 export const Storage = (() => {
   const area = (typeof browser !== 'undefined' && browser.storage) ? browser.storage.local : chrome.storage.local;
@@ -30,27 +31,42 @@ export const Storage = (() => {
   const ACTIVE_WS_KEY = 'active_workspace';
   const CONTENT_KEYS = new Set(WORKSPACE_CONTENT_KEYS);
   let activeWs;   // undefined = not yet read this lifetime
+  const parseWs = (raw) => {
+    if (typeof raw !== 'string') return 'default';
+    try { return String(JSON.parse(raw) || 'default'); } catch (_) { return raw || 'default'; }
+  };
+  // ONE pointer per page (JOURNAL 2026-09-25): every resolver here uses this cache; racing callers share ONE read.
+  let pendingWs = null, wsEpoch = 0;   // the epoch moves with every pointer change
   const readActiveWs = async () => {
+    const epoch = wsEpoch;
     const raw = await new Promise((resolve) => {
       try { area.get([ACTIVE_WS_KEY], (res) => resolve(res ? res[ACTIVE_WS_KEY] : undefined)); }
       catch (_) { resolve(undefined); }
     });
-    let id = 'default';
-    if (typeof raw === 'string') {
-      try { id = JSON.parse(raw) || 'default'; } catch (_) { id = raw || 'default'; }
-    }
-    activeWs = String(id);
-    return activeWs;
+    const id = parseWs(raw);   // a failed read is 'default', cached like any value
+    if (epoch === wsEpoch) { activeWs = id; pendingWs = null; }   // unless the pointer moved meanwhile
+    return id;
   };
-  const ensureWs = async () => (activeWs === undefined ? readActiveWs() : activeWs);
+  const ensureWs = async () => (activeWs !== undefined ? activeWs : (pendingWs = pendingWs || readActiveWs()));
+  usePagePointer(ensureWs);
   try {
     area.onChanged.addListener((changes) => {
-      if (ACTIVE_WS_KEY in changes) activeWs = undefined;   // lazy re-read
+      if (ACTIVE_WS_KEY in changes) { activeWs = undefined; pendingWs = null; wsEpoch++; }   // lazy re-read
     });
   } catch (_) { /* older shims — per-lifetime lazy read still applies */ }
   const mapKey = async (key) => {
     const ws = await ensureWs();
     return (ws !== 'default' && CONTENT_KEYS.has(key)) ? `ws:${ws}:${key}` : key;
+  };
+
+  // The callback API reports a failure ONLY through runtime.lastError,
+  // readable inside that callback (JOURNAL 2026-09-24).
+  const lastError = () => {
+    try {
+      return (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.lastError)
+        || (typeof browser !== 'undefined' && browser.runtime && browser.runtime.lastError)
+        || null;
+    } catch (_) { return null; }
   };
 
   const rawGet = (key) => new Promise((resolve) => {
@@ -59,17 +75,45 @@ export const Storage = (() => {
     } catch (_) { resolve(undefined); }
   });
 
+  // rawGet resolves `undefined` for "absent" AND for "the read failed".
+  // This one REJECTS on a failure (lastError, a throw, a rejected
+  // promise, or no result object) so a read-modify-write can tell them
+  // apart and refuse to write back a partial value.
+  const rawGetStrict = (key) => new Promise((resolve, reject) => {
+    let settled = false;
+    const settle = (fn, v) => { if (!settled) { settled = true; fn(v); } };
+    try {
+      const ret = area.get([key], (res) => {
+        const err = lastError();
+        if (err) settle(reject, new Error('storage read failed: ' + (err.message || String(err))));
+        else if (!res || typeof res !== 'object') settle(reject, new Error('storage read returned no result'));
+        else settle(resolve, res[key]);
+      });
+      if (ret && typeof ret.then === 'function') ret.then(null, (e) => settle(reject, e));
+    } catch (e) { settle(reject, e); }
+  });
+
   const rawSet = (key, value) => new Promise((resolve) => {
     try {
-      area.set({ [key]: value }, () => resolve(true));
+      area.set({ [key]: value }, () => resolve(!lastError()));
     } catch (_) { resolve(false); }
   });
 
   const rawDelete = (key) => new Promise((resolve) => {
     try {
-      area.remove([key], () => resolve(true));
+      area.remove([key], () => resolve(!lastError()));
     } catch (_) { resolve(false); }
   });
+
+  // Values written by this wrapper are JSON strings. Tolerate raw
+  // values just in case older or unmigrated data shows up.
+  const decode = (value, defaultValue) => {
+    if (value === undefined || value === null) return defaultValue;
+    if (typeof value === 'string') {
+      try { return JSON.parse(value); } catch (_) { return value; }
+    }
+    return value;
+  };
 
   const rawKeys = () => new Promise((resolve) => {
     try {
@@ -77,22 +121,36 @@ export const Storage = (() => {
     } catch (_) { resolve([]); }
   });
 
+  // DESTRUCTIVE wholesale operations act on the cached workspace only when a STRICT re-read agrees.
+  const verifiedWs = async (label) => {
+    const epoch = wsEpoch;
+    let stored;
+    try { stored = parseWs(await rawGetStrict(ACTIVE_WS_KEY)); } catch (err) {
+      throw new StoreRefusedError(`${label}: reading the workspace pointer failed — nothing written (${err.message || err})`);
+    }
+    if (activeWs === undefined && !pendingWs && epoch === wsEpoch) activeWs = stored;   // a cold cache takes the verified value
+    const cached = await ensureWs();
+    if (stored !== cached) {
+      throw new StoreRefusedError(`${label}: this page is on workspace "${cached}" but the pointer says "${stored}" — reload the page; nothing written`);
+    }
+    return cached;
+  };
+
   const Store = {
     get: async (key, defaultValue = null) => {
       try {
-        const value = await rawGet(await mapKey(key));
-        if (value === undefined || value === null) return defaultValue;
-        // Values written by this wrapper are JSON strings. Tolerate raw
-        // values just in case older or unmigrated data shows up.
-        if (typeof value === 'string') {
-          try { return JSON.parse(value); } catch (_) { return value; }
-        }
-        return value;
+        return decode(await rawGet(await mapKey(key)), defaultValue);
       } catch (e) {
         Utils.error('Storage get error:', e);
         return defaultValue;
       }
     },
+    /** get() that REJECTS when the read fails instead of returning the
+     *  default — get() cannot tell "absent" from "unreadable", and a
+     *  read-modify-write that trusted it would write back only its own
+     *  change and erase the rest (LocalKeyManager; JOURNAL 2026-09-24).
+     *  Absent still resolves to `defaultValue`. */
+    getStrict: async (key, defaultValue = null) => decode(await rawGetStrict(await mapKey(key)), defaultValue),
     set:    async (key, value) => { try { return await rawSet(await mapKey(key), JSON.stringify(value)); } catch (e) { Utils.error('Storage set error:', e); return false; } },
     delete: async (key)        => { try { return await rawDelete(await mapKey(key)); }                    catch (e) { Utils.error('Storage delete error:', e); return false; } },
     // The LOGICAL key view for the active workspace: content keys of
@@ -118,13 +176,17 @@ export const Storage = (() => {
     // ---- workspace plumbing (Phase 28.1) ---------------------------
     /** The active workspace id ('default' when none was ever set). */
     activeWorkspaceId: async () => ensureWs(),
+    verifiedWorkspaceId: verifiedWs,   // destructive wholesale operations only
+    cachedWorkspaceId: () => activeWs,   // synchronously; undefined while unread
+    workspaceEpoch: () => wsEpoch,   // moves with every pointer change: "one workspace across these reads?"
+    lastError,   // runtime.lastError of either namespace, for raw area calls (backup.js)
     /** Point the namespace at another workspace. Callers own the
      *  lifecycle rules (registry, identity binding, page reloads) —
      *  this only moves the pointer, atomically, outside the namespace. */
     setActiveWorkspaceId: async (id) => {
       const clean = String(id || 'default');
       await rawSet(ACTIVE_WS_KEY, JSON.stringify(clean));
-      activeWs = clean;
+      activeWs = clean; pendingWs = null; wsEpoch++;
       return clean;
     },
     /** The on-disk IndexedDB name for `base` under the ACTIVE workspace. */
@@ -136,7 +198,7 @@ export const Storage = (() => {
     removeWorkspaceData: async (id, { idb } = {}) => {
       const clean = String(id || '');
       if (!clean || clean === 'default') throw new Error('removeWorkspaceData: the default workspace cannot be deleted');
-      if (clean === await ensureWs()) throw new Error('removeWorkspaceData: switch away from the active workspace first');
+      if (clean === await verifiedWs('removeWorkspaceData')) throw new Error('removeWorkspaceData: switch away from the active workspace first');
       const prefix = `ws:${clean}:`;
       for (const k of await rawKeys()) {
         if (k.startsWith(prefix)) await rawDelete(k);
@@ -227,7 +289,14 @@ export const Storage = (() => {
       }
     },
 
-    // The user's primary signing identity when signing_method === 'local'.
+    // The user's LOCAL primary identity. Read unconditionally — by
+    // design, not oversight (Option C, NIP07_IDENTITY_KICKOFF ratified
+    // 2026-08-11): this key is the ENTITY ROOT — entity-key derivation,
+    // the kind-30069 OwnedKeys manifest, and the creator/NIP-26
+    // delegation binding all hang off it — independent of which signer
+    // (`signing_method`) publishes the operator's own events. Under
+    // NIP-07 the two identities legitimately differ; the delegation
+    // tag is the protocol-native way to connect them.
     // Shape: { privateKey, pubkey, npub, nsec, created } | null.
     primaryIdentity: {
       get: async () => await Store.get('local_primary_identity', null),

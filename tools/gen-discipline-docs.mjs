@@ -425,7 +425,7 @@ footer code{font-size:12px}
   <div class="meta">
     <span class="chip chip--key">Advisory — nothing merge-blocking</span>
     <span class="chip">Tier-3 process tooling (Art. 13)</span>
-    <span class="chip">Maintainer alone merges (Art. 11)</span>
+    <span class="chip">Maintainer's recorded instruction ratifies (Art. 11)</span>
     <span class="chip">Generated from <code>.claude/skills/</code></span>
   </div>
 </header>

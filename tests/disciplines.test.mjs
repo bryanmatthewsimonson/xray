@@ -14,6 +14,9 @@
 //     the suite fails).
 //   - The named gap stays honest: accounting is the one full gap
 //     until its standards are built.
+//
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
+// A test with its own Provenance line below is pinned by that line instead.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -110,6 +113,7 @@ async function* walkJs(dir) {
     }
 }
 
+// Provenance: R-021
 test('guard: every "You are" prompt file carries a registered Standards header', async () => {
     const sharedRoot = join(repoRoot, 'src', 'shared');
     let promptFiles = 0;
@@ -121,7 +125,10 @@ test('guard: every "You are" prompt file carries a registered Standards header',
         assert.ok(header, `${file} has a Standards header (docs/DISCIPLINES.md §0)`);
         assert.ok(ids.has(header[1]), `${file}'s discipline "${header[1]}" is an index id`);
     }
-    assert.ok(promptFiles >= 8, `sanity: the scan sees the prompt files (${promptFiles})`);
+    // Floor 7 since UA.3: llm-prompts.js lost its "You are" prompt when
+    // the standalone suggest pass retired (the map pass in
+    // corpus-prompts.js is the extraction prompt surface now).
+    assert.ok(promptFiles >= 7, `sanity: the scan sees the prompt files (${promptFiles})`);
 });
 
 // ---- the operator discipline stays gateless (CONSTITUTION Art. 8) --

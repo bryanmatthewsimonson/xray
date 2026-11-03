@@ -1,0 +1,151 @@
+{
+  "db": "xray-events",
+  "producedBy": {
+    "commitOfRung": "d02105a",
+    "generator": "tests/tools/gen-idb-fixtures.mjs",
+    "note": "the d02105a recordSigned / recordFlushAttempt literal (address by replaceableKey, signedAt, flush, ledger) — pending, flushed and replaceable kind-0 rows. Every event is really signed by TV1."
+  },
+  "schema": {
+    "published_events": {
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "keyPath": "address",
+          "name": "address",
+          "unique": false
+        },
+        {
+          "keyPath": "articleUrl",
+          "name": "articleUrl",
+          "unique": false
+        },
+        {
+          "keyPath": "flush.state",
+          "name": "flushState",
+          "unique": false
+        },
+        {
+          "keyPath": "kind",
+          "name": "kind",
+          "unique": false
+        },
+        {
+          "keyPath": "publishedAt",
+          "name": "publishedAt",
+          "unique": false
+        }
+      ],
+      "keyPath": "eventId"
+    }
+  },
+  "stores": {
+    "published_events": [
+      {
+        "address": "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_fixture",
+        "articleUrl": null,
+        "createdAt": 1700000010,
+        "event": {
+          "content": "A pending claim.",
+          "created_at": 1700000010,
+          "id": "648b6a82f44573e1f164158930134158a1729259b533687e29245b908131d9bc",
+          "kind": 30040,
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "sig": "fd88075fe91b5d5999f7e469b377709d46ae3f15c69ebd36f94bb6bbf58d1286eda7c3adeb787d26d9b9c88dc3a3a59de3b79da80ab4fa31a23347a75ccd42cf",
+          "tags": [
+            [
+              "d",
+              "claim_fixture"
+            ]
+          ]
+        },
+        "eventId": "648b6a82f44573e1f164158930134158a1729259b533687e29245b908131d9bc",
+        "flush": {
+          "attempts": 0,
+          "nextAttemptAt": 1700000010,
+          "state": "pending"
+        },
+        "kind": 30040,
+        "ledger": {
+          "extra": null,
+          "localId": "claim_fixture",
+          "markedAt": null,
+          "model": "claim"
+        },
+        "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "publishedAt": null,
+        "relays": [],
+        "signedAt": 1700000010
+      },
+      {
+        "address": "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:article-1",
+        "articleUrl": "https://example.com/a",
+        "createdAt": 1700000020,
+        "event": {
+          "content": "# Article A",
+          "created_at": 1700000020,
+          "id": "7f1586a71497cc51eeb178fc9fae864decb4c321bf3380f43604fc01444c598a",
+          "kind": 30023,
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "sig": "1c89712d747704bf71f767b02455e71d55e64bada656737e86a3f2a95cf39c935bb50c425e2ae211980b74437e5d04c3b9b783d58e671c8238c0e809a9fe4ad8",
+          "tags": [
+            [
+              "d",
+              "article-1"
+            ]
+          ]
+        },
+        "eventId": "7f1586a71497cc51eeb178fc9fae864decb4c321bf3380f43604fc01444c598a",
+        "flush": {
+          "attempts": 1,
+          "nextAttemptAt": null,
+          "state": "flushed"
+        },
+        "kind": 30023,
+        "ledger": null,
+        "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "publishedAt": 1700000025,
+        "relays": [
+          {
+            "assumed": false,
+            "success": true,
+            "url": "wss://relay.example"
+          }
+        ],
+        "signedAt": 1700000020
+      },
+      {
+        "address": "0:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "articleUrl": null,
+        "createdAt": 1700000030,
+        "event": {
+          "content": "{\"name\":\"Fixture\"}",
+          "created_at": 1700000030,
+          "id": "f6682cd592ecb1ce5157cb7696aa207c1f97e0e1516599c3a641cbf5c7583e17",
+          "kind": 0,
+          "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+          "sig": "b979aa70c9ff87b24e15c3fc85993cfa988f7333700a0c0079e8d1df66c86d40c5d8e0b65f47095ddba336d9c70c102ae6d074976615bb40bcd6aab82a4058f3",
+          "tags": []
+        },
+        "eventId": "f6682cd592ecb1ce5157cb7696aa207c1f97e0e1516599c3a641cbf5c7583e17",
+        "flush": {
+          "attempts": 1,
+          "nextAttemptAt": null,
+          "state": "flushed"
+        },
+        "kind": 0,
+        "ledger": null,
+        "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "publishedAt": 1700000035,
+        "relays": [
+          {
+            "assumed": false,
+            "success": true,
+            "url": "wss://relay.example"
+          }
+        ],
+        "signedAt": 1700000030
+      }
+    ]
+  },
+  "version": 2
+}

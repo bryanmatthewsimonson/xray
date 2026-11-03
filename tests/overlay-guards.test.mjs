@@ -53,11 +53,18 @@ test('LOOKUP_ALLOWED_KEYS contains none of the private-text keys', () => {
 
 test('every content-script capture runs with the overlay suspended', async () => {
     // UI.openReader is the single capture entry; in the content script it
-    // may only be reached through capturePage (withOverlaySuspended), so a
-    // new capture trigger cannot let overlay markers into an extraction.
-    const { readFile } = await import('node:fs/promises');
-    const src = await readFile(new URL('../src/content/index.js', import.meta.url), 'utf8');
-    const calls = src.match(/UI\.openReader\(/g) || [];
-    assert.equal(calls.length, 1, 'exactly one direct UI.openReader call');
-    assert.match(src, /withOverlaySuspended\(overlayHandle, \(\) => UI\.openReader\(opts\)\)/);
+    // may only be reached through capturePage (overlay-boot.js, inside
+    // withOverlaySuspended), so a new capture trigger cannot let overlay
+    // markers into an extraction.
+    const { readFile, readdir } = await import('node:fs/promises');
+    const dir = new URL('../src/content/', import.meta.url);
+    const sites = [];
+    for (const name of await readdir(dir)) {
+        if (!name.endsWith('.js') || name === 'ui.js') continue;
+        const src = await readFile(new URL(name, dir), 'utf8');
+        for (let i = 0; i < (src.match(/UI\.openReader\(/g) || []).length; i++) sites.push(name);
+    }
+    assert.deepEqual(sites, ['overlay-boot.js'], 'exactly one direct UI.openReader call, in overlay-boot.js');
+    const boot = await readFile(new URL('overlay-boot.js', dir), 'utf8');
+    assert.match(boot, /withOverlaySuspended\(overlayHandle, \(\) => UI\.openReader\(opts\)\)/);
 });

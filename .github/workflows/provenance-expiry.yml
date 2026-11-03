@@ -1,0 +1,40 @@
+# Provenance expiry — RESET_PLAN §4.4 item 3 (maintainer ruling R-022).
+#
+# Weekly, scripts/provenance-expiry.mjs lists every guard test whose
+# `// Provenance: INTERPRETATION (<date>)` line is 90 days old, and opens
+# one issue (or updates the open one) asking to renew each (get an R-id)
+# or remove it. It warns only: it never runs on a pull request and never
+# fails a build. The check that DOES fail the build — every cited R-id
+# exists in docs/RULINGS.md — is tests/rulings-guards.test.mjs, run by
+# `npm test` in ci.yml.
+name: provenance expiry
+
+on:
+  schedule:
+    - cron: "0 7 * * 1"   # Mondays 07:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write          # open or update the one expiry issue
+
+concurrency:
+  group: provenance-expiry
+  cancel-in-progress: false
+
+jobs:
+  expiry:
+    name: list expired interpretation guards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: list expired guards; open or update the issue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/provenance-expiry.mjs --issue

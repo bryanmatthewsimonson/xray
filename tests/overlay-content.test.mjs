@@ -217,7 +217,7 @@ test('teardown fully restores the original text nodes (innerHTML identical)', as
     assert.equal(doc.body.innerHTML, before);
     assert.equal(doc.body.querySelector('article').childNodes[0].childNodes.length, 1);
     assert.equal(doc.head.childNodes.length, 0);
-    assert.equal(_msgListeners.size, 0);
+    assert.equal(_msgListeners.size, 0, 'the overlay registers no runtime listener of its own');
 });
 
 test('URL change -> teardown then relookup', async () => {
@@ -346,8 +346,8 @@ test('addNote command: selection -> draft; no selection -> seconds; neither -> n
     const text = art.childNodes[0].childNodes[0];
     const events = [];
     let secs = null;
-    start({ getVideoSeconds: () => secs, onOpen: (d) => events.push(d) }); await flush();
-    const fire = () => _msgListeners.forEach((f) => f({ type: 'xray:overlay:addNote' }));
+    const h = start({ getVideoSeconds: () => secs, onOpen: (d) => events.push(d) }); await flush();
+    const fire = () => h.addNote();
     fire();
     assert.equal(events.length, 0);
     secs = 42; fire();
@@ -360,8 +360,8 @@ test('addNote command: selection -> draft; no selection -> seconds; neither -> n
     fire();
     assert.equal(events[1].draft.quote, 'beta gamma');
     assert.equal(events[1].rect.top, 9);
-    _msgListeners.forEach((f) => f({ type: 'other' }));
-    assert.equal(events.length, 2);
+    h.teardown(); fire();
+    assert.equal(events.length, 2, 'a torn-down overlay ignores the command');
 });
 
 test('multi-node item is fully marked after an earlier item split its first node', async () => {

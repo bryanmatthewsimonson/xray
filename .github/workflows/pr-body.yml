@@ -1,0 +1,60 @@
+# PR body check — RESET_PLAN §8: the PR body contract (Verification layer,
+# Wire format, Docs, Interpretive steps), the lane rule (Cross-lane), a
+# fix: PR's tests/ diff or no-test rationale, and the JOURNAL-presence
+# rule for process-file PRs (continuous-improvement Standard 1). The rules
+# live in scripts/pr-body-check.mjs; the lanes table in scripts/lanes.mjs.
+#
+# Its own workflow, not a job in ci.yml: it must re-run when the PR BODY
+# is edited (`edited`), and ci.yml re-running build + suite + browser
+# smoke on every description edit would spend minutes to re-read a
+# paragraph. This job needs no npm install, no build and no browser.
+#
+# NOT a required check. Whether "PR body" gates merges is a
+# branch-protection setting on main that only the maintainer can change;
+# until then it reports and annotates, and a red run blocks nothing.
+#
+# Security: the title and body are attacker-controlled text. They are
+# never interpolated into a `run:` script — the checker reads them from
+# the event payload at $GITHUB_EVENT_PATH itself. The token is read-only,
+# the checkout keeps no credentials, and the trigger is `pull_request`
+# (never `pull_request_target`), so a fork's PR runs with no secrets.
+name: PR body
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-body-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-body:
+    name: PR body
+    # Dependabot PRs carry no contract; the script skips them too.
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The default ref for pull_request is the PR's MERGE commit;
+          # depth 2 brings its first parent (the base tip), so
+          # HEAD^1..HEAD is exactly the change the PR makes to main.
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Check the PR body
+        # Reads title, body and author from $GITHUB_EVENT_PATH; appends the
+        # report to the job summary and annotates each failure.
+        run: node scripts/pr-body-check.mjs --base HEAD^1 --head HEAD

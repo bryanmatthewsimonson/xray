@@ -8,6 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { jobSendMessage } from './helpers/llm-job-stub.mjs';
 
 // entity-page pulls case-synthesis → entity-model transitively, which
 // reads chrome.storage at module load — stub first (the LLM-test idiom).
@@ -24,6 +25,7 @@ const HASH_B = 'b'.repeat(64);
 
 // ---- guard rails on the tool schema (kickoff §3.1/§3.3) --------------------
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('page tool: no typed-field or numeric slots — the fact layer cannot return here', () => {
     const tool = EP.buildEntityPageTool();
     const json = JSON.stringify(tool.input_schema);
@@ -76,6 +78,7 @@ const claim = (id, extra = {}) => ({
     is_key: !!extra.is_key, created: extra.created || 100
 });
 
+// Provenance: R-020 (credibility); the rest: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('digest: deterministic, capped, key-first, distributions-only — and no banned vocabulary', () => {
     const d = fixtureDossier();
     const claims = [claim('claim_b', { created: 200 }), claim('claim_a', { is_key: true, created: 300 })];
@@ -189,11 +192,11 @@ test('ensureExtracts: valid cache hits cost nothing; misses call, validate, and 
     const sentRequests = [];
     const folded = [];
     const out = await EP.ensureExtracts([mA, mB], frame, {
-        sendMessage: async (msg) => {
+        sendMessage: jobSendMessage(async (msg) => {
             assert.equal(msg.type, 'xray:llm:corpus-map');
             sentRequests.push(msg.request);
             return { ok: true, extract: VALID_EXTRACT, model: 'm-test' };
-        }
+        })
     }, {
         getExtract: async (key) => key === keyA ? { extract: VALID_EXTRACT, model: 'm-cached' } : null,
         saveExtract: async (rec) => { saved.push(rec); },
@@ -223,11 +226,11 @@ test('ensureExtracts: an invalid cached extract re-runs; a failed member lands i
     const mB = member(HASH_B, 'Body B.');
     let calls = 0;
     const out = await EP.ensureExtracts([mA, mB], { caseName: '', scopeQuestion: '' }, {
-        sendMessage: async (msg) => {
+        sendMessage: jobSendMessage(async (msg) => {
             calls++;
             if (msg.request.member_id === HASH_B) return { ok: false, error: 'boom' };
             return { ok: true, extract: VALID_EXTRACT, model: 'm' };
-        }
+        })
     }, {
         getExtract: async () => ({ extract: { not: 'valid' }, model: 'm' }),   // invalid — never a hit
         saveExtract: async () => {},

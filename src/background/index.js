@@ -26,7 +26,10 @@ import { NostrClient } from '../shared/nostr-client.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { fetchSubstackPost, fetchSubstackComments } from '../shared/platforms/substack-api.js';
 import { handleScreenshotCapture } from '../shared/screenshot.js';
-import { runSuggestionPass, runAuditPass, runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, runCorpusMapPass, runCorpusReducePass, runHypothesisEdgePass, runClaimLinksPass, getCorpusConfig, runExtractPass, runEntityAuditPass, runForensicCorpusPass, runEntityPagePass, runVisionPass, getVisionConfig } from '../shared/llm-client.js';
+import { runAuditModulePass, getLlmConfig, runLensPass, getLensConfig, getCorpusConfig, runExtractPass, runVisionPass, getVisionConfig } from '../shared/llm-client.js';
+import { respondLlmJob, fromExtensionPage } from './llm-jobs.js';
+import { respondLlmModels } from './llm-models.js';
+import { putSessionArticle } from '../shared/session-articles.js';
 import { getSourceDocument } from '../shared/archive-cache.js';
 import { MAX_EXTRACT_BYTES, MAX_EXTRACT_PAGES } from '../shared/llm-extract-prompts.js';
 import { prepareImageForVision, decodeDataUrl, blockedImageUrl } from '../shared/vision-image.js';
@@ -40,6 +43,8 @@ import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { publishConfirmed, IDENTITY_KINDS } from '../shared/confirmed-publish.js';
 import { gatePublish } from '../shared/publish-gate.js';
 import { getTranscribeConfig, getTranscriberPort, pingTranscriber, startTranscription, getJobStatus, draftClaimCandidates } from '../shared/transcriber-client.js';
+import { startDirectTranscription, getDirectJobStatus, resolveTranscribeRoute, DIRECT_ENGINE_ID } from '../shared/direct-transcribe.js';
+import { transcribeDirectDeepgram, DEEPGRAM_ENGINE_ID } from '../shared/direct-transcribe-deepgram.js';
 
 // Pull the debug preference on SW startup. MV3 service workers sleep
 // and wake, so this runs each time the SW reloads. A chrome.storage
@@ -110,7 +115,7 @@ async function registerContextMenus() {
             contexts: ['page', 'action']
         });
         if (transcribeOn) {
-            // YouTube video pages only. `page` context, not `action` —
+            // Any https page. `page` context, not `action` —
             // documentUrlPatterns is unreliable on the action context.
             // SPA navigation is fine: matching happens at menu-open time
             // against the frame's current URL.
@@ -123,8 +128,14 @@ async function registerContextMenus() {
                 title: 'Capture & transcribe with X-Ray',
                 contexts: ['page'],
                 documentUrlPatterns: [
-                    '*://*.youtube.com/watch*',
-                    '*://*.youtube.com/shorts/*'
+                    // Any https page: the companion hands the URL to
+                    // yt-dlp, which resolves page URLs, embedded players
+                    // and direct media files alike. https only — the
+                    // companion admits nothing else. A page with no
+                    // media fails the job with a named error, which is
+                    // cheaper than hiding the item on the long-tail
+                    // sites this exists for.
+                    'https://*/*'
                 ]
             });
             refreshTranscribeMenuTitle();
@@ -274,6 +285,23 @@ async function routeCaptureFallback(tab, err) {
         return;
     }
     console.warn('[X-Ray] xray:capture delivery failed, opening Settings:', err && err.message);
+    // Settings opening with no explanation reads as a broken click — this
+    // is the common case (a tab that predates the extension load, or an
+    // origin that blocks content scripts, e.g. the Chrome Web Store or a
+    // chrome:// page), not a PDF. Name the real cause and the remedy so
+    // the user isn't left guessing why the toolbar/context-menu capture
+    // silently redirected them. Both context-menu items ("Capture" and
+    // "Capture & transcribe") and the toolbar/keyboard path share this
+    // fallback, so one fix covers all of them.
+    try {
+        chrome.notifications.create({
+            type: 'basic',
+            iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
+            title: 'X-Ray — Could not capture this page',
+            message: "X-Ray couldn't reach this page — it may predate the extension load or "
+                + 'block extensions. Reload the page and try again.'
+        });
+    } catch (_) { /* notifications permission may be declined */ }
     chrome.runtime.openOptionsPage?.();
 }
 
@@ -388,18 +416,25 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
         // URLs — or a PDF tab, which routes to the PDF reader exactly
         // like the toolbar path instead of dead-ending at Settings).
         console.warn('[X-Ray] Failed to deliver context-menu command:', err);
-        if (message.type === 'xray:capture') {
+        if (message.type === 'xray:capture' || message.type === 'xray:capture:transcribe') {
+            // Same fallback for both menu items. TRANSCRIBE_CAPTURE's
+            // documentUrlPatterns (`https://*/*`) now matches PDF tabs
+            // and any other https page a content script can't reach
+            // (e.g. a browser-blocked origin like the Web Store) — a
+            // regression review found the old branch here just told the
+            // user to "reload the page and try again", which can never
+            // work on either: browsers never inject content scripts into
+            // their native PDF viewer, and a policy-blocked origin stays
+            // blocked after a reload. routeCaptureFallback already
+            // solves exactly this for the plain capture item (PDF →
+            // reader's PDF capture path; local file PDF → the import
+            // picker; anything else → Settings, a visible landing rather
+            // than a silent no-op) — reusing it here means a PDF capture
+            // still lands somewhere useful, and the Media & source
+            // modal's "Transcribe from source" escape hatch (offered on
+            // every capture) is reachable from there for anything that
+            // does turn out to have fetchable media.
             routeCaptureFallback(tab, err);
-        } else if (message.type === 'xray:capture:transcribe') {
-            // Menu only appears on YouTube pages, so a delivery failure
-            // means the content script isn't injected yet (tab predates
-            // the extension load). Say so instead of failing silently.
-            chrome.notifications?.create({
-                type: 'basic',
-                iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
-                title: 'X-Ray',
-                message: 'Could not reach this tab — reload the YouTube page and try again.'
-            });
         }
     });
 });
@@ -501,9 +536,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // with "Source tab unreachable". Those opens are tabless — the SW
         // signs Local/NSecBunker itself; NIP-07 gets a clear switch-to-Local
         // message instead of a misleading tab error.
-        const extOrigin = chrome.runtime.getURL('');
-        const fromExtensionPage = !!(sender && sender.url && sender.url.startsWith(extOrigin));
-        const sourceTabId = (!fromExtensionPage && sender && sender.tab && sender.tab.id != null)
+        const sourceTabId = (!fromExtensionPage(sender) && sender && sender.tab && sender.tab.id != null)
             ? sender.tab.id
             : null;
         // readOnly (Phase 12.7): set by the portal's "Open in reader" —
@@ -521,7 +554,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             transcribe: !!message.transcribe
         };
         const area = chrome.storage.session || chrome.storage.local;
-        area.set({ ['xray:article:' + id]: record }, () => {
+        // Quota-evicting write (session-articles.js, field-found
+        // 2026-08-25): records were never removed, so a heavy day filled
+        // the ~10MB session area and every NEW capture failed to
+        // register. The reader still opens on a failed write — the
+        // capture is readable, only publish lacks its record — and the
+        // reader's own load path says so.
+        putSessionArticle(area, 'xray:article:' + id, record).then((put) => {
+            if (!put.ok) Utils.error('capture: session record write failed:', put.error);
+            else if (put.evicted.length) Utils.log('capture: evicted', put.evicted.length, 'stale session records');
             const url = chrome.runtime.getURL('src/reader/index.html') + '?id=' + encodeURIComponent(id);
             chrome.tabs.create({ url }).then(
                 () => sendResponse({ ok: true }),
@@ -541,7 +582,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             const record = await new Promise((r) => {
                 area.get(['xray:article:' + id], (res) => r(res && res['xray:article:' + id]));
             });
-            if (!record) return sendResponse({ ok: false, error: 'Session record missing' });
             // Only NIP-07 needs the source tab (its `window.nostr` lives in
             // the page). Local and NSecBunker resolve the pubkey right here
             // in the worker — so tabless captures (PDFs, imported EPUB
@@ -549,8 +589,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             // whether a tab id was recorded. A NIP-07 method with no source
             // tab falls through to the façade, which throws the clear
             // "needs a web page — switch to Local" error.
+            //
+            // A MISSING record reads as "no tab" for the same reason the
+            // publish path treats it that way — see handleCapturePublish.
+            const sourceTabId = record && record.sourceTabId;
             const method = await Signer.getMethod();
-            if (!Signer.methodRequiresPageContext(method) || record.sourceTabId == null) {
+            if (!Signer.methodRequiresPageContext(method) || sourceTabId == null) {
                 try {
                     return sendResponse({ ok: true, pubkey: await Signer.getPublicKey() });
                 } catch (err) {
@@ -558,7 +602,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 }
             }
             try {
-                const resp = await chrome.tabs.sendMessage(record.sourceTabId, { type: 'xray:getPubkey' });
+                const resp = await chrome.tabs.sendMessage(sourceTabId, { type: 'xray:getPubkey' });
                 if (!resp || !resp.ok) {
                     return sendResponse({ ok: false, error: (resp && resp.error) || 'Source tab refused' });
                 }
@@ -601,19 +645,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // async sendResponse
     }
 
-    // Reader page → worker: run an LLM-assist suggestion pass against
-    // the open article. The Anthropic call lives here (not the reader
-    // page) because the SW is outside page CSP, and the key never leaves
-    // the SW. Gated by the `llmAssist` flag + a user-supplied key inside
-    // runSuggestionPass; returns validated-shape proposals only — nothing
-    // is saved or published here.
-    if (message.type === 'xray:llm:suggest') {
-        runSuggestionPass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'LLM pass failed' })
-        );
-        return true; // async sendResponse
-    }
+    // (`xray:llm:suggest` — the standalone suggestion pass — RETIRED
+    // in UA.3: every Suggest surface now rides the ONE article pass
+    // (`xray:llm:corpus-map` via shared/article-pass.js), so this
+    // message type no longer exists. A stale sender gets the default
+    // unhandled-message behavior, never a silent LLM spend.)
 
     // Reader → worker: LLM extraction assist over an ARCHIVED PDF
     // (Phase 18 C5). The reader sends the source-document HASH, never
@@ -663,19 +699,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // async
     }
 
-    // Reader page → worker: run an in-extension epistemic-audit pass
-    // against the open article. Same home as Suggest (SW outside page
-    // CSP, key never leaves the SW), gated identically inside
-    // runAuditPass. Returns the canonical scorer-export object only —
-    // the reader runs importAuditJson (re-hash + schema-validate) and
-    // nothing is published here (that stays behind `epistemicAuditing`).
-    if (message.type === 'xray:audit:run') {
-        runAuditPass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Audit pass failed' })
-        );
-        return true; // async sendResponse
-    }
+    // (The reader's Quick epistemic audit — the single-shot pass — runs
+    // as the `audit-run` LLM job, below with the other jobs.)
 
     // Reader page → worker: ONE thorough-audit module call. The reader
     // orchestrates eight of these with bounded concurrency
@@ -701,6 +726,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         );
         return true; // async sendResponse
     }
+
+    // Options → worker: the models the saved key's Anthropic account
+    // lists that are newer than the built-in roster (the Models API,
+    // JOURNAL 2026-09-29). Extension pages only — checked in
+    // ./llm-models.js with the LLM-job door's own test.
+    if (message.type === 'xray:llm:models') return respondLlmModels(sendResponse, sender);
 
     // Reader page → worker: run ONE jurisdiction's lens reading
     // (Phase 16). Same home as Suggest/Audit (SW outside page CSP, key
@@ -760,82 +791,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // async sendResponse
     }
 
-    // Sidepanel → worker: the LLM entity audit (Phase 17 E2). Gated by
-    // llmAssist + key inside the pass; returns RAW ops — the sidepanel
-    // runs the validation firewall and gates every mutation behind a
-    // human Accept. Nothing is saved or published here.
-    // Portal → worker: the per-subject forensic corpus pass (FA.1).
-    // Raw findings out; the portal firewalls + human-Accepts everything.
-    if (message.type === 'xray:llm:forensic-corpus') {
-        runForensicCorpusPass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Forensic corpus call failed' })
-        );
-        return true; // async sendResponse
-    }
-
-    if (message.type === 'xray:llm:entity-audit') {
-        runEntityAuditPass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Entity audit call failed' })
-        );
-        return true; // async sendResponse
-    }
-
-    // Portal → worker: case-corpus synthesis (Phase 20.4). One MAP call
-    // per member article (the portal orchestrates them with bounded
-    // concurrency, the audit-module topology), then one REDUCE. Gated
-    // by `caseSynthesis` + `llmAssist` + key inside the passes; returns
-    // RAW tool output (the portal validates, grounds, and gates every
-    // mutation behind human Accept). Nothing is saved or published here.
-    if (message.type === 'xray:llm:corpus-map') {
-        runCorpusMapPass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Corpus map call failed' })
-        );
-        return true; // async sendResponse
-    }
-    if (message.type === 'xray:llm:corpus-reduce') {
-        runCorpusReducePass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Corpus reduce call failed' })
-        );
-        return true; // async sendResponse
-    }
-    // Portal → worker: the entity-page reduce (EP.2). One reduce-shaped
-    // call over the entity digest + member extracts; same triple gate
-    // inside the pass; returns RAW tool output (the portal validates,
-    // subset-filters key claims, grounds citations, and nothing
-    // persists without the human's Save).
-    if (message.type === 'xray:llm:entity-page') {
-        runEntityPagePass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Entity page call failed' })
-        );
-        return true; // async sendResponse
-    }
-    // Portal → worker: hypothesis-edge suggestion (Phase 26 H.4). One
-    // reduce-shaped call; same triple gate inside the pass; returns RAW
-    // tool output (the portal validates, grounds, runs the both-sides
-    // post-check, and gates every mutation behind human Accept).
-    if (message.type === 'xray:llm:hypothesis-edges') {
-        runHypothesisEdgePass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Hypothesis edge call failed' })
-        );
-        return true; // async sendResponse
-    }
-    // Portal → worker: standalone cross-article link suggestion (28.3).
-    // One reduce-shaped call over the claims index; same triple gate
-    // inside the pass; returns RAW tool output (the portal validates,
-    // drops existing pairs, and gates every mutation behind Accept).
-    if (message.type === 'xray:llm:corpus-links') {
-        runClaimLinksPass(message.request || {}).then(
-            (result) => sendResponse(result),
-            (err) => sendResponse({ ok: false, error: (err && err.message) || 'Link suggestion call failed' })
-        );
-        return true; // async sendResponse
-    }
+    // Page → worker: the LONG single-call LLM passes run as JOBS — never
+    // a held-open message (JOURNAL 2026-09-05 and its 2026-09-25
+    // addendum): the corpus map / reduce and the entity page; the
+    // portal's hypothesis edges (H.4), claim links (28.3), and
+    // per-subject forensic corpus pass (FA.1); the side panel's entity
+    // audit (E2); the reader's Quick epistemic audit. The runner, its
+    // pass table, and the rationale live in ./llm-jobs.js; each op
+    // answers asynchronously (return true) but never across a model
+    // call. Every pass keeps its own gates (flags + key) and returns RAW
+    // output — the page validates, grounds, and human-Accepts; nothing
+    // is saved or published here.
+    if (message.type === 'xray:llm:job:start') return respondLlmJob('start', message, sendResponse, sender);
+    if (message.type === 'xray:llm:job:status') return respondLlmJob('status', message, sendResponse, sender);
+    if (message.type === 'xray:llm:job:find') return respondLlmJob('find', message, sendResponse, sender);
+    if (message.type === 'xray:llm:job:ack') return respondLlmJob('ack', message, sendResponse, sender);
     if (message.type === 'xray:llm:corpus-config') {
         getCorpusConfig().then(
             (cfg) => sendResponse({ ok: true, ...cfg }),
@@ -892,6 +862,73 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         })().catch((err) => sendResponse({ ok: false, error: (err && err.message) || 'transcribe status failed' }));
         return true; // async sendResponse
     }
+    // ------------------------------------------------------------------
+    // Direct cloud transcription — the xray:transcribe:direct:* pair.
+    // DELIBERATELY SEPARATE MESSAGE TYPES rather than a provider value on
+    // the companion messages: transcriber-client.js's normalizeEngine
+    // collapses any engine id it does not recognize to 'local', so a
+    // direct payload arriving on xray:transcribe:start would become a
+    // SILENT local companion job — the durable-lie failure mode, and a
+    // credentialed one. A stale sender instead gets ordinary
+    // unhandled-message behavior.
+    //
+    // Both handlers re-check the flag, including the poll: an MV3 worker
+    // wakes mid-job, and a credentialed request to a third party must
+    // not outlive the flag that authorized it. Neither loops — the
+    // reader drives the job, one short message per step.
+    // ------------------------------------------------------------------
+    if (message.type === 'xray:transcribe:direct:start') {
+        (async () => {
+            await loadFlags();
+            const gate = resolveTranscribeRoute({
+                engine: DIRECT_ENGINE_ID,
+                flags: { directCloudTranscription: isEnabled('directCloudTranscription') }
+            });
+            if (gate.route !== 'direct') {
+                sendResponse({ ok: false, error: gate.error });
+                return;
+            }
+            sendResponse(await startDirectTranscription(message.url));
+        })().catch((err) => sendResponse({ ok: false, error: (err && err.message) || 'direct transcribe start failed' }));
+        return true; // async sendResponse
+    }
+    if (message.type === 'xray:transcribe:direct:status') {
+        (async () => {
+            await loadFlags();
+            const gate = resolveTranscribeRoute({
+                engine: DIRECT_ENGINE_ID,
+                flags: { directCloudTranscription: isEnabled('directCloudTranscription') }
+            });
+            if (gate.route !== 'direct') {
+                sendResponse({ ok: false, error: gate.error });
+                return;
+            }
+            sendResponse(await getDirectJobStatus(message.jobId));
+        })().catch((err) => sendResponse({ ok: false, error: (err && err.message) || 'direct transcribe status failed' }));
+        return true; // async sendResponse
+    }
+
+    // Deepgram direct (DC.3). ONE handler, not a start/status pair: the
+    // pre-recorded call is synchronous, so this returns the transcript
+    // itself. Measured 12.9s for a 48-minute episode, which is why a
+    // single awaited fetch is tolerable here where it would not be for a
+    // minutes-long job — and why there is deliberately no poll loop.
+    if (message.type === 'xray:transcribe:direct:deepgram') {
+        (async () => {
+            await loadFlags();
+            const gate = resolveTranscribeRoute({
+                engine: DEEPGRAM_ENGINE_ID,
+                flags: { directCloudTranscription: isEnabled('directCloudTranscription') }
+            });
+            if (gate.route !== 'direct') {
+                sendResponse({ ok: false, error: gate.error });
+                return;
+            }
+            sendResponse(await transcribeDirectDeepgram(message.url));
+        })().catch((err) => sendResponse({ ok: false, error: (err && err.message) || 'deepgram transcribe failed' }));
+        return true; // async sendResponse
+    }
+
     if (message.type === 'xray:transcribe:claims') {
         // The optional LM Studio post-pass. Deliberately NOT xray:llm:* —
         // that namespace means "Anthropic via llm-client.js, gated by
@@ -1124,7 +1161,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Inline overlay (flag inlineOverlay): lookup for content scripts;
     // card/note messages only from our own overlay iframe. The sender
     // checks live in overlay.js.
-    if (typeof message.type === 'string' && message.type.startsWith('xray:overlay:')) {
+    if (message.type === 'xray:overlay:lookup' || message.type === 'xray:overlay:card'
+        || message.type === 'xray:overlay:note:save' || message.type === 'xray:overlay:note:delete'
+        || message.type === 'xray:overlay:openInSidePanel') {
         handleOverlayMessage(message, sender)
             .then((res) => sendResponse(res))
             .catch(() => sendResponse({ ok: false, error: 'bad request' }));
@@ -1691,16 +1730,26 @@ function tablessSignError(err) {
 }
 
 async function handleCapturePublish(id, unsignedEvent, { ledger = null, articleUrl = null } = {}) {
-    // 1. Pull the source-tab id from the session-storage record the FAB
-    //    click saved. That's where the content script + NIP-07 bridge live.
+    // 1. Pull the source-tab id from the session-storage record the
+    //    capture saved. That's where the content script + NIP-07 bridge
+    //    live — and it is the ONLY thing this path reads from the
+    //    record.
+    //
+    //    A MISSING record is not a refusal (field-found 2026-08-28: a
+    //    reader tab holding hours of extracted claims failed to publish
+    //    after the quota discipline evicted its record). The record is
+    //    load-bearing for NIP-07 alone, whose `window.nostr` lives in
+    //    the source page; Local and NSecBunker sign right here through
+    //    the façade, which is why PDFs, EPUB chapters, transcript
+    //    imports and portal reconstructions already publish with a null
+    //    tab id. So a gone record degrades to exactly that tabless
+    //    path, and NIP-07 still reaches its honest "needs a web page"
+    //    error two lines below instead of a baffling one here.
     const area = chrome.storage.session || chrome.storage.local;
     const record = await new Promise((resolve) => {
         area.get(['xray:article:' + id], (res) => resolve(res && res['xray:article:' + id]));
     });
-    if (!record) {
-        return { ok: false, error: 'Session record missing (reader opened without a source tab)' };
-    }
-    const sourceTabId = record.sourceTabId;
+    const sourceTabId = record && record.sourceTabId;
 
     // 2. Sign. ONLY NIP-07 needs a page: its `window.nostr` bridge lives in
     //    the source tab, so a NIP-07 sign routes through that tab. Local and

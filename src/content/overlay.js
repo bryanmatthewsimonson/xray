@@ -278,7 +278,7 @@ export function startOverlay(env = {}) {
     const onClose = typeof env.onClose === 'function' ? env.onClose : () => {};
     const getVideoSeconds = typeof env.getVideoSeconds === 'function' ? env.getVideoSeconds : () => null;
     if (!win || !doc || !chromeApi || !chromeApi.runtime) {
-        return { teardown() {}, refresh() {}, suspend() {}, resume() {} };
+        return { teardown() {}, refresh() {}, suspend() {}, resume() {}, addNote() {} };
     }
 
     let dead = false;
@@ -646,9 +646,9 @@ export function startOverlay(env = {}) {
         }
     }
 
-    // -- note command ---------------------------------------------
-    function onMessage(message) {
-        if (!message || message.type !== 'xray:overlay:addNote') return undefined;
+    // -- note command (content/index.js routes xray:overlay:addNote here)
+    function addNote() {
+        if (dead) return undefined;
         try {
             const sel = typeof win.getSelection === 'function' ? win.getSelection() : null;
             const cap = captureSelection(sel);
@@ -674,7 +674,6 @@ export function startOverlay(env = {}) {
         stopYouTube();
         try { doc.removeEventListener('yt-navigate-finish', onYtNavigate); } catch (_) { /* ignore */ }
         if (urlTimer) { clearInterval(urlTimer); urlTimer = null; }
-        try { chromeApi.runtime.onMessage.removeListener(onMessage); } catch (_) { /* ignore */ }
         guarded(() => { removeMarkers(); removeChip(); });
         if (styleEl && styleEl.parentNode) styleEl.parentNode.removeChild(styleEl);
         styleEl = null;
@@ -688,7 +687,6 @@ export function startOverlay(env = {}) {
     }
     try { doc.addEventListener('yt-navigate-finish', onYtNavigate); } catch (_) { /* ignore */ }
 
-    try { chromeApi.runtime.onMessage.addListener(onMessage); } catch (_) { /* ignore */ }
     urlTimer = setInterval(() => {
         if (dead) return;
         if (noHash(win.location.href) !== noHash(currentUrl)) {
@@ -728,5 +726,5 @@ export function startOverlay(env = {}) {
         apply().catch((err) => Utils.error('overlay: resume failed', err));
     }
 
-    return { teardown, refresh, suspend, resume };
+    return { teardown, refresh, suspend, resume, addNote };
 }

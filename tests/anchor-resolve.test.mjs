@@ -1,15 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-// anchor-resolve imports diarized-transcript, which transitively touches
+// quote-seconds imports diarized-transcript, which transitively touches
 // chrome.storage at module load; stub it as the other tests do.
 globalThis.chrome = globalThis.chrome || {
     storage: { local: { get(_k, cb) { cb({}); }, set(_o, cb) { cb && cb(); }, remove(_k, cb) { cb && cb(); } } }
 };
 
 const {
-    normalizeForMatch, buildTextIndex, locate, resolve, quoteToSeconds,
+    normalizeForMatch, buildTextIndex, locate, resolve,
     ACCEPT_CONFIDENCE, FUZZY_MAX_QUOTE, MAX_PAGE_CHARS
 } = await import('../src/shared/anchor-resolve.js');
+const { quoteToSeconds } = await import('../src/shared/quote-seconds.js');
 
 test('constants', () => {
     assert.equal(ACCEPT_CONFIDENCE, 0.7);

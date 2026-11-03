@@ -48,8 +48,12 @@
 //     merging it would install a colleague's signing keys.
 
 import { WORKSPACE_DATABASES } from './identity-profiles.js';
-import { WORKSPACE_CONTENT_KEYS, activeWorkspaceId, workspaceDbName } from './workspace-keys.js';
-import { LLM_KEY_STORAGE } from './llm-prompts.js';
+import { withKeyStoreLock } from './local-key-manager.js';
+import { withEntityStoreLock } from './entity-model.js';
+import { Storage } from './storage.js';
+import { WORKSPACE_CONTENT_KEYS, workspaceDbName, StoreRefusedError } from './workspace-keys.js';
+import { LLM_KEY_STORAGE, LLM_DISCOVERED_MODELS_STORAGE } from './llm-prompts.js';
+import { isLlmJobKey } from './llm-jobs.js';
 import {
     TRANSCRIBER_TOKEN_STORAGE, ASSEMBLYAI_KEY_STORAGE, DEEPGRAM_KEY_STORAGE
 } from './transcriber-client.js';
@@ -75,6 +79,7 @@ import { openEventJournalDb, normalizeImportedRow } from './event-journal.js';
 // directly — it needs the local article body, which lives in another
 // IndexedDB database and so must be resolved before any transaction.
 import { mergeExtractionRows } from './extraction-import.js';
+import { normalizeExtractionRecord } from './map-artifacts.js';
 
 // Per-store row normalizers, applied to every INCOMING row on BOTH
 // restore (clearAndFill) and merge (mergeRows). A backup written by an
@@ -86,7 +91,14 @@ import { mergeExtractionRows } from './extraction-import.js';
 // normalizer is the owning module's — schemas are never reinvented
 // here (the DB_OPENERS principle, applied to rows).
 const ROW_NORMALIZERS = {
-    'xray-events': { published_events: normalizeImportedRow }
+    'xray-events': { published_events: normalizeImportedRow },
+    // `article-extractions` rows are the peer-data trust boundary: a
+    // backup file is arbitrary JSON from another machine, and a wholesale
+    // restore used to `put()` them raw — so a wrong-typed list landed in
+    // IndexedDB and threw later, on read, in the portal paint and in the
+    // merge (inside a transaction, where a throw aborts everything).
+    // The normalizer is the owning module's, per the rule above.
+    'xray-audits': { 'article-extractions': normalizeExtractionRecord }
 };
 
 export const BACKUP_FORMAT = 'xray-backup/1';
@@ -110,7 +122,26 @@ export const CREDENTIAL_STORAGE_KEYS = Object.freeze([
 // restorable into whatever workspace is active at apply time; carrying
 // the registry/pointer would let one workspace's file stomp every
 // other workspace on restore).
-const EXCLUDED_STORAGE_KEYS = [...CREDENTIAL_STORAGE_KEYS, 'workspaces', 'active_workspace'];
+// 'xray:diagnostics' (the local error ring, shared/diagnostics.js) is
+// excluded because backups TRAVEL: error text can carry URLs the user
+// never chose to export, and a diagnostic aid must stay on the machine
+// that produced it.
+// The newer-models list (JOURNAL 2026-09-29) is derived from ONE key's
+// Anthropic account: restored elsewhere it would offer models that
+// install's key may not reach, and the next refresh rebuilds it anyway.
+const EXCLUDED_STORAGE_KEYS = [...CREDENTIAL_STORAGE_KEYS, 'workspaces', 'active_workspace', 'xray:diagnostics',
+    LLM_DISCOVERED_MODELS_STORAGE];
+
+// LLM job records (`xray:llm-job:*`, shared/llm-jobs.js) are excluded
+// as a PREFIX class: each is a transient hand-off of raw model output
+// between the worker and the page that asked for it, sized by the
+// result (a corpus brief runs to ~100KB) and meaningful only on the
+// machine whose page will pick it up. They never restore or merge
+// either — a file can't smuggle a "finished" result into the pickup
+// path.
+function isExcludedStorageKey(key) {
+    return EXCLUDED_STORAGE_KEYS.includes(key) || isLlmJobKey(key);
+}
 
 // Keys holding PRIVATE KEY material, dropped from a shareable copy.
 // `local_primary_identity` and `identity_profiles` carry the primary
@@ -237,16 +268,25 @@ export async function dumpDatabase(name, { skipStores = [] } = {}) {
     return out;
 }
 
-function clearAndFill(db, storeName, rows, normalize = null) {
+function clearAndFill(db, storeName, rows, normalize = null, warn = () => {}) {
+    let dropped = 0;
     return new Promise((resolve, reject) => {
         const tx = db.transaction(storeName, 'readwrite');
         const store = tx.objectStore(storeName);
         store.clear();
         for (const row of rows) {
             const decoded = fromSerializable(row);
-            store.put(normalize ? normalize(decoded) : decoded);
+            const out = normalize ? normalize(decoded) : decoded;
+            // A normalizer returning null means "this is not a record" —
+            // drop it. put(null) would throw and abort the whole restore
+            // for one unusable row.
+            if (out === null || out === undefined) { dropped += 1; continue; }
+            store.put(out);
         }
-        tx.oncomplete = () => resolve();
+        tx.oncomplete = () => {
+            if (dropped) warn(`backup restore: ${storeName} — ${dropped} unusable row(s) dropped`);
+            resolve();
+        };
         tx.onerror = () => reject(tx.error || new Error(`fill ${storeName} failed`));
         tx.onabort = () => reject(tx.error || new Error(`fill ${storeName} aborted`));
     });
@@ -269,7 +309,7 @@ export async function restoreDatabase(name, dump, { warn = () => {} } = {}) {
             warn(`backup restore: store ${name}/${storeName} not in current schema — skipped`);
             continue;
         }
-        await clearAndFill(db, storeName, rows === null ? [] : rows, normalizers[storeName] || null);
+        await clearAndFill(db, storeName, rows === null ? [] : rows, normalizers[storeName] || null, warn);
     }
 }
 
@@ -285,16 +325,28 @@ function storageArea() {
     throw new Error('extension storage unavailable');
 }
 
+// A failed read REJECTS: read as `{}`, a merge wrote the file over local (JOURNAL 2026-09-25).
 function areaGetAll(area) {
-    return new Promise((resolve) => area.get(null, (all) => resolve(all || {})));
+    return new Promise((resolve, reject) => area.get(null, (all) => {
+        const err = Storage.lastError();
+        if (err || !all) reject(new StoreRefusedError('reading extension storage failed — nothing written (' + ((err && err.message) || 'no result') + ')'));
+        else resolve(all);
+    }));
 }
 
+// Under the locks, and before each database (its opener resolves the cache in this same microtask chain): still the verified `ws`.
+async function stillOn(ws, label) {
+    if (await Storage.verifiedWorkspaceId(label).catch(() => null) !== ws) throw new StoreRefusedError(`${label}: the workspace changed or became unreadable — stopped, nothing written past this point`);
+}
+
+// A failed remove or write rejects: ignored, a restore could empty the workspace and report success.
+const settled = (resolve, reject, what) => () => { const e = Storage.lastError(); if (e) reject(new Error(`${what} failed: ${e.message || e}`)); else resolve(); };
 function areaRemove(area, keys) {
-    return new Promise((resolve) => area.remove(keys, () => resolve()));
+    return new Promise((resolve, reject) => area.remove(keys, settled(resolve, reject, 'removing storage keys')));
 }
 
 function areaSet(area, obj) {
-    return new Promise((resolve) => area.set(obj, () => resolve()));
+    return new Promise((resolve, reject) => area.set(obj, settled(resolve, reject, 'writing storage')));
 }
 
 // 28.1 scope: the backup carries the ACTIVE workspace's content keys
@@ -304,8 +356,7 @@ function areaSet(area, obj) {
 // workspace's bare content. The databases section is already
 // active-scoped the same way: openCovered routes through the module
 // openers, which resolve the workspace-suffixed on-disk names.
-async function collectStorage() {
-    const ws = await activeWorkspaceId();
+async function collectStorage(ws) {
     const prefix = `ws:${ws}:`;
     const all = await areaGetAll(storageArea());
     const out = {};
@@ -313,19 +364,19 @@ async function collectStorage() {
         if (k.startsWith('ws:')) {
             if (ws !== 'default' && k.startsWith(prefix)) {
                 const bare = k.slice(prefix.length);
-                if (!EXCLUDED_STORAGE_KEYS.includes(bare)) out[bare] = v;
+                if (!isExcludedStorageKey(bare)) out[bare] = v;
             }
             continue;
         }
-        if (EXCLUDED_STORAGE_KEYS.includes(k)) continue;
+        if (isExcludedStorageKey(k)) continue;
         if (ws !== 'default' && WORKSPACE_CONTENT.has(k)) continue;   // default ws's content
         out[k] = v;
     }
     return out;
 }
 
-async function applyStorage(entries, warn = () => {}) {
-    const ws = await activeWorkspaceId();
+async function applyStorage(entries, ws, warn = () => {}) {
+    await stillOn(ws, 'backup restore');
     const prefix = `ws:${ws}:`;
     const area = storageArea();
     const current = await areaGetAll(area);
@@ -352,10 +403,10 @@ async function applyStorage(entries, warn = () => {}) {
     // keys plus (identity-carrying files only) install config. Other
     // workspaces are untouchable.
     const toRemove = Object.keys(current).filter((k) => {
-        if (EXCLUDED_STORAGE_KEYS.includes(k)) return false;
+        if (isExcludedStorageKey(k)) return false;
         if (k.startsWith('ws:')) {
             return ws !== 'default' && k.startsWith(prefix)
-                && !EXCLUDED_STORAGE_KEYS.includes(k.slice(prefix.length))
+                && !isExcludedStorageKey(k.slice(prefix.length))
                 && inScope(k.slice(prefix.length));
         }
         if (ws !== 'default' && WORKSPACE_CONTENT.has(k)) return false;   // default ws's content
@@ -365,7 +416,7 @@ async function applyStorage(entries, warn = () => {}) {
     // Never write the excluded keys even if a hand-edited file smuggles them in.
     const clean = {};
     for (const [k, v] of Object.entries(entries || {})) {
-        if (EXCLUDED_STORAGE_KEYS.includes(k)) {
+        if (isExcludedStorageKey(k)) {
             // Old backups (pre-B4) legitimately carry saved credentials.
             // Dropping one silently would read as "restored" — name it.
             if (CREDENTIAL_STORAGE_KEYS.includes(k)) {
@@ -419,12 +470,14 @@ async function collectDbVersions() {
  *   restore refuses it (merge is its path in).
  */
 export async function collectBackup({ includeSourceBytes = true, shareable = false } = {}) {
+    const ws = await Storage.verifiedWorkspaceId('backup export');   // JOURNAL 2026-09-25
     const databases = {};
     for (const name of WORKSPACE_DATABASES) {
         const skipStores = includeSourceBytes ? [] : (BYTE_STORES[name] || []);
+        await stillOn(ws, 'backup export');
         databases[name] = await dumpDatabase(name, { skipStores });
     }
-    let storage = await collectStorage();
+    let storage = await collectStorage(ws);
     if (shareable) {
         storage = Object.fromEntries(Object.entries(storage)
             .filter(([k]) => !IDENTITY_STORAGE_KEYS.includes(k)));
@@ -478,7 +531,7 @@ export async function collectWorkspaceSnapshot(wsId) {
             if (WORKSPACE_CONTENT.has(k)) storage[k] = v;
         } else if (k.startsWith(prefix)) {
             const bare = k.slice(prefix.length);
-            if (!EXCLUDED_STORAGE_KEYS.includes(bare)) storage[bare] = v;
+            if (!isExcludedStorageKey(bare)) storage[bare] = v;
         }
     }
     const databases = {};
@@ -553,13 +606,19 @@ export async function applyBackup(backup, { warn = () => {} } = {}) {
             + 'replace-all restore would ERASE the identities on this machine. '
             + 'Use "Import & merge" to bring its content in.');
     }
+    const ws = await Storage.verifiedWorkspaceId('backup restore');   // before anything opens or writes
     await assertBackupNotNewer(backup);
-    await applyStorage(backup.storage, warn);
+    // Under the keystore lock: this replaces `local_keys` wholesale, and
+    // a key write in flight on another page (which read the store before
+    // this) would otherwise land after it and put the old keys back
+    // (JOURNAL 2026-09-24). Nothing inside calls a keystore or registry writer.
+    await withKeyStoreLock(() => withEntityStoreLock(() => applyStorage(backup.storage, ws, warn)));
     for (const [name, dump] of Object.entries(backup.databases || {})) {
         if (!WORKSPACE_DATABASES.includes(name)) {
             warn(`backup restore: database ${name} not covered — skipped`);
             continue;
         }
+        await stillOn(ws, 'backup restore');
         await restoreDatabase(name, dump, { warn });
     }
 }
@@ -636,8 +695,8 @@ export function mergeStorageValue(localRaw, incomingRaw) {
     return { added, value: local.wasString ? JSON.stringify(out) : out };
 }
 
-async function mergeStorage(entries) {
-    const ws = await activeWorkspaceId();
+async function mergeStorage(entries, ws) {
+    await stillOn(ws, 'backup merge');
     const prefix = `ws:${ws}:`;
     const area = storageArea();
     const current = await areaGetAll(area);
@@ -645,7 +704,7 @@ async function mergeStorage(entries) {
     const stats = { keysAdded: 0, keysMerged: 0, idsAdded: 0, keysUnchanged: 0, keysSkippedNonContent: 0 };
     const writes = {};
     for (const [k, v] of Object.entries(entries || {})) {
-        if (EXCLUDED_STORAGE_KEYS.includes(k) || MERGE_EXCLUDED_KEYS.has(k) || !WORKSPACE_CONTENT.has(k)) {
+        if (isExcludedStorageKey(k) || MERGE_EXCLUDED_KEYS.has(k) || !WORKSPACE_CONTENT.has(k)) {
             stats.keysSkippedNonContent += 1;   // config/identity/key material never merges
             continue;
         }
@@ -772,8 +831,10 @@ async function mergeIntoDatabase(name, dump, { warn = () => {}, onProgress = () 
 export async function mergeBackup(backup, { warn = () => {}, onProgress = () => {} } = {}) {
     const problems = validateBackup(backup);
     if (problems.length) throw new Error(`invalid backup: ${problems.join('; ')}`);
+    const ws = await Storage.verifiedWorkspaceId('backup merge');
     await assertBackupNotNewer(backup);
-    const storage = await mergeStorage(backup.storage);
+    // Under the registry lock, like the restore (it never merges `local_keys`).
+    const storage = await withEntityStoreLock(() => mergeStorage(backup.storage, ws));
     const databases = {};
     // A merge has NO cross-stage rollback: storage commits before the
     // databases, and each store commits in its own transaction. So a
@@ -789,6 +850,7 @@ export async function mergeBackup(backup, { warn = () => {}, onProgress = () => 
             continue;
         }
         try {
+            await stillOn(ws, 'backup merge');   // a moved pointer fails THIS database, reported below
             databases[name] = await mergeIntoDatabase(name, dump, { warn, onProgress });
         } catch (err) {
             const message = (err && err.message) || String(err);

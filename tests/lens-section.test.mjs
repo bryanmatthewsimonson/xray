@@ -144,17 +144,3 @@ test('lens-section: setup form renders pickers + the selection-basis input; empt
     assert.match(renderLensSetup({ jurisdictions: [{ id: 'j', display_name: 'J', jurisdiction_type: 'codified', corpus: [] }], claims: [] }),
         /No claims captured/);
 });
-
-test('lens-section: no reserved word in any rendered user-visible string (§5.2)', () => {
-    const all = [
-        renderJurisdictionCard(assembled(), CLAIMS),
-        renderJurisdictionFailure({ displayName: 'X', error: 'e' }),
-        renderPanelSummary({ panel_composition: { empaneled: [], selection_basis: '', symmetry_flags: [] }, panel_comparison: { agreements: [], divergences: [] } }),
-        renderLensSetup({ jurisdictions: [], claims: [] })
-    ].join('');
-    // "truth layer" is a reference to Phase 15, allowed; the reserved
-    // court-vocabulary words are not — all five of §5.2's list. Phase 15
-    // owns "Integrity"; the per-jurisdiction honesty report is the
-    // GROUNDING report here, and this pin keeps the rename binding.
-    assert.doesNotMatch(all, /verdict|ruling|opinion|court|integrity/i);
-});

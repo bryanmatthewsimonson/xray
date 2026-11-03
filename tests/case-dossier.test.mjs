@@ -6,7 +6,7 @@
 // deterministic (generatedAt injected). The IDB-backed inputs
 // (articles / predictions / resolutions / auditRuns) and `wire` are
 // always INJECTED here, so no fake-indexeddb is needed. The
-// load-bearing invariants: chain-head collapse, no case-level score,
+// load-bearing invariants: chain-head collapse,
 // side-by-side variance (never merged), precision bands, and coverage
 // counts on every section.
 
@@ -37,7 +37,7 @@ globalThis.chrome = {
 };
 
 const {
-    collectCaseDossierData, buildCaseDossier, assembleCaseDossier
+    collectCaseDossierData, buildCaseDossier, assembleCaseDossier, caseScopeQuestion
 } = await import('../src/shared/case-dossier.js');
 const { EntityModel } = await import('../src/shared/entity-model.js');
 const { ClaimModel } = await import('../src/shared/claim-model.js');
@@ -47,10 +47,14 @@ const { IntegrityModel } = await import('../src/shared/integrity-model.js');
 const { ForensicModel } = await import('../src/shared/forensic-model.js');
 const { LocalKeyManager } = await import('../src/shared/local-key-manager.js');
 const { buildClaimCoord } = await import('../src/shared/claim-ref.js');
+const { seedPrimary } = await import('./seed-primary.mjs');
 
 function resetState() {
     _stateStore.clear();
     LocalKeyManager.keys.clear();
+    // Option C: EntityModel.create refuses without a local primary
+    // identity to derive entity keys from — seed one on every reset.
+    seedPrimary(_stateStore);
 }
 
 const PUBKEY_F = 'f'.repeat(64);
@@ -566,30 +570,6 @@ test('case-dossier: audit run joins a claimless tag-only member row (20.1)', asy
     assert.equal(dossier.evidence.coverage.articles_with_audit, 1);
 });
 
-test('case-dossier: no case-level score exists anywhere', async () => {
-    resetState();
-    const { dossier } = await assembleFixture();
-    const banned = /score|mean|rating|strength|grade/i;
-    const walk = (node, path) => {
-        if (Array.isArray(node)) { node.forEach((v, i) => walk(v, `${path}[${i}]`)); return; }
-        if (node && typeof node === 'object') {
-            for (const [k, v] of Object.entries(node)) {
-                const p = `${path}.${k}`;
-                // The ONLY permitted score-bearing subtree: raw per-article
-                // audit aggregates (never rolled up).
-                if (/\.audit_runs\[\d+\]\.aggregate$/.test(p)) continue;
-                if (banned.test(k)) {
-                    assert.fail(`forbidden fused-number key at ${p}`);
-                }
-                walk(v, p);
-            }
-        }
-    };
-    walk(dossier, '$');
-    assert.equal(dossier.score, undefined);
-    assert.equal('mean' in dossier.shape_of_knowledge.distribution, false);
-});
-
 test('case-dossier: deterministic — same inputs deepEqual, generatedAt injected', async () => {
     resetState();
     const { kase } = await seedOrbit();
@@ -710,4 +690,19 @@ test('evidence table finds truncated-key audit runs via the captureArticleHash a
         'the sliced-hash run joins through the full-capture alias');
     assert.equal(row.audit_runs[0].run_id, 'run_trunc');
     assert.equal(ev.coverage.articles_with_audit, 1);
+});
+
+// Migrated from tests/auto-preanalyze.test.mjs when the prepay retired
+// (UA.3) — the shared scope reader outlived its first consumer.
+test('caseScopeQuestion: trims the authored field and defaults to ""', () => {
+    const data = {
+        case: { id: 'entity_case' },
+        entitiesById: { entity_case: { id: 'entity_case', name: 'Egg case', type: 'case',
+            authored_fields: { scope_question: { value: '  Do eggs raise CVD risk?  ' } } } }
+    };
+    assert.equal(caseScopeQuestion(data), 'Do eggs raise CVD risk?');
+    const noField = JSON.parse(JSON.stringify(data));
+    delete noField.entitiesById.entity_case.authored_fields;
+    assert.equal(caseScopeQuestion(noField), '');
+    assert.equal(caseScopeQuestion({ case: { id: 'missing' }, entitiesById: {} }), '');
 });

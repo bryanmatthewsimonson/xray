@@ -65,9 +65,14 @@ test('queryRelays returns verified events and resolves on EOSE', async () => {
     const b = await signedEvent('relay event B');
     FakeWebSocket.script.set(url, [a, b]);
 
+    // Wide margin on purpose: the suite runs files in parallel, and
+    // under full-suite CPU load (schnorr verification in sibling
+    // processes) the old 500ms-timeout / <400ms-assert pair flaked —
+    // wall-clock crossed the window even though EOSE resolved it. EOSE
+    // fires ~immediately; the 5s timeout stays discriminating.
     const started = Date.now();
-    const out = await NostrClient.queryRelays([url], { kinds: [1] }, 500);
-    assert.ok(Date.now() - started < 400, 'resolved on EOSE, not the timeout');
+    const out = await NostrClient.queryRelays([url], { kinds: [1] }, 5000);
+    assert.ok(Date.now() - started < 4000, 'resolved on EOSE, not the timeout');
     assert.equal(out.events.length, 2);
     assert.equal(out.invalid, 0);
     assert.equal(out.byRelay[url].received, 2);

@@ -7,25 +7,13 @@
 import { CONFIG, applyConfigOverrides } from '../shared/config.js';
 import { Utils } from '../shared/utils.js';
 import { Storage } from '../shared/storage.js';
-import { LocalKeyManager } from '../shared/local-key-manager.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
 import { Signer } from '../shared/signer.js';
 import { NIP07Client } from './nip07-client.js';
-import { UI } from './ui.js';
-import { startOverlay, withOverlaySuspended } from './overlay.js';
-import { mountFrame } from './overlay-frame.js';
-import { isWatchPage, videoSeconds } from './overlay-youtube.js';
+import { recordSigningState } from './signing-state.js';
+import { bootOverlay, capturePage, overlayAddNote } from './overlay-boot.js';
 import { installBufferListener, configureInterceptor } from '../shared/api-hook-buffer.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
-
-// The inline overlay's handle, once started (flag on). Every capture runs
-// with it suspended, so no overlay node can reach the extracted DOM.
-let overlayHandle = null;
-
-/** Capture this page (UI.openReader) with the inline overlay suspended. */
-function capturePage(opts) {
-    return withOverlaySuspended(overlayHandle, () => UI.openReader(opts));
-}
 
 async function init() {
     // Initialize storage (migrates from any legacy GM storage if present).
@@ -87,8 +75,8 @@ async function init() {
         ]);
     }
 
-    // Initialize local key manager.
-    await LocalKeyManager.init();
+    // No keystore here (THREAT_MODEL G10, closed 2026-09-24): this
+    // script runs on every web page and never signs with entity keys.
 
     // Wire the Signer façade to this context's NIP-07 client. Local and
     // NSecBunker work without injection.
@@ -163,30 +151,7 @@ async function init() {
         maybeAutomationCapture().catch((err) =>
             Utils.error('Automation capture marker failed:', err));
     });
-
-    // Inline overlay (flag inlineOverlay, default OFF): local markers for
-    // the page's notes/claims. Failure here must never affect capture.
-    try {
-        await loadFlags();
-        if (isEnabled('inlineOverlay')) {
-            // The card iframe (extension origin) renders all content; the
-            // overlay hands it ids through an isolated-world callback.
-            let overlay = null;
-            const frame = mountFrame({
-                window, document, chrome,
-                notify: (m) => UI.showToast(m, 'warning'),
-                onChanged: () => overlay && overlay.refresh()
-            });
-            overlay = overlayHandle = startOverlay({
-                window, document, chrome,
-                onOpen: (d) => frame.open(d),
-                onClose: () => frame.close(),
-                getVideoSeconds: () => (isWatchPage(window.location.href) ? videoSeconds(document) : null)
-            });
-        }
-    } catch (err) {
-        Utils.error('Inline overlay failed to start:', err);
-    }
+    await bootOverlay();   // inline overlay (flag-gated; never affects capture)
 }
 
 /**
@@ -209,7 +174,7 @@ async function maybeAutomationCapture() {
         // toolbar would naturally allow.
         setTimeout(() => {
             try {
-                capturePage().catch((err) => Utils.error('Automation capture failed:', err));
+                capturePage();
                 document.documentElement.dataset.xrayCaptured = 'ok';
             } catch (err) {
                 document.documentElement.dataset.xrayCaptured = 'error';
@@ -241,31 +206,6 @@ function stripCaptureMarker() {
     }
 }
 
-/**
- * Persist the resolved signing state to chrome.storage.local so the
- * options Signing tab can show an honest status instead of always
- * falling through to "not detected" — the bug closed by issue #2.
- *
- * Writes the value JSON-stringified to match the convention of every
- * other key written through `Storage` (see `src/shared/storage.js` —
- * `set` always JSON.stringifies). The popup's `safeParse` handles
- * the round-trip.
- */
-function recordSigningState(method, pubkey = null) {
-    try {
-        const payload = JSON.stringify({
-            method,                       // 'local' | 'nip07' | 'nsecbunker' | 'unconfigured' | '<x>-missing'
-            pubkey,                       // hex pubkey when known, else null
-            detectedAt: Date.now()
-        });
-        chrome.storage.local.set({ xr_signing_state: payload });
-    } catch (err) {
-        // Best-effort — never let a popup-visibility nicety crash the
-        // content script's init.
-        Utils.log('Failed to persist signing state:', err && err.message);
-    }
-}
-
 // Wire message handler for background-service-worker commands.
 // The background worker dispatches:
 //   { type: 'xray:capture' }        — capture this page and open the reader
@@ -279,15 +219,14 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
         try {
             switch (msg && msg.type) {
                 case 'xray:capture':
-                    capturePage().catch((err) => Utils.error('Capture failed:', err));
+                    capturePage();
                     sendResponse({ ok: true });
                     break;
                 case 'xray:capture:transcribe':
                     // "Capture & transcribe locally" (YouTube menu item).
                     // Same fire-and-forget ack as xray:capture — the ack
                     // means "content script alive", not "capture done".
-                    capturePage({ transcribe: true })
-                        .catch((err) => Utils.error('Capture failed:', err));
+                    capturePage({ transcribe: true });
                     sendResponse({ ok: true });
                     break;
                 case 'xray:getPubkey':
@@ -300,6 +239,10 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
                         .then((signed) => sendResponse({ ok: true, event: signed }))
                         .catch((err) => sendResponse({ ok: false, error: err && err.message }));
                     return true; // keep channel open for the async response
+                case 'xray:overlay:addNote':
+                    overlayAddNote();
+                    sendResponse({ ok: true });
+                    break;
                 default:
                     sendResponse({ ok: false, error: 'unknown message type' });
             }

@@ -1,0 +1,113 @@
+{
+  "builder": {
+    "fn": "EventBuilder.buildClaimEvent",
+    "module": "src/shared/event-builder.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "Jane Roe runs Acme Corp.",
+    "created_at": 1700000000,
+    "id": "4ea008775496229ddc089861f527627129caeff119b1e27b54cd65b79d7e3e9a",
+    "kind": 30040,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "3247d487246d96151cfe4ddfa2059f4bf20108248b2829932e77fc0858581c1c8de5c9bf81411b5030c2907577fe1b7593b15998e2ca9156b6ee57c9ae31c15d",
+    "tags": [
+      [
+        "d",
+        "claim_c6bfed4695f9ee16"
+      ],
+      [
+        "r",
+        "https://example.com/story"
+      ],
+      [
+        "title",
+        "The Story"
+      ],
+      [
+        "p",
+        "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+        "",
+        "about"
+      ],
+      [
+        "entity",
+        "Jane Roe",
+        "about"
+      ],
+      [
+        "p",
+        "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+        "",
+        "source"
+      ],
+      [
+        "source",
+        "Jane Roe"
+      ],
+      [
+        "key",
+        "true"
+      ],
+      [
+        "anchor",
+        "[{\"exact\":\"Jane Roe runs Acme Corp.\",\"type\":\"TextQuoteSelector\"}]"
+      ],
+      [
+        "quote",
+        "Jane Roe runs Acme Corp."
+      ],
+      [
+        "x",
+        "8985c947c93381b7710bec87af9ab745569fce4fa35b50c2cf5ab769ede07cd6"
+      ],
+      [
+        "captured_at",
+        "1699999940"
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "articleTitle": "The Story",
+    "articleUrl": "https://example.com/story",
+    "claim": {
+      "about": [
+        "entity_8f345c643bec5da6"
+      ],
+      "anchor": [
+        {
+          "exact": "Jane Roe runs Acme Corp.",
+          "type": "TextQuoteSelector"
+        }
+      ],
+      "article_hash": "8985c947c93381b7710bec87af9ab745569fce4fa35b50c2cf5ab769ede07cd6",
+      "created": 1699999940,
+      "id": "claim_c6bfed4695f9ee16",
+      "is_key": true,
+      "quote": "Jane Roe runs Acme Corp.",
+      "source": "entity_8f345c643bec5da6",
+      "text": "Jane Roe runs Acme Corp."
+    },
+    "entities": {
+      "entity_8f345c643bec5da6": {
+        "id": "entity_8f345c643bec5da6",
+        "keypair": {
+          "pubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"
+        },
+        "name": "Jane Roe",
+        "type": "person"
+      }
+    },
+    "predictionRef": null,
+    "userPubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+  },
+  "kind": 30040,
+  "notes": "Thin entity-centric claim: about + source entity (TV3), key flag, anchor/quote/x/captured_at provenance.",
+  "rebuild": "exact",
+  "shape": "claim",
+  "signer": "TV1"
+}

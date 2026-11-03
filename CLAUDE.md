@@ -18,8 +18,16 @@ modules still carry userscript-era idioms (see Conventions).
 npm install            # required first — a fresh clone has no node_modules
 npm run build          # esbuild → dist/*.bundle.js (+ .map). No transpile step.
 npm run watch          # incremental rebuild
-npm test               # node --test tests/*.test.mjs  (~2500 tests, must be green)
+npm test               # node --test tests/*.test.mjs  (~3000 tests, must be green)
+npm run smoke          # browser smoke: loads the built extension in headless Chromium
+                       #   (needs `npx playwright install chromium` once); CI runs it too
 npm run lint           # web-ext lint --self-hosted (what CI gates on)
+npm run lint:js        # ESLint (no-undef, no-unused-vars) vs the SHRINK-ONLY
+                       #   scripts/eslint-baseline.json; `-- --update` only lowers it
+npm run check:version  # package.json and manifest.json versions agree
+npm run check:package  # the web-ext zip holds every required file, no new leak
+                       #   (after `npx web-ext build --overwrite-dest`)
+npm run check:budget   # dist bundles under scripts/bundle-budget.json (after build)
 npm run version:set X  # bump package.json + manifest.json in lockstep
 npm run clean          # rm -rf dist
 ```
@@ -75,7 +83,8 @@ the single most important thing here.
    iframe).
    Cannot open WebSockets to relays on CSP-strict sites, so it delegates
    publish.
-2. **Background service worker** (`src/background/index.js`, ESM) — owns
+2. **Background service worker** (`src/background/index.js`, ESM; the
+   LLM-job dispatch sits beside it in `src/background/llm-jobs.js`) — owns
    the **relay WebSocket pool** (connections survive tab navigation and
    aren't subject to page CSP — this is *why* the pool lives here, not in
    the content script), context menus, toolbar/keyboard commands,
@@ -109,9 +118,25 @@ extension approves in-context.
 (e.g. `xray:capture`, `xray:capture:transcribe`, `xray:capture:publish`,
 `xray:relay:publish`, `xray:relay:query`, `xray:sign`,
 `xray:youtube:fetchTranscript`, `xray:screenshot:capture`,
-`xray:llm:suggest`, `xray:audit:run`, `xray:transcribe:{start,status,
-config,ping,claims}`, `xray:vision:describe`). When adding a cross-context
+`xray:llm:job:{start,status,find,ack}`, `xray:llm:models`, `xray:audit:module`,
+`xray:transcribe:{start,status,config,ping,claims}`,
+`xray:transcribe:direct:{start,status}`, `xray:vision:describe`). When adding a cross-context
 call, add an `xray:*` message rather than reaching across contexts directly.
+**A pass that can run past a few minutes must be a job, never a single
+held-open message** — the transcribe and LLM-job families are the precedents.
+Every single-call LLM pass is a **job** on `xray:llm:job:*`
+(`shared/llm-jobs.js`: start answers at once, the raw result is persisted
+under the job id before any response hop, the page long-polls and acks
+only once it holds the result — persisted, or shown on a visible review
+surface; a held-open message dies at MV3's 5-minute request kill and
+takes the paid result with it — JOURNAL 2026-09-05). The pass table in
+`background/llm-jobs.js` is the allowlist: corpus map / reduce, entity
+page, hypothesis edges, claim links, the forensic corpus pass, the entity
+audit, and the reader's Quick audit (`audit-run`, formerly
+`xray:audit:run`). The job ops answer extension pages only, and the
+worker refuses a request-scoped pass whose scope key does not end in its
+request's hash. A new LLM pass is a pass-table line plus its caller;
+`tests/llm-jobs.test.mjs` names the four per-unit passes still held open.
 
 ### Shared layer (`src/shared/`)
 
@@ -120,12 +145,73 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
 
 - **`storage.js`** — `chrome.storage.local` wrapper; the **canonical source
   of truth**. Preserves the userscript's outer API (`Storage.get/set/...`
-  plus `publications`/`people`/`organizations`/`preferences`/`keypairs`
-  sub-objects) so callers didn't change during the port. Values are
-  JSON-serialized for export/import compatibility. Note: the **primary
-  signing identity (Local mode) lives under a separate
-  `local_primary_identity` key**, deliberately *outside* the keypair
-  registry, so exporting entity keys never leaks the user's nsec.
+  plus `preferences`/`primaryIdentity`/`platformAccounts`/`relays`
+  sub-objects) so callers didn't change during the port; the
+  userscript-era `publications`/`people`/`organizations`/`keypairs`
+  sub-objects are gone (removed 2026-07-01), and captured articles live
+  in `archive-cache.js`'s IndexedDB, not here — `entities`/`articleCache`
+  survive only as v4-compat stubs. `articleCache` is dead, but
+  `entities` is a null-object default that `entity-model.js` swaps for
+  the real registry at runtime and `event-builder.js` reads when
+  publishing — never delete it as dead (K14 in ROAD_TO_1_0 is blocked
+  on exactly that). Values are JSON-serialized for export/import
+  compatibility. Note: the **primary signing identity (Local mode) lives
+  under a separate `local_primary_identity` key**, deliberately *outside*
+  the per-entity key registry (`local_keys`), so exporting entity keys
+  never leaks the user's nsec. **Keystore write contract (JOURNAL
+  2026-09-24):** every incremental `local_keys` write goes
+  through `local-key-manager.js` — a locked read-modify-write of fresh
+  storage that aborts on a failed read; `save()` is gone and `upsertKeys` is the
+  only path that overwrites an occupied name, the three wholesale
+  writers (backup restore, workspace reset/removal) replace or clear
+  `local_keys` directly but take the same lock via `withKeyStoreLock`. That lock is the Web Lock `xray.local_keys`, a
+  cross-page primitive deliberately outside the `xray:*` bus; it refuses
+  to run outside an extension origin, and content scripts hold no
+  keystore. **The entity registry (JOURNAL 2026-09-25)** follows the
+  same contract: every incremental `entities` write goes through
+  `entity-model.js`, a locked read-modify-write of a fresh STRICT read
+  under the Web Lock `xray.entities` (a failed read writes nothing);
+  the wholesale writers (backup restore and merge, workspace reset and
+  removal) write or clear `entities` directly under
+  `withEntityStoreLock`. Restore, reset and removal nest the registry
+  lock inside the keystore lock (never the reverse); merge takes only
+  the registry lock (it never merges `local_keys`). **The workspace
+  pointer: ONE cached pointer per page.** Every read and write — plain
+  and strict `Storage` calls, the locked writes, the keystore Map and
+  `signEvent`, the entity list, the IndexedDB names and the LLM-job
+  scope (`workspace-keys.js` defers to `storage.js`'s cache once it
+  loads) — resolves the workspace through `storage.js`'s cached
+  pointer, which reads a failed pointer read as `'default'` and caches
+  it until the pointer next changes; callers that find the cache empty
+  share ONE read. So a fault misroutes a page consistently (as on
+  main; this and the other residuals are named follow-ups in JOURNAL
+  2026-09-25). The keystore Map serves a key only while the pointer
+  names the workspace the Map was loaded under, so WITHIN ONE
+  `get`/`getAll` call a record is paired only with its own workspace's
+  key. A record held ACROSS a switch gets a refused signature, not a
+  wrong one (`signEvent` refuses a key that does not hold the event's
+  `pubkey`), and the case bundle joins from one `getAll` snapshot and
+  produces no file if the pointer moved at any point. A step of an
+  operation planned in one workspace (entity create / delete,
+  `importRecord` / `importForeign` — which judge "is a key installed?"
+  from a strict `local_keys` read, never the Map — the case-bundle
+  import, the sync pull, key restore) is refused, never redone in
+  another; single-step edits (`update`, `linkAlias`, the publish
+  stamps) still land in whichever workspace is current. The
+  destructive wholesale operations (reset, workspace removal, backup
+  restore / merge / export, the reset's safety backup) first re-read
+  the pointer strictly (`Storage.verifiedWorkspaceId`) and refuse with
+  a `StoreRefusedError` — nothing written or downloaded — when that
+  read fails or disagrees with the cache; then each later step that
+  resolves the workspace through the cache re-verifies first (each
+  database a restore, merge or export fills or dumps, each key the
+  safety backup reads or the reset clears, the storage phase under
+  the locks), except the version pre-checks (`collectDbVersions`,
+  `assertBackupNotNewer`), which open each database through the cache
+  unverified; the removal does not re-check between its deletes; and
+  a reset handed its safety file's `workspace` (Options passes it)
+  refuses any other. Never add a second pointer read to an ordinary
+  path.
 - **`signer.js`** — unified signing façade over Local / NIP-07 /
   NSecBunker, dispatched on `preferences.signing_method`. NIP-07 only works
   where a `nip07Client` is injected (`Signer.configure({ nip07Client })`),
@@ -157,7 +243,8 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   state) in `extraction-publish.js`; and the opt-in NIP-02 follow-list
   mirror (kind `3`) in `follow-publish.js`. The moral lens (Phase 16) and the case
   dossier / graph / hypothesis-map / counterfactual (Phases 20 + 26) are
-  derived views with **no wire kind** (`30066` stays free, guard-tested).
+  derived views with **no wire kind** (`30066` reserved — lens, if ever
+  ratified; guard-tested, never emitted).
   **Wire-format changes in any of these have compatibility
   consequences for anyone consuming X-Ray events — call them out
   explicitly.**
@@ -196,15 +283,19 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   `lens_jurisdictions`; zero built-ins), `lens-schemas.js` (the §7
   contract validators, over the shared `schema-walker.js`),
   `lens-prompt.js` (`LENS_PROMPT_VERSION`), `lens-engine.js` (pre-flight
-  refusals, code-side assembly, panel composition, the session-ONLY
-  cache — deliberately no `storage.local` fallback),
+  refusals, code-side assembly, panel composition, the session
+  cache — no `storage.local` fallback today; a lasting local cache is
+  allowed, R-025, but not built),
   `reader/lens-section.js` (pure HTML renderers). One `xray:lens:read`
   call per jurisdiction; gated by `moralLens` + the API key,
-  independent of `llmAssist`. **No wire kind** — 30066 stays free and
-  the 16.4 guards machine-check it; "Verdict/Ruling/Opinion/Court/
-  Integrity" never appear in lens exports, storage keys, or UI strings.
+  independent of `llmAssist`. **No wire kind** — 30066 is reserved
+  (CONSTITUTION Art. 10) and the 16.4 guards machine-check it.
 - Also: `nostr-client.js` (relay pool, used from background),
   `archive-cache.js` (IndexedDB + paywall reconstruction),
+  `llm-jobs.js` (the LLM job runner + page client — the long
+  corpus-map / corpus-reduce / entity-page passes as start/status jobs
+  with the raw result persisted under `xray:llm-job:*` before any
+  response hop; backup-excluded; JOURNAL 2026-09-05),
   `build-info.js` (the build stamp shown on the Options page),
   `transcriber-client.js` + `diarized-transcript.js` (local
   transcription: the loopback companion client — pinned to
@@ -227,6 +318,23 @@ it; CI's `node --check`/tests never touch it). Setup + API contract:
 as before whenever the service is absent — that degradation is a
 tested contract, not an aspiration.
 
+Since DC.1 (`docs/DIRECT_CLOUD_TRANSCRIBE_KICKOFF.md`) that sentence
+carries TWO meanings, and both hold. The old one: with no companion and
+no direct flag, every transcription surface degrades exactly as before.
+The new one: with the default-off `directCloudTranscription` flag on,
+`shared/direct-transcribe.js` transcribes with **no companion at all** —
+the service worker hands AssemblyAI the media URL and they fetch the
+audio themselves. That module is a SIBLING of `transcriber-client.js`,
+never an extension of it: it imports only the credential key NAME, since
+`companionFetch` attaches the companion's shared token to every request.
+Its provider origin is a pinned https literal (guard:
+`tests/provider-host-pin.test.mjs`), and its result normalizer
+(`shared/provider-normalize.js`) is a JS twin of the companion's
+`providers/normalize.py` held in parity by a fixture BOTH suites read
+(`tests/fixtures/normalizer-parity.json`; regenerate with
+`tests/tools/regen-normalizer-fixture.py`). Changing either normalizer
+without the other is the design's named long-term risk.
+
 ## Conventions
 
 - **Indentation: 4 spaces** in JS authored here; **2 spaces** in files
@@ -242,7 +350,30 @@ tested contract, not an aspiration.
   to build Markdown, not UI). The legacy `nac-*` / `nmd-*` prefixes are
   fully gone; don't reintroduce them.
 - **Logging:** use `Utils.log` / `Utils.error` (no-ops when `CONFIG.debug`
-  is false). Don't add bare `console.log`.
+  is false). Don't add bare `console.log`. Note `Utils.error` always
+  prints, and the browser smoke's `pages` scenario FAILS a page that
+  emits one during init — an error the product reports is a defect the
+  gate observes, not noise.
+- **Golden fixtures + structure guard (RESET_PLAN R0):**
+  `tests/fixtures/idb/` (one dump per shipped schema rung),
+  `tests/fixtures/wire/` (one signed event per emitted kind and shape),
+  and `tests/fixtures/backup/` (the `xray-backup/1` envelope) are
+  byte-deterministic outputs of `tests/tools/gen-{idb,wire,backup}-fixtures.mjs`
+  under the three BIP-340 vector keys in `tests/tools/fixture-keys.mjs`
+  — never any other key. A `DB_VERSION` bump, a builder tag/content
+  change, or an envelope change is red until you regenerate and commit
+  the diff (and call it out — `Wire format:` — in the PR).
+  `tests/structure-guards.test.mjs` pins the import graph, the
+  `xray:*` message registry, DOM use in `src/shared`, per-surface
+  `index.js` line ceilings, and a bare-`console` ratchet; every
+  allowlist and ceiling is **shrink-only** — extract, never raise.
+- **Browser-smoke seams:** every extension page ends its init with
+  `markReady('<dir>')` from `src/shared/smoke-anchors.js` (the `pages`
+  scenario waits for the stamp; a new page under `src/<dir>/` whose
+  shell loads a `dist/` bundle is discovered automatically). Elements a
+  smoke scenario selects get a `data-xr` value from `SMOKE_ANCHORS` in
+  that module — never a literal — and `tests/smoke-selectors.test.mjs`
+  fails when a table value is set nowhere in `src/`.
 - **User-visible strings** use "X-Ray" (hyphenated). Avoid emoji in code
   unless it's genuinely part of the UI.
 - **Version lockstep:** `package.json` and `manifest.json` versions MUST
@@ -262,11 +393,31 @@ tested contract, not an aspiration.
 - **Commit messages:** imperative present tense; `fix:`/`feat:`/`chore:`/
   `docs:`/`ci:` prefixes, scope in parens when useful
   (`fix(youtube): …`). One concern per PR.
+- **PR bodies** carry RESET_PLAN §8's contract, laid out in
+  `.github/pull_request_template.md`: `Verification layer:`, `Wire
+  format:` (when a wire-lane builder/publisher changed), `Docs:`,
+  `Interpretive steps (n):` (one list item each, with its recommended
+  default), and `Cross-lane: <reason>` when the `src/` edits span lanes
+  (look yours up in `scripts/lanes.mjs`). A `fix:` PR needs a `tests/`
+  diff or a `no-test rationale:` line; a PR touching a process file
+  (`.github/**`, `.claude/skills/**`, `docs/SMOKE_TEST.md`,
+  `CONTRIBUTING.md`, this file) adds a JOURNAL entry or cites one as
+  "JOURNAL YYYY-MM-DD". `.github/workflows/pr-body.yml` runs
+  `scripts/pr-body-check.mjs` on every PR — advisory until the
+  maintainer makes it a required check.
+- **Markers and rulings** (CONTRIBUTING, "Governance"; RESET_PLAN §4.4
+  item 1; R-022): a constraint stated in a design doc, kickoff, PR body,
+  guard-test header or prompt file carries a `[RULING: …]`,
+  `[INTERPRETATION: …]` or `[ENGINEERING-FACT: …]` marker; one with no
+  marker is an INTERPRETATION. A maintainer ruling is a row in
+  `docs/RULINGS.md` quoting the maintainer's own words; JOURNAL entries
+  cite its R-id instead of restating it.
 
 ## Project docs (read these for non-trivial work)
 
 - **`docs/CONSTITUTION.md`** — the **supreme normative document**
-  (v1.0.0, drafted 2026-07-22; ratified by maintainer merge, Art. 14).
+  (v1.1.0, drafted 2026-07-22; ratified by maintainer merge, Art. 14;
+  amended 2026-09-26).
   Consult it before any structural,
   normative, scoring, schema, or wire-format change anywhere in the
   project. Citation convention (binding): bare `P<n>` refers only to
@@ -281,7 +432,10 @@ tested contract, not an aspiration.
   first principles), Art. 13 (three-tier
   amendment). Machine-checked by `tests/constitution-guards.test.mjs`
   — a red guard is a bug or an unratified amendment; keep it green.
-- **`docs/DISCIPLINES.md`** — **Discipline Standards** (organic statute
+- **`docs/RULINGS.md`** — the rulings ledger: binding, subordinate to the
+  constitution (CONSTITUTION Art. 2). Seed rows R-001–R-017 are marked
+  pending until the maintainer confirms them.
+- **`docs/DISCIPLINES.md`** — **Discipline Standards** (advice
   under CONSTITUTION Art. 9): fifteen disciplines, each with standards
   **derived from first principles** (§0 documents the method that
   produced PHILOSOPHY.md — the idealized-practitioner question is
@@ -293,12 +447,19 @@ tested contract, not an aspiration.
   (`// Standards: <id> — docs/DISCIPLINES.md §n.`) —
   `tests/disciplines.test.mjs` fails any "You are" prompt file without
   one.
-- **`.claude/skills/`** — eight of the nine skills here are the
+- **`.claude/skills/`** — thirteen skills. Eight are the
   **dev-process** disciplines (distinct from DISCIPLINES.md, which
-  governs the disciplines the *product* draws on); the ninth,
-  `xray-capture`, is an operational skill that drives the loaded
-  extension through the claude-in-chrome connector to capture URLs.
-  The disciplines — `product-manager`, `architect`,
+  governs the disciplines the *product* draws on); four more are
+  dev-process skills without a `## Standards` section, so the
+  generated page below leaves them out — `ux-designer` (surface
+  reviews), `seam-and-invariant-check` (a pre-commit checklist),
+  `hand-to-maintainer` (handing manual checks over as runnable steps)
+  and `governance` (a review aid for diffs that touch or invoke the
+  governance corpus — its standards sit under `## Review standards`;
+  it reads the sources, keeps no copy, and never rules); the
+  thirteenth, `xray-capture`, is an operational skill that drives the
+  loaded extension through the claude-in-chrome connector to capture
+  URLs. The disciplines — `product-manager`, `architect`,
   `continuous-improvement`, `automator`, `ecosystem-pm`,
   `verification-engineer`, `security-threat-modeler`,
   `schema-evolution` — are written in the same §0 method. Each produces
@@ -308,21 +469,28 @@ tested contract, not an aspiration.
   routing, the shared release-preflight ordering, and the seam map
   (who owns a contested call — e.g. `ecosystem-pm` declares the
   canonical `Wire format:` PR callout). Read the governing skill before
-  a wire change, a schema change, a new surface, or a release tag.
+  a wire change, a schema change, a normative-doc edit, a new surface,
+  or a release tag.
   `docs/discipline-standards.html` renders all eight on one page
   (GENERATED — `npm run docs:disciplines`, drift-guarded by
   `tests/discipline-docs.test.mjs`).
-- **`docs/TRUTH_SYSTEMS.md`** — the constitution's evidentiary annex:
+- **`docs/TRUTH_SYSTEMS.md`** — the constitution's evidentiary annex,
+  advice since 2026-09-26, not law (CONSTITUTION Art. 2):
   16 truth-adjudication systems surveyed, invariants I-1–I-18 (the gap
   list is the constitutional roadmap-seed registry), subversion modes
   S-1–S-9 with residual risks stated honestly, the seven-constraint
-  §3.3 bridging license (what CONSTITUTION Art. 5.5 adopts), and the
-  honest-limits clauses H-1–H-7 (including H-7, the persuasion line:
-  make honesty louder, never make loudness a method).
-- **`docs/ROADMAP.md`** — per-phase scope. Currently through Phase 28
-  (v0.7.0 tagged 2026-07-16 — the first GitHub Release since v0.5.1; see
-  CONTRIBUTING for the tag-driven release process). Complete and merged:
-  Phases 10 (thin
+  §3.3 bridging license (CONSTITUTION Art. 5.5 keeps the bridging line
+  itself), and the honest-limits clauses H-1–H-7 (including H-7, the
+  persuasion line: make honesty louder, never make loudness a method;
+  CONSTITUTION Art. 5.6 keeps H-2's gate as law).
+- **`docs/ROADMAP.md`** — per-phase scope. Complete through Phase 28;
+  **Phase 29** (store-first publish + the local event store,
+  `docs/EVENT_STORE_DESIGN.md`) is in progress — 29.1, the publish
+  gate behind `storeFirstPublish`, shipped 2026-08-02 (PR #279),
+  29.2–29.6 open. The newest release is v0.8.0 (tagged 2026-07-20);
+  v0.7.0 (tagged 2026-07-16) was the first GitHub Release since v0.5.1
+  — see CONTRIBUTING for the tag-driven release process. Complete and
+  merged: Phases 10 (thin
   claims), 11 (assessments; `docs/ASSESSMENTS_DESIGN.md`), 12 (portal;
   `docs/PORTAL_DESIGN.md`), 13 (epistemic audits, kinds `30056`–`30061`;
   `docs/EPISTEMIC_AUDIT_DESIGN.md`), 14 (forensic findings, kind `30062`;
@@ -366,7 +534,7 @@ tested contract, not an aspiration.
   **Phase 28** (corpus intake automation) is COMPLETE: batch URL-list
   import (`url-import.js`), suggest-after-import (parked proposals), and
   the standalone cross-article "Suggest links" pass
-  (`xray:llm:corpus-links`) — every LLM suggestion still human-accepted.
+  (the `corpus-links` LLM job) — every LLM suggestion still human-accepted.
   A **post-28 workflow wave** (2026-07-20, PRs #233–#254) then landed:
   case-bound workspaces (PRs #223–#231), one-step case creation +
   Pre-analyze with the corpus-v4 claims-independent map cache, the
@@ -374,7 +542,9 @@ tested contract, not an aspiration.
   passes FA.1–FA.3 (`docs/CORPUS_AUDIT_KICKOFF.md`), Suggest narrowed to
   the EXTRACTION pass (entities+claims; judgment kinds live at corpus
   level) + case-dashboard workflow declutter, known-entity vocabulary
-  injection, the opt-in `autoPreAnalyze` capture prepay, the fact-layer
+  injection, the opt-in `autoPreAnalyze` map prepay (both later retired
+  — vocabulary in UA.2, the prepay in UA.3, once the unified pass made
+  them redundant), the fact-layer
   retirement, and **Entity Pages** (`docs/ENTITY_PAGE_KICKOFF.md` —
   EP.1–EP.5, the claims-first knowledge artifacts). A **map-artifact
   wave** (2026-07-24/25, `docs/MAP_ARTIFACT_KICKOFF.md`) then made the
@@ -392,36 +562,79 @@ tested contract, not an aspiration.
   (MA.6 — the NEW kind `30070` ExtractionAnalysis behind
   `extractionAnalysisPublishing`; the maintainer's 2026-07-29 posture
   publishes the WHOLE unit, every review state plus the model's prose,
-  so the per-row `status` marking is the only safeguard). The FLF Epistack
+  so the per-row `status` marking is the only safeguard). The **One
+  Article Pass** (`docs/UNIFIED_ARTICLE_PASS_KICKOFF.md`, approved
+  2026-08-12) then began unifying Suggest with the corpus map — UA.1
+  (corpus-v8) made the map COMPREHENSIVE (every atom: verbatim quote +
+  authored `text` paraphrase + `load_bearing` flag), the reader's
+  Suggest serves its claim half from that cached-or-fresh extract
+  (`shared/article-pass.js` — same unit builder, byte-identical cache
+  keys) with the remaining LLM call slimmed to entities +
+  claim→entity links, the reduce/entity page read only the
+  load-bearing subset, and the article pass NEVER writes
+  `claim.is_key` (keyness is case-scoped; the reduce promotion and the
+  human checkbox are the only writers) — then UA.2 (corpus-v9) made it
+  literally ONE call: entities + native about-refs joined the extract,
+  the separate entities call left the live path, the Phase-28 prompt
+  vocabulary retired (it would poison the content-only cache key), and
+  naming consistency moved to the accept-time resolution ladder
+  (`shared/entity-resolution.js` — identity rungs pre-select, near-name
+  rungs only rank; no scores, never-merge per Art. 6) — and UA.3 swept
+  the residue: `autoPreAnalyze` retired, the standalone
+  `xray:llm:suggest` pass + tool schema (and its `is_key` field)
+  retired, analyze-after-import runs the article pass per page instead
+  of parking proposals, and every human surface says "claim proposal"
+  ("assertion" survives only as the layer's storage and wire term). The FLF Epistack
   entry has been submitted (deadline was 2026-07-19); the tool continues
   to be tailored **maintainer-driven from real casework (COVID first)**.
   The 0.8.0 smoke walk passed (2026-07-20; Phases 11–15
   section walks completed then too), and the Phases 16 and 19 section
-  walks are complete as well — no section walk is outstanding.
+  walks are complete as well. Walks ARE still outstanding — the
+  Transcribe Anywhere section's LT.1–LT.5 and LT.7–LT.14 among them
+  (LT.6 passed 2026-08-15 on the AssemblyAI engine only); the walk
+  ledger in `docs/SMOKE_TEST.md` and its "Not yet walked" list are
+  the record.
 - **`docs/ROAD_TO_1_0.md`** — the **1.0 readiness punch list** (2026-08-09):
-  19 blockers, 8 sequenced tracks, 15 kill candidates awaiting
-  ratification, and an explicit "what 1.0 ships without" list. Produced
+  19 blockers, 8 sequenced tracks, 15 kills (ratified 2026-08-09; its
+  kill list carries each one's execution status), and an explicit
+  "what 1.0 ships without" list. Produced
   by a whole-tree audit in which each `.claude/skills/` discipline ran
   its own Protocol, plus newcomer-UX / group-research / consolidation
   lenses. **Consult it before starting 1.0 work** — it carries the
   `file:line` evidence and says which track a change belongs to. Kills
   need maintainer ratification (Art. 11) before anything is removed.
-- **`docs/JOURNAL.md`** — chronological log of bugs, design decisions, and
-  external-platform changes. **Add a tight entry** when fixing a non-obvious
-  bug, making a second-guessable design choice, or working around a
-  third-party change. Skim it first when a capture target breaks.
+- **`docs/STATUS.md`** — the one-page status (hand-maintained until
+  RESET_PLAN R6 generates it): the 1.0 blockers with their evidence,
+  every default-off flag with its check date and last casework
+  evidence, the parked shelf, and the open-PR cap.
+- **`docs/JOURNAL.md`** — the GENERATED index (newest first) of the
+  engineering journal: bugs, design decisions, and external-platform
+  changes. The entries live in **`docs/journal/YYYY-MM.md`**, one file
+  per month, oldest first. **Add a tight entry at the BOTTOM of the
+  current month's file** when fixing a non-obvious bug, making a
+  second-guessable design choice, or working around a third-party
+  change, then run `npm run docs:journal` to regenerate the index —
+  never edit the index by hand (`tests/journal-index.test.mjs` goes red
+  when it is stale or when an entry landed in it). The generator never
+  discards text: when it refuses it lists the lines and writes nothing;
+  a conflicted or union-merged index is healed by running it, never by
+  hand (recipes: CONTRIBUTING.md, "Engineering journal"). "JOURNAL YYYY-MM-DD"
+  still means the entry of that date. Grep `docs/journal/` first when a
+  capture target breaks.
 - **`docs/SMOKE_TEST.md`** — ~20-min manual checklist; run before any
   release tag or after a cross-cutting refactor.
 - **`docs/CAPTURE_GUIDE.md`** — per-platform URL-shape/timing requirements
   (FB/IG/TikTok are finicky).
 - **`docs/NIP_DRAFT.md`** — the crowdsourced-metadata wire format.
 - **`docs/PHILOSOPHY.md`** — the **organic statute of the audit
-  family** (v1.2.0, under `docs/CONSTITUTION.md`; the 2026-08-02
+  family** (v1.3.0, under `docs/CONSTITUTION.md`; the 2026-08-02
   amendments removed the standing re-audit cadence, narrowed the P10
   self-dossier clause, and — the §13 concord — seated the family
   under the constitution). Consult it before any structural, scoring,
   schema, or methodology change to audit surfaces; when code and it
-  conflict, it governs until amended — and amending it to fit reality
+  conflict over a wire format, a stored-data shape or security, it
+  governs until amended; any other conflict is a recorded question for
+  the maintainer (CONSTITUTION Art. 2, R-021) — and amending it to fit reality
   is normal, not sacrilege (the maintainer: this is an experiment in
   modeling reality, not received wisdom). When two of its principles
   conflict, document the tension and cite them by number (e.g. "P9
@@ -430,8 +643,8 @@ tested contract, not an aspiration.
   was; project-wide law (universal principles, licensed estimation,
   the never-merge firewall, operator accountability) lives in
   `docs/CONSTITUTION.md`. Phase 15 truth verdicts operate under
-  `TRUTH_ADJUDICATION_DESIGN.md`'s own form-of-judgment (§1/§5, its
-  sibling statute) — deliberately no 0–100 score or knowability
+  `TRUTH_ADJUDICATION_DESIGN.md`'s own form-of-judgment (§1/§5; a design
+  document since 2026-09-26) — deliberately no 0–100 score or knowability
   ceiling there.
 - **`docs/TRUTH_INFRASTRUCTURE.md`** — **non-normative** expansion
   map: the portable "truth infrastructure" framework (five
@@ -445,6 +658,10 @@ tested contract, not an aspiration.
   (crux; Honor). `docs/PHILOSOPHY.md` governs wherever it touches
   audit surfaces; cites the Truth Systems annex
   (`docs/TRUTH_SYSTEMS.md`) as "TS §n", by relative link.
+- **`docs/VISION.md`** — **non-normative** (CONSTITUTION Art. 2): the
+  maintainer's three design lines (MARGIN_DESIGN §1, 2026-08-28) and,
+  where written, what each requires and does not. It inspires; it
+  never licenses a feature or settles a conflict.
 - **`docs/FOUNDING_TRANSCRIPT.md`** — the founding conversation's
   verbatim source prose (non-normative; PHILOSOPHY.md and the RQ
   decisions govern on conflict). Its supersession log records which
@@ -457,7 +674,11 @@ tested contract, not an aspiration.
 ## CI
 
 `.github/workflows/ci.yml` on push/PR to `main`: `node --check` every
-`src/**/*.js`, `npm run build`, `npm test` (if any tests exist), `web-ext
-lint --self-hosted`, `web-ext build`. A `v*` tag triggers `release.yml`
+`src/**/*.js`, `npm run lint:js`, `npm run build`, `npm test`, the
+normalizer parity, `npm run check:version`, `web-ext lint
+--self-hosted`, `web-ext build` + `npm run check:package`, `npm run
+check:budget`; the browser smoke is its own job. `pr-body.yml` checks
+each PR's body (`scripts/pr-body-check.mjs`; advisory, re-runs on
+description edits). A `v*` tag triggers `release.yml`
 (builds, packages, creates a GitHub Release with the `.zip`). Get all of
 build + test + lint green locally before pushing.

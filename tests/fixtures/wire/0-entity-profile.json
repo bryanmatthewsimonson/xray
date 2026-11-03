@@ -1,0 +1,60 @@
+{
+  "builder": {
+    "fn": "EventBuilder.buildProfileEvent + reader attachCreatorBinding",
+    "module": "src/shared/event-builder.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "{\"name\":\"W.H.O.\",\"about\":\"organization entity created by X-Ray\"}",
+    "created_at": 1700000000,
+    "id": "627dd0cdc54e599d227ccafc0efaef079ad6e6f81d8334c19ec120251f8ef341",
+    "kind": 0,
+    "pubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+    "sig": "0a12b641cf5bcbd4f02037365ba49f0f0a73314da8f1e596c5a71f72660bae6a641ef235a76557abf77a21c8438cff4dfa9d5859d5615bf75a313a2719c1c714",
+    "tags": [
+      [
+        "i",
+        "wikidata:Q7817",
+        ""
+      ],
+      [
+        "p",
+        "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "",
+        "creator"
+      ],
+      [
+        "delegation",
+        "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "kind=0&created_at>1699913600&created_at<1731536000",
+        "2f2f6eead84d485425cee2596ae75b9e1424ec75671ea8d4d56178301dd12a48322cd0b5f51a50b8bb4acf4a543e8afdf31488dd63347afd32b0fad00289b054"
+      ]
+    ]
+  },
+  "inputs": {
+    "about": null,
+    "canonicalNpub": null,
+    "creatorPubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "delegation": {
+      "conditions": "kind=0&created_at>1699913600&created_at<1731536000",
+      "delegator": "TV1"
+    },
+    "entity": {
+      "id": "entity_8f345c643bec5da6",
+      "keypair": {
+        "pubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"
+      },
+      "name": "W.H.O.",
+      "nip05": "",
+      "type": "organization"
+    },
+    "externalIds": [
+      "wikidata:Q7817"
+    ]
+  },
+  "kind": 0,
+  "notes": "The READER shape (src/reader/index.js attachCreatorBinding): builder output plus [p, primary, \"\", creator] and a NIP-26 delegation tag minted from TV1 to TV3 with a PINNED conditions string (production embeds a wall-clock window). Entity-signed (TV3).",
+  "rebuild": "exact",
+  "shape": "entity-profile",
+  "signer": "TV3"
+}

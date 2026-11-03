@@ -1,0 +1,122 @@
+{
+  "builder": {
+    "fn": "buildModuleResultEvent",
+    "module": "src/shared/audit/builders.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "{\"auditor_caveats\":[\"Surface scan only.\"],\"confidence\":0.78,\"confidence_notes\":\"clean structure\",\"contradictions\":[{\"claim_a\":\"rose 12%\",\"claim_b\":\"nearly doubled\",\"evidence_quote_a\":\"rose 12 percent\",\"evidence_quote_b\":\"nearly doubled\",\"is_dialectic_intent\":false,\"severity\":\"high\",\"type\":\"numerical\"}],\"logical_gaps\":[],\"module\":\"internal_coherence\",\"score\":62,\"version\":\"1.0\",\"evidence_quotes\":[{\"quote\":\"rose 12 percent\"},{\"quote\":\"nearly doubled\"}]}",
+    "created_at": 1700000000,
+    "id": "fa2fa5b4491fc2205ff0d40e4c6d1e4b5b2a8d0dc050c120c05a0280faa23003",
+    "kind": 30056,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "51d9eb0a6da677b83c0ad017eeb73c213d338cbf1a6176147d8c3457da1a26c2fb5f172062d5c8939162b92c0a8b6c7b8019cc62a0716091046234a264852ab0",
+    "tags": [
+      [
+        "d",
+        "mod:ed6a15a964f66381"
+      ],
+      [
+        "x",
+        "8985c947c93381b7710bec87af9ab745569fce4fa35b50c2cf5ab769ede07cd6"
+      ],
+      [
+        "a",
+        "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:8985c947c93381b7",
+        "wss://relay.example"
+      ],
+      [
+        "r",
+        "https://example.com/story"
+      ],
+      [
+        "i",
+        "https://example.com/story"
+      ],
+      [
+        "k",
+        "web"
+      ],
+      [
+        "t",
+        "internal_coherence"
+      ],
+      [
+        "t",
+        "monetary-policy"
+      ],
+      [
+        "module-version",
+        "1.0"
+      ],
+      [
+        "run-at",
+        "2023-11-14T22:13:20Z"
+      ],
+      [
+        "score",
+        "62"
+      ],
+      [
+        "confidence",
+        "0.78"
+      ],
+      [
+        "model-params",
+        "temperature=0"
+      ],
+      [
+        "auditor",
+        "model",
+        "anthropic/claude-sonnet-4-6"
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "articleCoord": "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:8985c947c93381b7",
+    "articleHash": "8985c947c93381b7710bec87af9ab745569fce4fa35b50c2cf5ab769ede07cd6",
+    "articleUrl": "https://example.com/story",
+    "auditor": {
+      "id": "anthropic/claude-sonnet-4-6",
+      "kind": "model"
+    },
+    "beats": [
+      "monetary-policy"
+    ],
+    "findings": {
+      "auditor_caveats": [
+        "Surface scan only."
+      ],
+      "confidence": 0.78,
+      "confidence_notes": "clean structure",
+      "contradictions": [
+        {
+          "claim_a": "rose 12%",
+          "claim_b": "nearly doubled",
+          "evidence_quote_a": "rose 12 percent",
+          "evidence_quote_b": "nearly doubled",
+          "is_dialectic_intent": false,
+          "severity": "high",
+          "type": "numerical"
+        }
+      ],
+      "logical_gaps": [],
+      "module": "internal_coherence",
+      "score": 62,
+      "version": "1.0"
+    },
+    "modelParams": "temperature=0",
+    "module": "internal_coherence",
+    "relayHint": "wss://relay.example",
+    "runAt": "2023-11-14T22:13:20Z"
+  },
+  "kind": 30056,
+  "notes": "internal_coherence findings; content JSON key order FOLLOWS the findings object, so the inputs are canonical (sorted) literals.",
+  "rebuild": "exact",
+  "shape": "module-result",
+  "signer": "TV1"
+}

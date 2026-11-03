@@ -1,0 +1,517 @@
+{
+  "today": "2026-09-15",
+  "protected": [
+    "main"
+  ],
+  "openPrHeads": [
+    "claude/nip07-option-c",
+    "claude/practical-ramanujan-sk12k1",
+    "claude/loving-gauss-k8gsta",
+    "docs/governance-reconciliation-questionnaire",
+    "fix/instagram-url-identity",
+    "fix/publish-without-session-record",
+    "feat/margin-s1",
+    "dependabot/uv/companion/transcriber/nltk-3.10.3",
+    "dependabot/npm_and_yarn/fast-uri-3.1.7",
+    "claude/kind-hypatia-fu8nqm",
+    "claude/eager-knuth-ipv3xd",
+    "dependabot/github_actions/actions-6512b1d693",
+    "dependabot/npm_and_yarn/npm-minor-and-patch-76ea9adcf0",
+    "claude/xray-audit-refactor-opxk01",
+    "dependabot/npm_and_yarn/js-yaml-4.3.2"
+  ],
+  "branches": [
+    {
+      "name": "chore/security-bumps",
+      "sha": "4fec474592c5920ab9948ef9ec7818669dad9560",
+      "committedAt": "2026-08-02T12:01:58-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "chore/security-hardening",
+      "sha": "a99fa006ff8aa16ddd98c86d65dce708443455a8",
+      "committedAt": "2026-08-02T16:59:14-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/ai-vision-image-text-dfbwt6",
+      "sha": "6451847500883c73d3c3140d07cbb216140c4569",
+      "committedAt": "2026-08-02T09:03:26+00:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/amazing-hamilton-p67ln2",
+      "sha": "7fb8a137e35cc57cbb7eaaf59fa644187181f630",
+      "committedAt": "2026-08-02T04:39:31+00:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/analyze-corpus-map-artifacts-ozl7nh",
+      "sha": "3af1b62bc8637f4abc53c67f225974f2e2e4b6c2",
+      "committedAt": "2026-08-02T21:53:26+00:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/assemblyai-speech-models",
+      "sha": "5d4729f120e6bad88c6fb2726eea095c7c3eab39",
+      "committedAt": "2026-08-02T12:53:10-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/case-brief-render-fixes-ckfudq",
+      "sha": "dbbd837fdc663ab259b0075ac8655458709c4b5f",
+      "committedAt": "2026-07-22T18:39:41-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/cloud-transcription-providers",
+      "sha": "817e066a5592fe84f2da36313de5ba19af19d760",
+      "committedAt": "2026-08-02T11:45:07-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/dazzling-dirac-ido41f",
+      "sha": "eeb890ed45e1e4992bb29d9d77ff0931dcdcc221",
+      "committedAt": "2026-08-28T22:36:25+00:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/eager-knuth-ipv3xd",
+      "sha": "2efdfe10b3b5b0df98d5965af44deaad92c1696e",
+      "committedAt": "2026-09-05T17:48:17+00:00",
+      "ancestorOfMain": false
+    },
+    {
+      "name": "claude/eloquent-tesla-q4v81l",
+      "sha": "c9134a26cfd1b8f5b343cfaa4acca96162001bc2",
+      "committedAt": "2026-08-02T08:43:32+00:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/epistack-plan-review-krh2wr",
+      "sha": "1f2e6ad41e5eba22c56ddca57522dd7c4ec00125",
+      "committedAt": "2026-07-19T07:12:24+00:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/flf-competition-entry-1xeffq",
+      "sha": "1f0a8a83a0ba93e5af1b47668611b0f51d7b0d99",
+      "committedAt": "2026-07-19T06:53:32+00:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/identity-rename-workspace-rebind",
+      "sha": "9ba2e794c1bc8fa098f0e7ebe956201eb5e74edb",
+      "committedAt": "2026-07-22T19:37:05-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/journal-consensus-descope-revisit",
+      "sha": "7fbd13c84a709d37625d6f25c3d1693bdd68117c",
+      "committedAt": "2026-07-22T19:40:26-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/kind-hypatia-fu8nqm",
+      "sha": "da3d8d943edbe2cd2b553e3daac82ae858407d7e",
+      "committedAt": "2026-09-05T17:33:16+00:00",
+      "ancestorOfMain": false
+    },
+    {
+      "name": "claude/local-transcription-diarization",
+      "sha": "005ea617aa76a8869fd7a736723cb77b5c681aa4",
+      "committedAt": "2026-08-02T00:38:04-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/loving-gauss-k8gsta",
+      "sha": "710f7eb4391fe36ebd010e6ea1aab702df4868e1",
+      "committedAt": "2026-08-29T02:27:57+00:00",
+      "ancestorOfMain": false
+    },
+    {
+      "name": "claude/nip07-option-c",
+      "sha": "45bf6191ba6e2017e6660b5869d76f5958a0b31e",
+      "committedAt": "2026-08-11T00:59:22-07:00",
+      "ancestorOfMain": false
+    },
+    {
+      "name": "claude/nip07-trace-writeup",
+      "sha": "83e638b3f36b4129b79f2787d9c9dc99b9dacc1a",
+      "committedAt": "2026-08-11T00:21:03-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/personas-college",
+      "sha": "de2155d37aeb881fa6164fc9f33ea4c3593a3438",
+      "committedAt": "2026-08-02T19:02:38-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/practical-ramanujan-sk12k1",
+      "sha": "10b95eb030f1aa38826ff141df3ecda22313f8f9",
+      "committedAt": "2026-09-05T17:31:44+00:00",
+      "ancestorOfMain": false
+    },
+    {
+      "name": "claude/pre-analysis-corpus-reconcile-mwwgqs",
+      "sha": "6cdd680d13c20cd42e3cd8568c1c28d0ca81ef6f",
+      "committedAt": "2026-08-12T15:22:37+00:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/t1-finish-backup-hygiene",
+      "sha": "4c6016f258462588ced055f355612afcc794d5ab",
+      "committedAt": "2026-08-11T00:11:18-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/transcribe-engine-ui",
+      "sha": "6a13b9b8a91bf9e2fd0852cc07da61e531a10586",
+      "committedAt": "2026-08-02T13:38:07-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/truth-infrastructure-map",
+      "sha": "d4ae5ad9ed747fe7ed8deb598044b7a7fbd5ed3f",
+      "committedAt": "2026-08-02T18:13:57+00:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/truth-systems-annex",
+      "sha": "b33992a545787275e8bbdf2487791435f22e8f1d",
+      "committedAt": "2026-08-02T19:00:43-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/unified-article-pass-kickoff",
+      "sha": "811a68f208667d1f61191bbccee7b45b791e0e23",
+      "committedAt": "2026-08-12T03:58:11+00:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "claude/xray-audit-refactor-opxk01",
+      "sha": "51762032a83cfb4e579067936f766dfedbd1a99c",
+      "committedAt": "2026-09-15T07:26:51+00:00",
+      "ancestorOfMain": false
+    },
+    {
+      "name": "dependabot/github_actions/actions-6512b1d693",
+      "sha": "84824bb340523dd91c742f8cb3802dda9edbce6e",
+      "committedAt": "2026-09-06T00:04:19+00:00",
+      "ancestorOfMain": false
+    },
+    {
+      "name": "dependabot/npm_and_yarn/fast-uri-3.1.7",
+      "sha": "b8400189d12d0e64074479b7aba61dab4aeb9ad1",
+      "committedAt": "2026-09-02T17:29:48+00:00",
+      "ancestorOfMain": false
+    },
+    {
+      "name": "dependabot/npm_and_yarn/js-yaml-4.3.2",
+      "sha": "d593c26c230bb928dc81b1bc3e248d574be5a9bb",
+      "committedAt": "2026-09-08T21:50:47+00:00",
+      "ancestorOfMain": false
+    },
+    {
+      "name": "dependabot/npm_and_yarn/npm-minor-and-patch-76ea9adcf0",
+      "sha": "72f59f0b222e5c41dbd10d0b85443bf6a57391fa",
+      "committedAt": "2026-09-06T00:04:39+00:00",
+      "ancestorOfMain": false
+    },
+    {
+      "name": "dependabot/uv/companion/transcriber/nltk-3.10.3",
+      "sha": "1313e1c7f11cbd89cb763bec4aa13da6d531d837",
+      "committedAt": "2026-09-01T20:54:37+00:00",
+      "ancestorOfMain": false
+    },
+    {
+      "name": "direct-cloud-dc2",
+      "sha": "2f682d4884e82d0bc7ffb7dd46c5165aeded1a54",
+      "committedAt": "2026-08-22T17:49:38-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "direct-cloud-transcribe",
+      "sha": "78be7ee32bdef9f1dce769ac149906198fc32205",
+      "committedAt": "2026-08-15T20:55:54-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "docs/358-walk-complete",
+      "sha": "4023eb3ca37dc95166bc2f1ec5e64ef3aa8260d1",
+      "committedAt": "2026-08-25T20:11:28-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "docs/governance-reconciliation-questionnaire",
+      "sha": "98b7db5fec2d92e6ccb9cb54726efcbbc8fc8c94",
+      "committedAt": "2026-08-28T12:17:27-07:00",
+      "ancestorOfMain": false
+    },
+    {
+      "name": "docs/librarian-seed",
+      "sha": "ad28d04a98ce3793c679988de3e05885e3e1df60",
+      "committedAt": "2026-08-23T01:03:33-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "docs/margin-design",
+      "sha": "69da90f8db4f412cefe4f4681d7169dfa969b79b",
+      "committedAt": "2026-08-28T12:38:25-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "docs/opinion-modules-kickoff",
+      "sha": "c284d5c41f5194281d4424a1cbd972713be2f166",
+      "committedAt": "2026-08-02T13:32:48-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "docs/opinion-modules-op5",
+      "sha": "1a533bbe2b1184d78bcc5c18e5724f27b30b8e21",
+      "committedAt": "2026-08-02T16:04:06-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "docs/portal-ux-review",
+      "sha": "619b309a09b7bb26c517e85c56637898081f33f8",
+      "committedAt": "2026-08-22T23:31:10-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "docs/portal-ux-review-status",
+      "sha": "6e6d8225c6a869aa4bbe44c9400e19f657cc7a47",
+      "committedAt": "2026-08-23T05:35:00-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "docs/seam-check-skill",
+      "sha": "9927f38e7f83c779af616ec1881b83932b89046a",
+      "committedAt": "2026-08-22T22:49:25-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "docs/soak-ux-agent-smoke",
+      "sha": "8f0944a538a468c36032242773d037d9fb2deffb",
+      "committedAt": "2026-08-22T23:17:18-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "docs/ux-review-d3-correction",
+      "sha": "4ed8412c7840fbe211ea0548a7c026e429ab3dc1",
+      "committedAt": "2026-08-23T05:42:06-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/agent-walk-honest-tags",
+      "sha": "e73fcbff2c57728ffe2c8026585eb0389b39260e",
+      "committedAt": "2026-08-23T04:43:14-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/cross-coverage-language",
+      "sha": "47374569f133630a79183a55be7f1c795bc82a31",
+      "committedAt": "2026-08-02T13:06:29-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/diagnostics-log",
+      "sha": "e68b24aa480d223c6d3d6fc48df0125f928c89c5",
+      "committedAt": "2026-08-22T23:56:37-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/direction-and-run-delta",
+      "sha": "43af60ba4130b0851f7512e8a06ed6af37d015e4",
+      "committedAt": "2026-08-02T13:16:05-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/extraction-accept-all",
+      "sha": "1c3e67bea8b033a3a4969c5329800aa5bbb0e833",
+      "committedAt": "2026-08-25T19:40:51-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/known-unknowns-block",
+      "sha": "86035c47b47c502c1ae3bb682322eff94fe0d896",
+      "committedAt": "2026-08-02T13:10:55-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/margin-s1",
+      "sha": "df9357673a7a4935e57af21c75dbf0a04461d6e8",
+      "committedAt": "2026-08-30T03:08:46-07:00",
+      "ancestorOfMain": false
+    },
+    {
+      "name": "feat/opinion-audit-caveat",
+      "sha": "cf06e18b43beba32283a4e55281a82691049bcc3",
+      "committedAt": "2026-08-02T12:59:20-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/opinion-modules-op2",
+      "sha": "808bbc9ece8bc2679f0347d820d183cc0b857725",
+      "committedAt": "2026-08-02T15:48:34-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/opinion-modules-op3",
+      "sha": "c70f8cf856e1df8662feffb33331064fbc9bf95c",
+      "committedAt": "2026-08-02T15:56:35-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/opinion-modules-op4",
+      "sha": "c486b0eb2505deaddba69fa47dd66aff2b0bffab",
+      "committedAt": "2026-08-02T16:00:48-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/portal-back-stack",
+      "sha": "d2a6569a1702c698904f1ef40283d59826c378c8",
+      "committedAt": "2026-08-23T03:20:34-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/portal-case-imports",
+      "sha": "ecc7d2f44d1eead089a14741692f2d013140791d",
+      "committedAt": "2026-08-23T03:15:33-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/portal-header-regroup",
+      "sha": "3f87da6f39631ecbf25d5af639da02c2695fc795",
+      "committedAt": "2026-08-23T05:33:02-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/portal-import-panel-switch",
+      "sha": "5a1a4bd4fff951c46b13a120b4a9dd2c1382b7e2",
+      "committedAt": "2026-08-23T05:13:24-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/portal-inspector-opener",
+      "sha": "d6ad2e8ad6e18e070facb38f554370256dfcf70f",
+      "committedAt": "2026-08-23T05:15:10-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/portal-people-local-first",
+      "sha": "9d450f63f33f2963bc3fb316ecc7ad0408913890",
+      "committedAt": "2026-08-23T04:11:09-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/portal-string-truth",
+      "sha": "aa0c029e16a1d107a4c24b4e489a6a478ff8b631",
+      "committedAt": "2026-08-23T03:59:07-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/portal-tab-layering",
+      "sha": "e51ae8db093f76887cb1422b2e8c26ff1d127784",
+      "committedAt": "2026-08-23T04:13:13-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/reach-and-cohort-views",
+      "sha": "d699dd9309302ef748ca44d13ce3794e2ac1e8db",
+      "committedAt": "2026-08-02T13:29:03-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feat/reference-resolver",
+      "sha": "350b1e7a6bd27f2dfa9231bf28365c9c0f9d42bd",
+      "committedAt": "2026-08-02T12:00:23-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "feature/phase-9b-metadata-ui",
+      "sha": "93ccd3596d7c9cae0c5d858057aaf43fe4b0a3d4",
+      "committedAt": "2026-05-29T22:28:53-07:00",
+      "ancestorOfMain": false
+    },
+    {
+      "name": "fix/book-chapters-open",
+      "sha": "593256fa506dea7299314fe1ca216df2161c94e4",
+      "committedAt": "2026-08-22T23:38:15-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "fix/error-surface-capture",
+      "sha": "2f8e501bc88c7f5dbe10eb771fc0fc86f0b2607b",
+      "committedAt": "2026-08-23T00:29:33-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "fix/forensic-accept-in-place",
+      "sha": "2fbe65337d6c8ab728b617203f7f337725465020",
+      "committedAt": "2026-08-25T02:23:28-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "fix/instagram-url-identity",
+      "sha": "062d5144528ab0be44575095ef384357775f9866",
+      "committedAt": "2026-08-28T19:46:27-07:00",
+      "ancestorOfMain": false
+    },
+    {
+      "name": "fix/platform-media-claim",
+      "sha": "9b1392de1398952cf1a8045ca28762ff2695c317",
+      "committedAt": "2026-08-22T18:33:27-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "fix/publish-without-session-record",
+      "sha": "a9ec0fb80d4443c546b0e5bc77703756dee66287",
+      "committedAt": "2026-08-29T20:21:44-07:00",
+      "ancestorOfMain": false
+    },
+    {
+      "name": "fix/session-article-quota",
+      "sha": "582c35a90cb5e4a4b3abda72abdaa5c62f0c198a",
+      "committedAt": "2026-08-25T01:54:26-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "fix/suggest-double-encoded",
+      "sha": "a411f7131d981854fdb6e9202d7d6b07b6c8e919",
+      "committedAt": "2026-08-22T22:36:56-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "fix/suggest-shape-retry",
+      "sha": "4c60064114556b43c7ac2e4dd12060f091b71889",
+      "committedAt": "2026-08-25T19:43:41-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "fix/transcriber-ct2-cuda12-dlls",
+      "sha": "6f0e69abd9a9e22096f045aa0732078808b47b28",
+      "committedAt": "2026-08-02T14:37:29-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "fix/transcriber-nvidia-dep-markers",
+      "sha": "36e89bf21ec1d8aee70b169f1a9ffec3469f06fc",
+      "committedAt": "2026-08-02T14:42:07-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "main",
+      "sha": "c1e652cfb360880fcf9559e13418287faea9b125",
+      "committedAt": "2026-08-28T15:39:44-07:00",
+      "ancestorOfMain": true
+    },
+    {
+      "name": "worktree-transcribe-anywhere",
+      "sha": "ce0ea91314455d7245ce35e299c33160fbebfee7",
+      "committedAt": "2026-08-15T15:26:43-07:00",
+      "ancestorOfMain": true
+    }
+  ]
+}

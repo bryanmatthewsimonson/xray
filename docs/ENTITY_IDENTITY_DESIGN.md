@@ -4,6 +4,24 @@ Status: 24.1 (derivation) shipping; 24.2 (binding wire) and 24.3
 (rotation UX) follow. This document is normative for the derivation
 recipe and the binding wire format.
 
+> **Amendment — the entity root (Option C, ratified 2026-08-11;
+> `docs/NIP07_IDENTITY_KICKOFF.md`).** The local primary identity is
+> the **entity ROOT**, independent of `preferences.signing_method`:
+> entity-key derivation, the kind-30069 OwnedKeys manifest, and the
+> creator p-tag + NIP-26 delegation all key off `local_primary_identity`
+> unconditionally — by design, not oversight. The operator's own
+> publishes may be signed by a different identity (e.g. a NIP-07
+> provider); when they differ, the creator binding NAMES THE LOCAL
+> ROOT, and the NIP-26 delegation tag is the protocol-native way to
+> connect the two identities. Consequences: (a) `EntityModel.create`
+> **refuses** when no local primary exists — the pre-C fallback minted
+> a random, unrecoverable key, silently voiding this document's
+> durability promise for every entity a NIP-07 user created; (b)
+> existing random-keyed entities keep working untouched (`derived_from:
+> null` marks them; they are not recoverable and never were); (c) a
+> user on NIP-07 keeps the external-signer property for their own
+> publishes and creates a local primary purely as the entity root.
+
 ## 1. Problem
 
 Before Phase 24, entity keypairs were **disposable**:

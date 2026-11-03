@@ -59,6 +59,7 @@ test('hypothesis-suggest: tool name and prompt version pinned exactly', () => {
     assert.equal(buildHypothesisEdgeTool().name, HYPOTHESIS_EDGE_TOOL_NAME);
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('hypothesis-suggest: the tool schema has NO numeric slot and no score-shaped key (design §3.2)', () => {
     const schema = buildHypothesisEdgeTool().input_schema;
     const bannedKeys = /score|confidence|probability|rating|grade|likelihood|weight|strength/i;

@@ -52,7 +52,7 @@ export function renderCrossWorkspaceView(host, { callbacks = {} } = {}) {
     clear(host);
 
     const head = el('div', 'xr-view__head');
-    const back = el('button', 'xr-portal__btn xr-portal__btn--ghost', '← Library');
+    const back = el('button', 'xr-portal__btn xr-portal__btn--ghost', '← Back');
     back.type = 'button';
     back.addEventListener('click', () => callbacks.onBack && callbacks.onBack());
     head.appendChild(back);

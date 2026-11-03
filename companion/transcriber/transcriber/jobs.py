@@ -33,7 +33,10 @@ class Job:
 
     job_id: str
     url: str
-    video_id: str
+    # Stable identity for the MEDIA behind the URL (media_url.media_key_for):
+    # a YouTube video id, or "u_<hash>" for any other admitted URL.  The
+    # dedupe unit — two requests for the same media join one job.
+    media_key: str
     provider: str = "local"  # engine for THIS job (request override, else config.PROVIDER)
     # Per-request cloud API key (extension-supplied). MEMORY ONLY:
     # excluded from repr, never in snapshots, never in spec.json — it
@@ -64,17 +67,17 @@ class JobStore:
     # --- create / read ---------------------------------------------------
 
     def add_or_get_active(self, job: Job) -> "tuple[Job, bool]":
-        """Add ``job`` unless an ACTIVE job for the same video id exists.
+        """Add ``job`` unless an ACTIVE job for the same media exists.
 
         Returns ``(job, True)`` when the new job was added, or
-        ``(existing, False)`` when a queued/running job for the same video
+        ``(existing, False)`` when a queued/running job for the same media
         was found — the caller returns that job's id instead of enqueueing
         a duplicate.
         """
         with self.lock:
             for existing in self._jobs.values():
                 if (
-                    existing.video_id == job.video_id
+                    existing.media_key == job.media_key
                     and existing.status in ("queued", "running")
                 ):
                     return existing, False

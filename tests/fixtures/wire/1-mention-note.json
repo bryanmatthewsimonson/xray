@@ -1,0 +1,60 @@
+{
+  "builder": {
+    "fn": "buildMentionNoteEvent",
+    "module": "src/shared/mention-notes.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "Mentioned in \"The Story\"\n\n\"Jane Roe runs Acme Corp.\"\n\nhttps://example.com/story",
+    "created_at": 1700000000,
+    "id": "d549bd4c46641e96ca60fa9fa0e1b2176986f1fe24833e09024f857f6b91e6ec",
+    "kind": 1,
+    "pubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+    "sig": "b57ac56d92c883546abe1b1e10b7b3f3cdb9e583b2d86ca2fb3e28e2588a902042d393ba996399da8231c72878a553d0deff8734a937643d90ace881de061be6",
+    "tags": [
+      [
+        "r",
+        "https://example.com/story"
+      ],
+      [
+        "a",
+        "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:8985c947c93381b7",
+        "",
+        "mention"
+      ],
+      [
+        "x",
+        "8985c947c93381b7710bec87af9ab745569fce4fa35b50c2cf5ab769ede07cd6"
+      ],
+      [
+        "p",
+        "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+        "",
+        "publisher"
+      ],
+      [
+        "quote",
+        "Jane Roe runs Acme Corp."
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "articleCoord": "30023:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:8985c947c93381b7",
+    "articleHash": "8985c947c93381b7710bec87af9ab745569fce4fa35b50c2cf5ab769ede07cd6",
+    "articleTitle": "The Story",
+    "articleUrl": "https://example.com/story",
+    "entityPubkey": "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+    "entityType": "person",
+    "publisherPubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "quote": "Jane Roe runs Acme Corp."
+  },
+  "kind": 1,
+  "notes": "ENTITY-signed (TV3) text note: r / a(mention) / x / p(publisher = TV1) / quote / client. A case entity may never sign one.",
+  "rebuild": "exact",
+  "shape": "mention-note",
+  "signer": "TV3"
+}

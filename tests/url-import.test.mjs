@@ -13,6 +13,7 @@
 import 'fake-indexeddb/auto';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { seedPrimary } from './seed-primary.mjs';
 
 const _stateStore = new Map();
 globalThis.chrome = {
@@ -243,6 +244,7 @@ test('url-import: re-run is idempotent — already-archived, no re-fetch', async
 test('url-import: caseEntityId tags the archived row into the case', async () => {
     _resetForTests();
     _stateStore.clear();
+    seedPrimary(_stateStore);
     const kase = await EntityModel.create({ name: 'Egg corpus', type: 'case' });
     const fetcher = fetcherFromMap({
         [PAGE(10)]: { ok: true, html: 'A long enough body for a full import.', finalUrl: PAGE(10) }

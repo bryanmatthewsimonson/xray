@@ -67,6 +67,7 @@ test('B5: the NIP-07 bridge stays web-accessible (restored after a field break)'
         'the MAIN-world bridge must stay declared — removing it broke NIP-07 detection in the field');
 });
 
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('B18: the threat model exists and covers every asset class', () => {
     const tm = read('docs', 'THREAT_MODEL.md');
     for (const asset of ['local_primary_identity', 'local_keys', 'capture pattern']) {
@@ -76,4 +77,28 @@ test('B18: the threat model exists and covers every asset class', () => {
     // that lists only solved problems is marketing.
     assert.match(tm, /## 5\. Known gaps/, 'records what is NOT covered');
     assert.match(tm, /G1|G2|G3/, 'and enumerates them');
+});
+
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
+test('B18: every third-party network destination has a named boundary row', () => {
+    // A threat model goes stale by OMISSION, not by contradiction: a new
+    // egress path that nobody adds a row for reads, to a later reviewer,
+    // exactly like a path that was considered and found safe. So the
+    // currency check is mechanical — if the code can reach a host, the
+    // document must name it.
+    const tm = read('docs', 'THREAT_MODEL.md');
+    const destinations = [
+        ['api.anthropic.com', /B[0-9]+ \| extension → (LLM|cloud)/],
+        ['api.assemblyai.com', /B13/]
+    ];
+    for (const [host, row] of destinations) {
+        assert.match(tm, row, `no boundary row covers ${host}`);
+    }
+    // The direct-cloud path is a DIFFERENT boundary from the
+    // companion-mediated one; B9's control (keys held in the companion
+    // child process) does not exist when there is no companion, so B9
+    // must not be left implying it covers both.
+    assert.match(tm, /B9 \| extension → cloud provider \(\*\*via the companion\*\*\)/,
+        'B9 must say explicitly that it covers the companion-mediated path only');
+    assert.match(tm, /G9/, 'the direct path\'s accepted residual must be recorded as a gap');
 });

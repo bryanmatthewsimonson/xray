@@ -52,6 +52,7 @@ test('truth-taxonomy: occurred precisions are exhaustive (no false precision)', 
     assert.equal(isValidOccurredPrecision(''), false);
 });
 
+// Provenance: R-020
 test('truth-taxonomy: the firewall — interpretation and stated-value are never truth-adjudicable', () => {
     assert.deepEqual(TRUTH_ADJUDICABLE_CLASSES.slice().sort(),
         ['event-fact', 'prediction', 'state-fact', 'stated-commitment']);

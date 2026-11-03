@@ -1,0 +1,208 @@
+{
+  "db": "xray-archive",
+  "producedBy": {
+    "commitOfRung": "c7b3121",
+    "generator": "tests/tools/gen-idb-fixtures.mjs",
+    "note": "articles rows are the c7b3121 literal (articleHash + priorVersions present, captureUrl absent — e775c44 landed three days later without a bump); source_documents carries a real byte payload whose hash is sha256(bytes); metadata stores still empty."
+  },
+  "schema": {
+    "annotations": {
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "keyPath": "author",
+          "name": "author",
+          "unique": false
+        },
+        {
+          "keyPath": "createdAt",
+          "name": "createdAt",
+          "unique": false
+        },
+        {
+          "keyPath": "motivation",
+          "name": "motivation",
+          "unique": false
+        },
+        {
+          "keyPath": "urlHash",
+          "name": "urlHash",
+          "unique": false
+        }
+      ],
+      "keyPath": "eventId"
+    },
+    "articles": {
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "keyPath": "cachedAt",
+          "name": "cachedAt",
+          "unique": false
+        },
+        {
+          "keyPath": "lastAccessed",
+          "name": "lastAccessed",
+          "unique": false
+        },
+        {
+          "keyPath": "publishedToRelay",
+          "name": "publishedToRelay",
+          "unique": false
+        }
+      ],
+      "keyPath": "urlHash"
+    },
+    "factchecks": {
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "keyPath": "createdAt",
+          "name": "createdAt",
+          "unique": false
+        },
+        {
+          "keyPath": "ratingValue",
+          "name": "ratingValue",
+          "unique": false
+        },
+        {
+          "keyPath": "urlHash",
+          "name": "urlHash",
+          "unique": false
+        }
+      ],
+      "keyPath": "eventId"
+    },
+    "helpfulness": {
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "keyPath": "createdAt",
+          "name": "createdAt",
+          "unique": false
+        },
+        {
+          "keyPath": "targetEventId",
+          "name": "targetEventId",
+          "unique": false
+        },
+        {
+          "keyPath": "voter",
+          "name": "voter",
+          "unique": false
+        }
+      ],
+      "keyPath": "eventId"
+    },
+    "ratings": {
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "keyPath": "createdAt",
+          "name": "createdAt",
+          "unique": false
+        },
+        {
+          "keyPath": "urlHash",
+          "name": "urlHash",
+          "unique": false
+        }
+      ],
+      "keyPath": "eventId"
+    },
+    "source_documents": {
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "keyPath": "fetchedAt",
+          "name": "fetchedAt",
+          "unique": false
+        },
+        {
+          "keyPath": "url",
+          "name": "url",
+          "unique": false
+        }
+      ],
+      "keyPath": "hash"
+    },
+    "trust_graph": {
+      "autoIncrement": false,
+      "indexes": [],
+      "keyPath": "pubkey"
+    }
+  },
+  "stores": {
+    "annotations": [],
+    "articles": [
+      {
+        "article": {
+          "content": "<p>Article A body.</p>",
+          "extraction": {
+            "source_hash": "509ed58f63eec54fe8a5ab0dcff9e77455dbd52e03ad06aee7e841bfd757011e"
+          },
+          "markdown": "# Article A\n\nArticle A body.",
+          "title": "Article A",
+          "url": "https://example.com/a"
+        },
+        "articleHash": "43dcfff79d68796afb750aa9c9616acc38447237980a00259de6b96b0ab2b040",
+        "cachedAt": 1700000000,
+        "lastAccessed": 1700000060,
+        "priorVersions": [],
+        "publishedEventId": null,
+        "publishedToRelay": false,
+        "source": "capture",
+        "url": "https://example.com/a",
+        "urlHash": "2dce0a4c50441bfc"
+      },
+      {
+        "article": {
+          "content": "<p>Article B body, revised.</p>",
+          "markdown": "# Article B\n\nArticle B body, revised.",
+          "title": "Article B",
+          "url": "https://example.com/b"
+        },
+        "articleHash": "6ee97a0debc614925da6fb6724997423c8c0ad23de2b9a1466eda4a28ff04cb0",
+        "cachedAt": 1700000100,
+        "lastAccessed": 1700000200,
+        "priorVersions": [
+          {
+            "article": {
+              "content": "<p>Article B body.</p>",
+              "markdown": "# Article B\n\nArticle B body.",
+              "title": "Article B",
+              "url": "https://example.com/b"
+            },
+            "articleHash": "7b6b879dd911ca0d33552f38197b33d4965fe2e710f25e5b093f960c9f868ede",
+            "cachedAt": 1700000100,
+            "displacedAt": 1700000200,
+            "source": "capture"
+          }
+        ],
+        "publishedEventId": "4c63cd635b68470f62fcab2b1ec909e025d48994b1a93b8b4e5178a92390573d",
+        "publishedToRelay": true,
+        "source": "capture",
+        "url": "https://example.com/b",
+        "urlHash": "d7fe568b31ae0fb9"
+      }
+    ],
+    "factchecks": [],
+    "helpfulness": [],
+    "ratings": [],
+    "source_documents": [
+      {
+        "bytes": {
+          "__xrayBytes": "JVBERi0xLjcKAP+Afw=="
+        },
+        "fetchedAt": 1700000000,
+        "hash": "509ed58f63eec54fe8a5ab0dcff9e77455dbd52e03ad06aee7e841bfd757011e",
+        "mime": "application/pdf",
+        "size": 13,
+        "url": "https://example.com/a.pdf"
+      }
+    ],
+    "trust_graph": []
+  },
+  "version": 3
+}

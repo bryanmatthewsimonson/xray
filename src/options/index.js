@@ -4,6 +4,8 @@
 // Values written by the Storage wrapper are JSON-stringified, so we
 // match that here: parse on read, stringify on write.
 
+import { readDiagnostics, clearDiagnostics, formatDiagnostics, recordDiagnostic, flushDiagnostics } from '../shared/diagnostics.js';
+import { markReady } from '../shared/smoke-anchors.js';
 import { Storage } from '../shared/storage.js';
 import { Crypto } from '../shared/crypto.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
@@ -14,11 +16,13 @@ import {
     LMSTUDIO_URL_STORAGE, LMSTUDIO_MODEL_STORAGE, sanitizePort, loopbackUrl
 } from '../shared/transcriber-client.js';
 import { deriveCompanionState } from '../shared/companion-status.js';
-import { formatBuildInfo } from '../shared/build-info.js';
+import { formatBuildInfo, getBuildInfo } from '../shared/build-info.js';
 import {
-    LLM_MODELS, DEFAULT_LLM_MODEL, resolveModel, LLM_KEY_STORAGE, LLM_MODEL_STORAGE,
+    DEFAULT_LLM_MODEL, LLM_KEY_STORAGE, LLM_MODEL_STORAGE, LLM_DISCOVERED_MODELS_STORAGE,
     LLM_SUGGEST_KINDS_STORAGE, SUGGEST_KIND_LABELS, normalizeSuggestKinds
 } from '../shared/llm-prompts.js';
+import { setupModelPicker, refreshModelPicker } from './llm-models.js';
+import { loadAdvancedToggles, saveAdvancedToggles } from './advanced-toggles.js';
 import { importAuditJson } from '../shared/audit/import.js';
 import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
 import { listRuns, listPredictions, listResolutions } from '../shared/audit/audit-cache.js';
@@ -85,7 +89,7 @@ function storageClearExtension() {
         'local_primary_identity', 'xr_signing_state',
         // Phase 14.5: the LLM-assist secret key + model preference. The
         // key is a secret, so "erase all" must clear it too.
-        LLM_KEY_STORAGE, LLM_MODEL_STORAGE,
+        LLM_KEY_STORAGE, LLM_MODEL_STORAGE, LLM_DISCOVERED_MODELS_STORAGE,   // + the key's model list
         // Cloud transcription keys are secrets under the same rule; the
         // engine preference goes with them — and so does the companion
         // auth token (review finding: it was the one stored secret
@@ -289,7 +293,7 @@ async function loadSigning() {
 
     // First-run banner
     const banner = document.getElementById('signing-firstrun');
-    banner.style.display = prefs.signing_method_configured ? 'none' : '';
+    banner.style.display = (await signingIsConfigured(prefs)) ? 'none' : '';
 }
 
 function selectedMethod() {
@@ -322,13 +326,38 @@ async function saveSigning() {
     await refreshActiveLine();
 }
 
+/** Is signing actually set up? Derived from STATE, not from whether the
+ *  Save button on this tab was ever pressed.
+ *
+ *  `signing_method_configured` records a button press. A user who
+ *  imported an nsec, restored a backup, switched workspaces, or upgraded
+ *  from a build that predates the flag has a working signer and has
+ *  never touched Save — and the page told them "not configured yet" and
+ *  showed the first-run welcome banner, beside an ACTIVE identity with
+ *  published events. Field-found 2026-08-23 on an archive with 68
+ *  published events. (docs/PORTAL_UX_REVIEW.md's A-class: the interface
+ *  lying about its own state.)
+ *
+ *  The flag stays authoritative when set — this only ADDS the cases it
+ *  misses. */
+async function signingIsConfigured(prefs) {
+    if (prefs.signing_method_configured) return true;
+    const method = (prefs.signing_method === 'nip07' || prefs.signing_method === 'nsecbunker')
+        ? prefs.signing_method
+        : 'local';
+    if (method === 'nip07') return true;                     // only ever set deliberately
+    if (method === 'nsecbunker') return !!prefs.nsecbunker_url;
+    const id = await storageGet('local_primary_identity');   // Local: a key IS the configuration
+    return !!(id && id.npub);
+}
+
 async function refreshActiveLine() {
     const el = document.getElementById('signing-active');
     const prefs = (await storageGet('preferences')) || {};
     const method = (prefs.signing_method === 'nip07' || prefs.signing_method === 'nsecbunker')
         ? prefs.signing_method
         : 'local';
-    if (!prefs.signing_method_configured) {
+    if (!(await signingIsConfigured(prefs))) {
         el.textContent = 'Active method: not configured yet — pick one below.';
         return;
     }
@@ -453,7 +482,7 @@ async function restoreEntityKeys() {
     const status = document.getElementById('local-status');
     try {
         await LocalKeyManager.init();
-        const { restored, skipped } = await EntityModel.restoreDerivedKeys();
+        const { restored, skipped, stampFailed } = await EntityModel.restoreDerivedKeys();
         // CW.4: entities derived under a DIFFERENT identity profile are
         // refused, loudly — restoring them here would mint wrong pubkeys.
         const skipNote = skipped.length
@@ -471,8 +500,7 @@ async function restoreEntityKeys() {
             flash(status, `Nothing restored.${skipNote}`, false);
         } else {
             flash(status, `Restored ${restored.length} entity key${restored.length === 1 ? '' : 's'}: `
-                + restored.map((r) => r.name).join(', ') + '.' + unverifiedNote + skipNote,
-                skipped.length === 0);
+                + restored.map((r) => r.name).join(', ') + '.' + unverifiedNote + skipNote + (stampFailed ? ' Recording their origin failed (a storage error), so a later restore will ask again.' : ''), skipped.length === 0 && !stampFailed);
         }
     } catch (e) {
         flash(status, 'Restore failed: ' + (e && e.message), false);
@@ -863,8 +891,9 @@ async function workspaceResetFlow() {
         return;
     }
     try {
-        downloadJson(await workspaceBackup(), `xray-workspace-${new Date().toISOString().slice(0, 10)}.json`);
-        const result = await resetWorkspace();
+        const safety = await workspaceBackup();
+        downloadJson(safety, `xray-workspace-${new Date().toISOString().slice(0, 10)}.json`);
+        const result = await resetWorkspace({ workspace: safety.workspace });   // the file's workspace, or refused
         flash(status, `Fresh workspace: cleared ${result.cleared.length} stores and ${result.databases.length} caches. Reload any open X-Ray pages.`);
         await refreshLocalKeyState();
         await refreshActiveLine();
@@ -1005,7 +1034,7 @@ async function backupRestoreFromFile(file) {
 
 // Merge-import — accrual, not replacement. A colleague's (or an older)
 // backup folds INTO the current corpus: missing items added by id,
-// extraction records merged at the assertion level, local data never
+// extraction records merged at the claim-proposal (atom) level, local data never
 // deleted or overwritten, config/identities in the file ignored.
 async function backupMergeFromFile(file) {
     const status = document.getElementById('backup-status');
@@ -1021,7 +1050,7 @@ async function backupMergeFromFile(file) {
             `ADDS the file's content to what you already have (${storageKeys} storage keys; ` +
             `databases: ${dbNames}; exported ${parsed.exportedAt || 'unknown'}).\n\n` +
             'Nothing local is deleted or overwritten: items are deduplicated by id, ' +
-            'per-article extraction records merge at the assertion level, and the ' +
+            'per-article extraction records merge at the claim-proposal level, and the ' +
             'file\'s settings/identities are ignored.\n\n' +
             'Imported quotes are re-located in YOUR copy of each article — offsets from ' +
             'another machine are never trusted — so analysis of an article you have not ' +
@@ -1274,39 +1303,6 @@ async function exportAuditLedger() {
 // Advanced
 // ------------------------------------------------------------------
 
-// Inline overlay: hosts the user hid via the overlay's own menu. Read and
-// written through the Storage facade (same key the content script writes).
-const OVERLAY_SITE_OFF_KEY = 'overlay_site_off';
-
-async function renderOverlaySiteOff() {
-    const ul = document.getElementById('overlay-site-off-list');
-    const empty = document.getElementById('overlay-site-off-empty');
-    if (!ul || !empty) return;
-    let hosts = await Storage.get(OVERLAY_SITE_OFF_KEY, []);
-    hosts = Array.isArray(hosts) ? hosts.filter((h) => typeof h === 'string' && h) : [];
-    ul.textContent = '';
-    empty.hidden = hosts.length > 0;
-    for (const host of hosts) {
-        const li = document.createElement('li');
-        li.style.margin = '4px 0';
-        const name = document.createElement('code');
-        name.textContent = host;
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'xr-opt__btn xr-opt__btn--small';
-        btn.textContent = 'Remove';
-        btn.style.marginLeft = '8px';
-        btn.addEventListener('click', async () => {
-            const cur = await Storage.get(OVERLAY_SITE_OFF_KEY, []);
-            const next = (Array.isArray(cur) ? cur : []).filter((h) => h !== host);
-            await Storage.set(OVERLAY_SITE_OFF_KEY, next);
-            await renderOverlaySiteOff();
-        });
-        li.append(name, btn);
-        ul.appendChild(li);
-    }
-}
-
 async function loadAdvanced() {
     refreshBackupEstimate(); // fire-and-forget — sizes the backup checkbox label
     const prefs = (await storageGet('preferences')) || {};
@@ -1344,16 +1340,15 @@ async function loadAdvanced() {
 
     // Case synthesis (Phase 20.4) — requires llmAssist + the key on top.
     document.getElementById('pref-case-synthesis').checked = isEnabled('caseSynthesis');
-    // Phase 28 — per-capture map prepay (a standing spend authorization).
-    document.getElementById('pref-auto-preanalyze').checked = isEnabled('autoPreAnalyze');
-    document.getElementById('pref-capture-automation').checked = isEnabled('captureAutomation');
-    document.getElementById('pref-inline-overlay').checked = isEnabled('inlineOverlay');
-    await renderOverlaySiteOff();
+    // (autoPreAnalyze retired in UA.3 — every Suggest click IS the one
+    // cache-first map call now, so there is nothing left to prepay.)
+    await loadAdvancedToggles();   // capture automation + inline overlay
 
     // Local transcription (companion service) + the LM Studio post-pass.
     // Port / URL / model live under their own storage keys (the LLM-key
     // pattern); blank fields mean "use the default".
     document.getElementById('pref-local-transcription').checked = isEnabled('localTranscription');
+    document.getElementById('pref-direct-cloud-transcription').checked = isEnabled('directCloudTranscription');
     document.getElementById('pref-transcript-claim-drafts').checked = isEnabled('transcriptClaimDrafts');
     const rawPort = await new Promise((resolve) => {
         browserApi.storage.local.get([TRANSCRIBER_PORT_STORAGE],
@@ -1378,6 +1373,7 @@ async function loadAdvanced() {
     document.getElementById('pref-aai-key').value = '';
     document.getElementById('pref-dg-key').value = '';
     setupCompanionStatus();
+    setupDiagnostics();
     document.getElementById('pref-lmstudio-url').value = await llmRawGet(LMSTUDIO_URL_STORAGE);
     document.getElementById('pref-lmstudio-model').value = await llmRawGet(LMSTUDIO_MODEL_STORAGE);
 
@@ -1385,10 +1381,8 @@ async function loadAdvanced() {
     // + model live under their own chrome.storage.local keys. We never
     // load the key VALUE back into the DOM — only whether one is set.
     document.getElementById('pref-llm-assist').checked = isEnabled('llmAssist');
-    populateLlmModels();
-    const savedModel = resolveModel(await llmRawGet(LLM_MODEL_STORAGE));
-    document.getElementById('pref-llm-model').value = savedModel;
     const hasKey = (await llmRawGet(LLM_KEY_STORAGE)).length > 0;
+    await setupModelPicker({ saved: await llmRawGet(LLM_MODEL_STORAGE), hasKey });
     const keyStatus = document.getElementById('llm-key-status');
     if (keyStatus) {
         keyStatus.textContent = hasKey
@@ -1494,24 +1488,18 @@ async function saveAdvanced() {
     const synthOn = document.getElementById('pref-case-synthesis').checked;
     await setOverride('caseSynthesis', synthOn ? true : null);
 
-    // Auto pre-analyze on capture (Phase 28) — a standing per-capture
-    // spend authorization; the checkbox hint carries the disclosure.
-    const autoPreOn = document.getElementById('pref-auto-preanalyze').checked;
-    await setOverride('autoPreAnalyze', autoPreOn ? true : null);
-
-    // Capture automation (Phase 27 K.4).
-    const captureAutoOn = document.getElementById('pref-capture-automation').checked;
-    await setOverride('captureAutomation', captureAutoOn ? true : null);
-
-    // Inline overlay (spec 2026-11-02): default off; unchecked clears the override.
-    const overlayOn = document.getElementById('pref-inline-overlay').checked;
-    await setOverride('inlineOverlay', overlayOn ? true : null);
+    // Capture automation (Phase 27 K.4) + inline overlay: advanced-toggles.js.
+    await saveAdvancedToggles();
 
     // Local transcription + LM Studio claim drafts. The client pins both
     // services to loopback; a non-loopback LM Studio URL is refused here
     // with a visible message rather than silently ignored later.
     const transcribeOn = document.getElementById('pref-local-transcription').checked;
     await setOverride('localTranscription', transcribeOn ? true : null);
+    // The companion-free route has its OWN flag: it is reachable with
+    // the companion checkbox off, which is the entire point of it.
+    const directOn = document.getElementById('pref-direct-cloud-transcription').checked;
+    await setOverride('directCloudTranscription', directOn ? true : null);
     const draftsOn = document.getElementById('pref-transcript-claim-drafts').checked;
     await setOverride('transcriptClaimDrafts', draftsOn ? true : null);
     const portField = (document.getElementById('pref-transcriber-port').value || '').trim();
@@ -1577,6 +1565,7 @@ async function saveAdvanced() {
     const typedKey = (keyField.value || '').trim();
     if (typedKey) {
         await llmRawSet(LLM_KEY_STORAGE, typedKey);
+        refreshModelPicker();   // a new key may reach a different account
         keyField.value = '';
         const keyStatus = document.getElementById('llm-key-status');
         if (keyStatus) keyStatus.textContent = 'A key is saved on this device.';
@@ -1593,17 +1582,6 @@ async function saveAdvanced() {
     await llmRawSet(LLM_SUGGEST_KINDS_STORAGE, checkedKinds);
 
     flash(document.getElementById('advanced-status'), 'Saved.');
-}
-
-function populateLlmModels() {
-    const sel = document.getElementById('pref-llm-model');
-    if (!sel || sel.options.length > 0) return;
-    for (const m of LLM_MODELS) {
-        const opt = document.createElement('option');
-        opt.value = m.id;
-        opt.textContent = m.label;
-        sel.appendChild(opt);
-    }
 }
 
 // Companion service status — the live panel above the transcription
@@ -1703,7 +1681,13 @@ function setupCompanionStatus() {
         renderCompanionStatus(deriveCompanionState({
             resp,
             enginePref: enginePrefEl ? enginePrefEl.value : '',
-            port: port || 8756
+            port: port || 8756,
+            // DC.2: with a companion-free route configured, an absent
+            // companion is a working state, not a fault to shout about.
+            // Read the CHECKBOX, not the stored flag — the panel polls
+            // live and must track an unsaved toggle the way the rest of
+            // this form does.
+            directEnabled: !!document.getElementById('pref-direct-cloud-transcription')?.checked
         }));
     };
 
@@ -1857,9 +1841,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         loadAdvanced()
     ]);
 
-    // Auto-activate Signing tab if not yet configured.
+    // Auto-activate Signing tab if not yet configured. Same derivation
+    // as the banner and the active line — otherwise every visit to
+    // Settings yanks a working user to Signing forever.
     const prefs = (await storageGet('preferences')) || {};
-    if (!prefs.signing_method_configured) activateTab('signing');
+    if (!(await signingIsConfigured(prefs))) activateTab('signing');
 
     // Quick-action header buttons (replace the old popup's role).
     document.getElementById('qa-toggle-capture').addEventListener('click', () => {
@@ -1948,6 +1934,50 @@ document.addEventListener('DOMContentLoaded', async () => {
         clearTranscriberKey(TRANSCRIBER_TOKEN_STORAGE, 'pref-transcriber-token',
             'transcriber-token-status', 'token'));
     document.getElementById('clear-all').addEventListener('click', clearAll);
+
+    // Last act of init: the browser smoke waits for this stamp
+    // (src/shared/smoke-anchors.js). Keep it last.
+    markReady('options');
 });
 // Re-export for tests / debugging.
 export { Storage, Crypto };
+
+
+// Diagnostics (shared/diagnostics.js): copy the local error ring with
+// the build identity, so a report is diagnosable without a console.
+function setupDiagnostics() {
+    const copy = document.getElementById('diagnostics-copy');
+    const clear = document.getElementById('diagnostics-clear');
+    const status = document.getElementById('diagnostics-status');
+    if (!copy || copy.dataset.wired) return;
+    copy.dataset.wired = '1';
+    const say = (msg) => { if (status) status.textContent = msg; };
+    copy.addEventListener('click', async () => {
+        try {
+            const entries = await readDiagnostics();
+            const manifest = browserApi.runtime.getManifest ? browserApi.runtime.getManifest() : {};
+            const info = getBuildInfo();
+            const text = formatDiagnostics(entries, { version: manifest.version, commit: info && info.commit });
+            await navigator.clipboard.writeText(text);
+            say(`Copied ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}.`);
+        } catch (err) { say('Copy failed: ' + ((err && err.message) || err)); }
+    });
+    // Self-test: the feature must be verifiable without contriving a
+    // real failure. Field-found 2026-08-23: the walk instruction "clear
+    // a key and let a transcribe refuse" was impossible — the DC.1
+    // picker deliberately routes a keyless engine to Settings instead
+    // of letting it fail. A diagnostics surface you can only verify by
+    // breaking something is itself unverifiable.
+    const testBtn = document.getElementById('diagnostics-test');
+    if (testBtn) testBtn.addEventListener('click', async () => {
+        try {
+            recordDiagnostic('options', 'diagnostics self-test — this entry confirms capture and copy work');
+            await flushDiagnostics();
+            say('Test entry recorded — press Copy diagnostics to see it.');
+        } catch (err) { say('Test failed: ' + ((err && err.message) || err)); }
+    });
+    if (clear) clear.addEventListener('click', async () => {
+        try { await clearDiagnostics(); say('Cleared.'); }
+        catch (err) { say('Clear failed: ' + ((err && err.message) || err)); }
+    });
+}

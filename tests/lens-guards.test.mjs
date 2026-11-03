@@ -1,14 +1,14 @@
-// Phase 16.4 — the machine-checked deferrals and word reservations
-// (docs/MORAL_LENS_JURISDICTION_DESIGN.md §5.2, §6, §9 Q4):
+// Phase 16.4 — the machine-checked deferrals
+// (docs/MORAL_LENS_JURISDICTION_DESIGN.md §6, §9 Q4):
 //
-//   - "Verdict" is reserved for Phase 15: /verdict|ruling|opinion/i
-//     (plus Court/Integrity per §5.2) appears in NO Phase 16 exported
-//     symbol, storage key, or §7 output key.
-//   - Kind 30066 stays FREE: no builder in src/ emits it, and the lens
-//     modules export no wire builders at all.
-//   - LENS_PROMPT_VERSION and the §5.1 fidelity note are pinned
-//     side-by-side, exactly (the "bump alongside the prompt" idiom).
+//   - Kind 30066 stays RESERVED (CONSTITUTION Art. 10): no builder in
+//     src/ emits it, and the lens modules export no wire builders at all.
+//   - LENS_PROMPT_VERSION is pinned exactly (the "bump alongside the
+//     prompt" idiom).
 //   - moralLens defaults OFF.
+//
+// Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
+// A test with its own Provenance line below is pinned by that line instead.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -27,38 +27,13 @@ const lensSchemas = await import('../src/shared/lens-schemas.js');
 const lensPrompt = await import('../src/shared/lens-prompt.js');
 const jurisdictionModel = await import('../src/shared/jurisdiction-model.js');
 const lensEngine = await import('../src/shared/lens-engine.js');
-const lensSection = await import('../src/reader/lens-section.js');
 const { FLAGS_DEFAULTS } = await import('../src/shared/metadata/feature-flags.js');
 const { WORKSPACE_CLEAR_KEYS } = await import('../src/shared/identity-profiles.js');
 
-const RESERVED = /verdict|ruling|opinion|court|integrity/i;
-
-// ------------------------------------------------------------------
-// §5.2 word reservation — export names + storage keys
-// ------------------------------------------------------------------
-
-test('guard: no Phase 16 module exports a reserved word (§5.2)', () => {
-    const modules = {
-        'lens-taxonomy': lensTaxonomy,
-        'lens-schemas': lensSchemas,
-        'lens-prompt': lensPrompt,
-        'jurisdiction-model': jurisdictionModel,
-        'lens-engine': lensEngine,
-        'lens-section': lensSection
-    };
-    for (const [name, mod] of Object.entries(modules)) {
-        for (const key of Object.keys(mod)) {
-            assert.doesNotMatch(key, RESERVED, `${name} export "${key}"`);
-        }
-    }
-});
-
-test('guard: Phase 16 storage keys carry no reserved word and stay workspace-covered (§5.2)', () => {
+test('guard: the Phase 16 registry key stays workspace-covered', () => {
     // The ACTUAL keys the modules use — not test-local copies.
     assert.equal(lensEngine.LENS_SESSION_PREFIX, 'xray:lensread:');
     assert.equal(jurisdictionModel.JURISDICTIONS_KEY, 'lens_jurisdictions');
-    assert.doesNotMatch(jurisdictionModel.JURISDICTIONS_KEY, RESERVED);
-    assert.doesNotMatch(lensEngine.LENS_SESSION_PREFIX, RESERVED);
     // Renaming the registry key must not silently orphan workspace
     // backup/reset coverage.
     assert.ok(WORKSPACE_CLEAR_KEYS.includes(jurisdictionModel.JURISDICTIONS_KEY),
@@ -71,7 +46,10 @@ test('guard: Phase 16 storage keys carry no reserved word and stay workspace-cov
 // modules, the flag, kind 30066 and this whole guard file survive, so
 // the code stays exercised and revival is re-adding an entry point
 // rather than repairing rot. The options half of the old assertion is
-// therefore gone; the reader half stays, because that markup stays.
+// therefore gone; its reader half (a reserved-word check over the reader
+// lens section) was removed 2026-09-26 with the screen-text word rule
+// (R-018).
+// Provenance: R-013 (seed row, pending)
 test('guard: the parked Options control is absent, and stays absent by intent', async () => {
     const optionsHtml = await readFile(new URL('../src/options/options.html', import.meta.url), 'utf8');
     assert.doesNotMatch(optionsHtml, /id="pref-moral-lens"/,
@@ -80,67 +58,8 @@ test('guard: the parked Options control is absent, and stays absent by intent', 
         'the revival instructions stay with the code they revive');
 });
 
-test('guard: the reader lens section carries no reserved word (§5.2 user-visible strings)', async () => {
-    const readerHtml = await readFile(new URL('../src/reader/index.html', import.meta.url), 'utf8');
-    const sectionStart = readerHtml.indexOf('id="xr-lensread"');
-    assert.ok(sectionStart > -1, 'the lens section exists in reader index.html');
-    const section = readerHtml.slice(sectionStart, readerHtml.indexOf('</section>', sectionStart));
-    assert.doesNotMatch(section, RESERVED, 'reader index.html lens section');
-});
-
 // ------------------------------------------------------------------
-// §5.2 word reservation — the parsed §7 output keys
-// ------------------------------------------------------------------
-
-function collectKeys(node, out = new Set()) {
-    if (node === null || typeof node !== 'object') return out;
-    if (Array.isArray(node)) { node.forEach((v) => collectKeys(v, out)); return out; }
-    for (const [k, v] of Object.entries(node)) {
-        out.add(k);
-        collectKeys(v, out);
-    }
-    return out;
-}
-
-test('guard: assembled §7 output keys carry no reserved word — model extras cannot smuggle one in', () => {
-    const jurisdiction = {
-        id: 'j', jurisdiction_type: 'worldview', display_name: 'J',
-        is_living_person: null, internal_divisions: ['a', 'b'],
-        corpus: [{
-            authority_id: 'auth_x', citation: { work: 'W', edition: null, isbn: null, locator: 'L', tradition: null, language: null },
-            excerpt: 'e', admissibility: 'published-book', claim_id: null, anchor: null
-        }],
-        corpus_provenance: { curated_by: null, candidate_pool: null, selection_basis: null }
-    };
-    const toolInput = {
-        readings: [{
-            claim_id: 'c1', disposition: 'silent', reasoning: 'r', authorities_cited: [],
-            confidence: 'low', confidence_rationale: 'x',
-            // A model trying to smuggle reserved vocabulary into the
-            // output — the normalization whitelist must drop it.
-            verdict: 'guilty', court_opinion: 'overruled'
-        }],
-        reconstruction_summary: 's',
-        ruling_summary: 'also dropped'
-    };
-    const { reading } = lensEngine.assembleJurisdictionReading({
-        jurisdiction, toolInput,
-        claims: [{ id: 'c1', text: 't', type: 'normative' }],
-        truncationFlags: []
-    });
-    const panel = lensEngine.assembleLensPanel({
-        target: { title: null, url: null, content_hash: 'a'.repeat(64), claims: [{ id: 'c1', text: 't', type: 'normative' }] },
-        jurisdictionReadings: [reading],
-        selectionBasis: '',
-        provenance: { model: 'm', prompt_version: lensPrompt.LENS_PROMPT_VERSION, run_at: 'now' }
-    });
-    for (const key of collectKeys(panel)) {
-        assert.doesNotMatch(key, RESERVED, `output key "${key}"`);
-    }
-});
-
-// ------------------------------------------------------------------
-// Kind 30066 stays free (§9 Q4 — machine-checked deferral)
+// Kind 30066 stays reserved (CONSTITUTION Art. 10; §9 Q4 — machine-checked deferral)
 // ------------------------------------------------------------------
 
 async function* walkJs(dir) {
@@ -151,6 +70,7 @@ async function* walkJs(dir) {
     }
 }
 
+// Provenance: R-018 (never emitted); the no-constant half: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('guard: no builder in src/ emits kind 30066, and no constant reserves it', async () => {
     const srcRoot = fileURLToPath(new URL('../src', import.meta.url));
     const emitted = new Set();
@@ -170,9 +90,10 @@ test('guard: no builder in src/ emits kind 30066, and no constant reserves it', 
     assert.ok(emitted.has(30063), 'sanity: the scan sees the Phase 15 kinds');
     assert.ok(emitted.has(30040), 'sanity: the scan sees suffix-style constants (CLAIM_KIND)');
     assert.equal(emitted.has(30066), false,
-        'kind 30066 is left FREE — a shareable lens-reading is a separately-designed act (§9 Q4)');
+        'kind 30066 stays RESERVED (CONSTITUTION Art. 10) — a shareable lens-reading is a separately-designed act (§9 Q4)');
 });
 
+// Provenance: R-025
 test('guard: lens modules export no wire builders (no lens event exists to build)', () => {
     for (const mod of [lensTaxonomy, lensSchemas, lensPrompt, jurisdictionModel, lensEngine]) {
         for (const [key, value] of Object.entries(mod)) {
@@ -184,7 +105,7 @@ test('guard: lens modules export no wire builders (no lens event exists to build
 });
 
 // ------------------------------------------------------------------
-// Pins: flag default, prompt version, the §5.1 fidelity note
+// Pins: flag default, prompt version
 // ------------------------------------------------------------------
 
 test('guard: moralLens defaults OFF, independent of llmAssist', () => {
@@ -193,17 +114,10 @@ test('guard: moralLens defaults OFF, independent of llmAssist', () => {
     assert.equal(FLAGS_DEFAULTS.llmAssist, false);
 });
 
-test('guard: LENS_PROMPT_VERSION and the §5.1 fidelity note are pinned exactly, side by side', () => {
+test('guard: LENS_PROMPT_VERSION and LENS_TOOL_NAME are pinned exactly', () => {
     // Bump the version alongside any meaningful prompt change.
     assert.equal(lensPrompt.LENS_PROMPT_VERSION, '1.0');
     assert.equal(lensPrompt.LENS_TOOL_NAME, 'emit_lens_reading');
-    // The note every confidence chip carries (§5.1): fidelity, not
-    // truth. Pinned so it cannot silently disappear from the surface.
-    assert.equal(lensTaxonomy.LENS_CONFIDENCE_FIDELITY_NOTE,
-        'Confidence measures the fidelity of this perspectival reconstruction — '
-        + 'how directly the loaded corpus addresses the assertion, how unified the '
-        + 'tradition is, and how much inference was required. It never measures '
-        + 'whether the assertion is true, and never how strongly the jurisdiction feels.');
 });
 
 test('guard: the prompt states the firewall and the quoting discipline', () => {

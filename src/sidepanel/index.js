@@ -20,6 +20,7 @@
 // see reader/index.js `resolveEntitiesToPublish`).
 
 import { EntityModel, ENTITY_TYPES, ENTITY_ICONS, installEntityStorageBridge } from '../shared/entity-model.js';
+import { markReady } from '../shared/smoke-anchors.js';
 import { CASE_STATUS_VALUES } from '../shared/entity-field-schemas.js';
 import { parseClaimEvent, ClaimModel } from '../shared/claim-model.js';
 import { EvidenceLinker, EVIDENCE_RELATIONSHIP_ICONS } from '../shared/evidence-linker.js';
@@ -38,13 +39,14 @@ import { equivalencePubkeys } from '../shared/entity-equivalence.js';
 import { buildFeedFilters, claimCoords, buildJudgmentFilter, assembleFeed } from '../shared/entity-feed.js';
 import { pushEntities, pullEntities, clearRemote, pushRelayList, pullRelayList, normalizeRelayUrl } from '../shared/entity-sync.js';
 import { dedupeReport, recentMerges, DedupeDismissals } from '../shared/entity-health.js';
-import { buildRegistryDigest, validateEntityOps } from '../shared/llm-entity-audit.js';
+import { runEntityAudit } from './entity-audit.js';
 import { assembleEntityDossier } from '../shared/entity-dossier.js';
 import { Storage } from '../shared/storage.js';
 import { listArticles } from '../shared/archive-cache.js';
 import { listAddableArticles, addArticlesToCase } from '../shared/case-membership.js';
 import { getCaseBrief } from '../shared/audit/audit-cache.js';
-import { renderList as renderOverlayList, esc as escOverlay } from '../overlay/render.js';
+import { escapeHtml, fmtRelative, hostOf } from './format.js';
+import { wireOverlayFocus } from './overlay-focus.js';
 
 // Reserved key name in LocalKeyManager for the user's primary
 // identity. Used only by the sync flow — article publishing still
@@ -72,12 +74,6 @@ const state = {
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
-function escapeHtml(s) {
-    return String(s ?? '')
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
-}
-
 function toast(message, type = 'success', timeoutMs = 3200) {
     const el = $('#xr-toast');
     el.textContent = message;
@@ -85,16 +81,6 @@ function toast(message, type = 'success', timeoutMs = 3200) {
     el.hidden = false;
     clearTimeout(toast._t);
     toast._t = setTimeout(() => { el.hidden = true; }, timeoutMs);
-}
-
-function fmtRelative(unixSec) {
-    if (!unixSec) return '';
-    const diffSec = Math.floor(Date.now() / 1000) - unixSec;
-    if (diffSec < 60)      return 'just now';
-    if (diffSec < 3600)    return Math.floor(diffSec / 60)   + 'm ago';
-    if (diffSec < 86400)   return Math.floor(diffSec / 3600) + 'h ago';
-    if (diffSec < 2592000) return Math.floor(diffSec / 86400) + 'd ago';
-    return new Date(unixSec * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 async function copyToClipboard(text) {
@@ -939,10 +925,6 @@ async function renderInconsistencies(entity) {
     }
 }
 
-function hostOf(url) {
-    try { return new URL(url).host; } catch { return String(url || ''); }
-}
-
 /** Share a case's entity keys for collaboration (Phase 11.8). */
 async function shareCaseBundle(entity) {
     const ok = confirm(
@@ -1457,7 +1439,7 @@ async function handleImport(file) {
                 try {
                     await EntityModel.importRecord(row);
                     added++;
-                } catch (_) { /* malformed row → skip */ }
+                } catch (err) { if (err && err.name === 'StoreRefusedError') throw err; /* malformed row → skip */ }
             } else {
                 try {
                     await EntityModel.create({
@@ -1468,7 +1450,15 @@ async function handleImport(file) {
                         canonical_id: row.canonical_id || null
                     });
                     added++;
-                } catch (_) { /* id collision → skip */ }
+                } catch (err) {
+                    // Option C: create refuses without a local primary.
+                    // Every remaining keyed row would fail identically —
+                    // swallowing it here ended in a SUCCESS toast over a
+                    // zero-row import. Rethrow to the error toast; rows
+                    // already imported stay (re-import is idempotent).
+                    if ((err && err.name === 'StoreRefusedError') || /local primary identity/.test((err && err.message) || '')) throw err;
+                    /* id collision → skip */
+                }
             }
         }
         await refreshEntities();
@@ -1621,19 +1611,13 @@ async function generateIdentity() {
 }
 
 async function saveIdentity(privHex) {
-    const pubkey = Crypto.getPublicKey(privHex);
-    // Bypass LocalKeyManager.createKey (which throws on duplicate) —
-    // reinstalling the identity should be allowed.
-    LocalKeyManager.keys.set(USER_KEY_NAME, {
-        name:       USER_KEY_NAME,
-        privateKey: privHex,
-        pubkey,
-        npub:       Crypto.hexToNpub(pubkey),
-        nsec:       Crypto.hexToNsec(privHex),
-        metadata:   { role: 'user-primary', source: 'sync-setup' },
-        created:    Math.floor(Date.now() / 1000)
-    });
-    await LocalKeyManager.save();
+    // Reinstalling the identity is allowed, so this is the keystore's
+    // explicit overwrite path (createKey/importKey refuse an occupied
+    // name). It replaces only this name — every entity key stays.
+    await LocalKeyManager.upsertKeys([{
+        name: USER_KEY_NAME, privateKey: privHex,
+        metadata: { role: 'user-primary', source: 'sync-setup' }
+    }]);
     renderSyncBody();
 }
 
@@ -1948,9 +1932,16 @@ async function renderHealth() {
         ${mergeHtml}`;
 
     // E2 — the LLM entity audit (ENTITY_CORPUS_DESIGN §3.2). Explicit
-    // click → explicit disclosure → one call → firewall → per-op Accept.
+    // click → explicit disclosure → one call (an LLM job) → firewall →
+    // per-op Accept. The run lives in ./entity-audit.js. No host while
+    // another view is up: a hidden review is not a delivered one, and
+    // returning to Health re-renders it away — the job record stays for
+    // the next identical audit instead.
     $('#xr-entity-audit').addEventListener('click', () =>
-        runEntityAudit({ entities, archiveRecords }).catch((err) => {
+        runEntityAudit({ entities, archiveRecords }, {
+            host: () => (state.view === 'health' ? $('#xr-entity-audit-review') : null),
+            render: renderEntityAuditReview, toast
+        }).catch((err) => {
             toast(err.message || String(err), 'error');
         }));
 
@@ -1982,42 +1973,6 @@ async function renderHealth() {
             }
         });
     });
-}
-
-// E2 — the LLM entity audit run. Gates (llmAssist + key) are checked
-// BEFORE the disclosure so nobody consents into a missing-key error;
-// the disclosure names exactly what leaves the device (the §3.2
-// privacy note: names, types, descriptions, and stored mention
-// snippets — no new class of data). Raw ops go through the
-// validateEntityOps firewall; every mutation is a human Accept here.
-async function runEntityAudit({ entities, archiveRecords }) {
-    const status = () => $('#xr-entity-audit-review');
-    const cfg = await new Promise((resolve) =>
-        chrome.runtime.sendMessage({ type: 'xray:llm:config' }, (r) => resolve(r || {})));
-    if (!cfg.enabled) throw new Error('LLM assist is off. Enable it in Settings → Advanced → LLM assist.');
-    if (!cfg.hasKey) throw new Error('No Anthropic API key set. Add one in Settings → Advanced → LLM assist.');
-
-    const { digest, included, truncated, mentionTextByEntity } =
-        buildRegistryDigest({ entities, articles: archiveRecords });
-    if (!digest.trim()) { toast('Nothing to audit — the registry is empty.'); return; }
-
-    if (!confirm(`Audit ${included} entit${included === 1 ? 'y' : 'ies'} with the LLM?\n\n`
-        + 'This sends entity names, types, descriptions, and stored mention snippets '
-        + '(already-captured article fragments) to the Anthropic API under your key — '
-        + 'no new class of data, but it leaves this device.'
-        + (truncated ? `\n\n${truncated} entit${truncated === 1 ? 'y' : 'ies'} did not fit the size budget and are excluded.` : '')
-        + '\n\nEvery proposal is reviewed here before anything changes.')) return;
-
-    status().innerHTML = '<div class="xr-side__empty">Auditing the registry…</div>';
-    const resp = await new Promise((resolve) =>
-        chrome.runtime.sendMessage({ type: 'xray:llm:entity-audit', request: { digest } }, (r) => resolve(r)));
-    if (!resp || !resp.ok) {
-        status().innerHTML = '';
-        throw new Error((resp && resp.error) || 'Entity audit failed (no response).');
-    }
-
-    const { accepted, rejected } = validateEntityOps(resp.ops, { entities, mentionTextByEntity });
-    renderEntityAuditReview({ accepted, rejected, model: resp.model, entities });
 }
 
 function describeEntityOp(op, nameOf) {
@@ -2130,76 +2085,6 @@ function showMergeChoice(pairEl, pair, entities) {
     });
 }
 
-// ------------------------------------------------------------------
-// Inline overlay — CSP fallback (flag inlineOverlay)
-// ------------------------------------------------------------------
-// When a page's CSP blocks the card iframe, the background stores
-// {url, itemIds} (ids only) under this session key and opens the panel.
-// The panel fetches the content through the same xray:overlay:card
-// handler (it accepts this tabless page) and renders it read-only.
-
-const OVERLAY_FOCUS_KEY = 'overlay_sidepanel_focus';
-const overlayFocus = { focus: null, items: [], showRejected: false };
-
-function paintOverlayFocus() {
-    const box = $('#xr-ov-focus');
-    if (!box) return;
-    const f = overlayFocus.focus;
-    if (!f) { box.hidden = true; box.innerHTML = ''; return; }
-    box.innerHTML = '<div class="xr-ov-focus-head">'
-        + `<strong title="${escOverlay(f.url)}">X-Ray notes for this page</strong>`
-        + '<button type="button" class="xr-ov-btn" data-xr-ov-action="dismiss">Dismiss</button>'
-        + '</div>'
-        + renderOverlayList(overlayFocus.items, { showRejected: overlayFocus.showRejected, actions: false });
-    box.hidden = false;
-}
-
-async function showOverlayFocus() {
-    const area = typeof chrome !== 'undefined' && chrome.storage && chrome.storage.session;
-    if (!area || !isEnabled('inlineOverlay')) return;
-    let focus = null;
-    try { focus = (await area.get(OVERLAY_FOCUS_KEY))[OVERLAY_FOCUS_KEY] || null; } catch (_) { focus = null; }
-    if (!focus || typeof focus.url !== 'string' || !Array.isArray(focus.itemIds)) {
-        overlayFocus.focus = null;
-        paintOverlayFocus();
-        return;
-    }
-    let resp = null;
-    try {
-        resp = await chrome.runtime.sendMessage({ type: 'xray:overlay:card', url: focus.url, itemIds: focus.itemIds });
-    } catch (_) { resp = null; }
-    const want = new Set(focus.itemIds);
-    overlayFocus.focus = focus;
-    overlayFocus.items = resp && resp.ok && Array.isArray(resp.items)
-        ? resp.items.filter((it) => it && want.has(it.id))
-        : [];
-    paintOverlayFocus();
-}
-
-function wireOverlayFocus() {
-    const box = $('#xr-ov-focus');
-    if (!box) return;
-    box.addEventListener('click', (ev) => {
-        const btn = ev.target && ev.target.closest && ev.target.closest('[data-xr-ov-action]');
-        if (!btn) return;
-        const action = btn.getAttribute('data-xr-ov-action');
-        if (action === 'toggle-rejected') {
-            overlayFocus.showRejected = !overlayFocus.showRejected;
-            paintOverlayFocus();
-        } else if (action === 'dismiss') {
-            overlayFocus.focus = null;
-            paintOverlayFocus();
-            try { chrome.storage.session.remove(OVERLAY_FOCUS_KEY); } catch (_) { /* ignore */ }
-        }
-    });
-    chrome.storage.onChanged.addListener((changes, area) => {
-        if (area === 'session' && OVERLAY_FOCUS_KEY in changes) {
-            showOverlayFocus().catch(() => { /* panel keeps its other views */ });
-        }
-    });
-    loadFlags().then(showOverlayFocus).catch(() => { /* stays hidden */ });
-}
-
 async function init() {
     try { installEntityStorageBridge(); } catch (_) { /* idempotent */ }
     try { await LocalKeyManager.init(); } catch (err) {
@@ -2306,12 +2191,12 @@ async function init() {
         });
     }
 
-    try { wireOverlayFocus(); } catch (err) {
-        console.warn('[X-Ray Sidepanel] overlay fallback unavailable:', err);
-    }
+    wireOverlayFocus();   // inline-overlay CSP fallback (flag inlineOverlay)
 
     renderList();
     setView('list');
 }
 
-document.addEventListener('DOMContentLoaded', init);
+// The ready stamp follows init on every resolved path; a throw never
+// stamps, and the browser smoke waits for it (src/shared/smoke-anchors.js).
+document.addEventListener('DOMContentLoaded', () => init().then(() => markReady('sidepanel')));

@@ -9,7 +9,7 @@ Every runner has the same contract as pipeline.run:
 
     run(spec: dict, emit: Callable[[dict], None]) -> dict
 
-taking the job spec ({job_id, url, video_id, provider}) and returning
+taking the job spec ({job_id, url, media_key, provider}) and returning
 the result object the extension consumes ({video_id, title, channel,
 duration, language, segments, model_info}).  API keys are read from the
 environment inside the child (inherited from the server process) —

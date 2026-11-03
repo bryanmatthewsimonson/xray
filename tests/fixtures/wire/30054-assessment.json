@@ -1,0 +1,119 @@
+{
+  "builder": {
+    "fn": "buildAssessmentEvent",
+    "module": "src/shared/metadata/builders.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "Both sides confirm it was not mutual.",
+    "created_at": 1700000000,
+    "id": "44bf9a02c23a88d504764fa0a3c3f5bdc3b95d1ba670a70f9ca5cd96227c442f",
+    "kind": 30054,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "d505d2bf7f0d93fe51cf8a73a30cca7508263e4c613e09a153194373dcc800b6954c37c3ff0fdc02899e489868116d5e17c90a7679700cc7006c09b4db833107",
+    "tags": [
+      [
+        "d",
+        "assess:22dd6cf56eb94c82"
+      ],
+      [
+        "a",
+        "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_c6bfed4695f9ee16",
+        "wss://relay.example"
+      ],
+      [
+        "e",
+        "c6bfed4695f9ee16a8033311940a5a41d06952ef7dfdb7d505cd4236c29f9cce",
+        "wss://relay.example"
+      ],
+      [
+        "p",
+        "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+      ],
+      [
+        "r",
+        "https://example.com/video?utm_source=feed"
+      ],
+      [
+        "i",
+        "https://example.com/video"
+      ],
+      [
+        "k",
+        "web"
+      ],
+      [
+        "stance",
+        "-1"
+      ],
+      [
+        "L",
+        "xray/assessment"
+      ],
+      [
+        "l",
+        "misleading",
+        "xray/assessment"
+      ],
+      [
+        "l",
+        "fallacy/strawman",
+        "xray/assessment"
+      ],
+      [
+        "label-anchor",
+        "misleading",
+        "[{\"exact\":\"mutual agreement\",\"type\":\"TextQuoteSelector\"}]"
+      ],
+      [
+        "label-note",
+        "misleading",
+        "closure framed as neutral"
+      ],
+      [
+        "p",
+        "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9",
+        "",
+        "about"
+      ],
+      [
+        "suggested-by",
+        "user"
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "aboutPubkeys": [
+      "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"
+    ],
+    "claimCoord": "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_c6bfed4695f9ee16",
+    "claimEventId": "c6bfed4695f9ee16a8033311940a5a41d06952ef7dfdb7d505cd4236c29f9cce",
+    "claimUrl": "https://example.com/video?utm_source=feed",
+    "labels": [
+      {
+        "anchor": [
+          {
+            "exact": "mutual agreement",
+            "type": "TextQuoteSelector"
+          }
+        ],
+        "label": "misleading",
+        "note": "closure framed as neutral"
+      },
+      "fallacy/strawman"
+    ],
+    "rationale": "Both sides confirm it was not mutual.",
+    "relayHint": "wss://relay.example",
+    "stance": -1,
+    "suggestedBy": "user"
+  },
+  "kind": 30054,
+  "notes": "Full shape: stance + labels (one enriched with anchor/note), about pubkey (TV3), claim event id, relay hint.",
+  "rebuild": "exact",
+  "shape": "assessment",
+  "signer": "TV1"
+}
