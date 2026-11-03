@@ -19,6 +19,45 @@ or files, and the "so-what" for future readers.
 
 ---
 
+## 2026-11-03 — Inline overlay: the "no in-page chrome" reversal, and its hazards
+
+**Tags:** design, pattern
+
+**Decision.** X-Ray has deliberately had no in-page chrome since the FAB/panel
+removal. The inline overlay reverses that, narrowly and behind
+`inlineOverlay` (default off): local markers for what the operator already
+holds for a URL (claims, extraction quotes, forensic findings, personal
+notes) plus YouTube progress-bar ticks. Approach B won (markers in the page,
+all text in a cross-origin extension iframe) over A (shadow DOM, readable by
+the page) and C (side panel only, no in-context signal). No wire kind. Spec:
+`docs/superpowers/specs/2026-11-02-inline-overlay-design.md`; deviations
+from it are in its section 9 log (isolated-world `env.onOpen` instead of a
+page-visible DOM event; no `use_dynamic_url`; exact-node teardown; forensic
+findings as first-class anchored items). Threat model: B12 and G8.
+
+**Known hazard: `<mark>` wrapping vs React.** Wrapping text nodes is
+inherently hostile to reconciliation. React's `removeChild` on a text node
+now parented by our `<mark>` throws `NotFoundError`, and pins shift
+positional siblings. This is the Google-Translate class of breakage. It
+strengthens the case for the CSS Custom Highlight API (Task 9, deferred
+until the Task 1 spike clears it), which touches no DOM. Until then the
+SMOKE_TEST "Inline overlay" section interacts with a React page (Substack)
+after marking, and the per-site "Hide on this site" escape hatch exists for
+pages that break.
+
+**Known gap: fullscreen.** The card iframe is appended to `documentElement`;
+in YouTube fullscreen only the player subtree renders, so an auto-popped card
+is likely invisible there.
+
+**Known gap: CSP fallback.** On strict-CSP sites the card cannot load and the
+overlay falls back to the side panel, but the side panel cannot self-open
+without a user gesture, so the user gets a toast instead.
+
+**Live walk.** Pending (maintainer, Edge + Firefox): record pass/fail per
+`OV.*` row of the SMOKE_TEST section here.
+
+---
+
 ## 2026-08-10 — NIP-07 §3 answered: no authorship bug on the wire; the split found instead
 
 **Tags:** design, pattern

@@ -153,7 +153,7 @@ resolve or after 30 s. This covers lazy-loaded bodies and comment threads.
 **Root container.** First of `article`, `[role=main]`, `body`; visible
 text nodes only.
 
-**Text markers.**
+**Text markers.** _(Amended 2026-11-03: only the `<mark>` strategy shipped; see §9.)_
 - Primary: CSS Custom Highlight API, one named highlight per kind
   (claim, judged claim, extraction, note).
 - Fallback: `<mark class="xr-ov-*">` wraps, fully reversed on teardown —
@@ -171,6 +171,20 @@ text nodes only.
   that span) auto-pops its card in a player corner; it closes after 8 s
   unless hovered. Clicking a tick sets `video.currentTime`.
 - If the transcript panel is open, its text is matched too.
+
+**Open channel and teardown (amended 2026-11-03).** The page-visible
+`xr-ov:open` DOM event originally implied here was replaced by an
+isolated-world callback: `env.onOpen(detail)` (with `env.onClose`,
+`env.onLocated`, `env.getVideoSeconds`) is wired by the content script, so
+page scripts can neither forge nor observe an open. Teardown restores the
+**exact original text nodes** from a split log (never `Node.normalize()`,
+which would merge or alter nodes the page owns). Overlay nodes are stripped
+from captures by `src/shared/overlay-strip.js` (used by `content-extractor`
+and `html-snapshot`), so the captured Markdown and hash are identical with
+the overlay on or off. Notes on `youtu.be`, `/shorts/`, `/embed/` and
+`/live/` URLs resolve to the canonical watch URL. Forensic findings are
+first-class anchored items (one per anchor on the page URL), not
+attachments to claims.
 
 **Unresolved items.** A corner chip — "X-Ray: N notes · M not located" —
 opens the card in list mode with every item; unlocated items are marked,
@@ -210,8 +224,20 @@ menu carries "Hide on this site".
   The one other accepted sender is a tabless extension page (the side
   panel, for the CSP fallback), since our own pages already read storage
   directly. Content-script senders are always refused.
-- Chrome: `use_dynamic_url: true` on the resource to block fingerprinting
-  by probe. Firefox already randomizes the extension UUID per install.
+  _(Amended 2026-11-03: the sender rule as built is `sender.id` equals the
+  runtime id AND an extension-protocol URL AND `pathname ===
+  '/src/overlay/overlay-card.html'`, plus `sender.tab` and the tab-URL
+  binding. Tabless senders are accepted only from `src/sidepanel/index.html`.
+  The card is also inert unless `window.parent === window.top` (and
+  `ancestorOrigins.length === 1` where available), so a nested third-party
+  iframe cannot embed it.)_
+- ~~Chrome: `use_dynamic_url: true` on the resource to block fingerprinting
+  by probe.~~ _(Amended 2026-11-03: NOT used. `nip07-bridge.js` is already
+  a static `<all_urls>` web-accessible resource, so the extension is
+  fingerprintable regardless and dynamic URLs would buy nothing, while
+  risking the card iframe failing to load on Chrome 130+. Fingerprinting
+  via static WARs is accepted. Firefox randomizes the extension UUID per
+  install.)_
 - `lookup` returns only `toLookupItems` fields. Quotes are already on the
   page.
 - All `xray:overlay:*` messages get receiver-side shape validation.
@@ -289,4 +315,28 @@ writing it.)
 - 2026-11-02 — Video: YouTube only.
 - 2026-11-02 — Rendering: approach B (markers in page, text in extension
   iframe) over A (shadow DOM, page-readable) and C (side panel only).
-- Spike results: _pending §7_.
+- Spike results: _pending §7_ (Task 1 spike deferred to the maintainer).
+- 2026-11-03 — Amended: the `xr-ov:open` page-visible DOM event replaced by
+  an isolated-world `env.onOpen(detail)` callback (page scripts could forge
+  or observe the DOM event); `env.onClose`, `env.onLocated` and
+  `env.getVideoSeconds` added alongside (§4).
+- 2026-11-03 — Amended: `use_dynamic_url` NOT used on the card resource
+  (static `<all_urls>` WAR already exists via `nip07-bridge.js`; Chrome
+  130+ load risk) (§5.3).
+- 2026-11-03 — Amended: card sender rule is id + extension protocol + exact
+  pathname + `sender.tab` and tab-URL binding; tabless senders only from
+  `src/sidepanel/index.html`; the card is inert unless
+  `window.parent === window.top` (§5.3).
+- 2026-11-03 — Amended: teardown restores exact original text nodes via a
+  split log, never `Node.normalize()` (§4).
+- 2026-11-03 — Added: overlay nodes stripped from captures by
+  `src/shared/overlay-strip.js` (content-extractor, html-snapshot).
+- 2026-11-03 — Added: notes on youtu.be / shorts / embed / live URLs
+  resolve to the canonical watch URL.
+- 2026-11-03 — Amended: forensic findings are first-class anchored items
+  (one per anchor on the page URL), not attachments to claims.
+- 2026-11-03 — Deferred: CSS Custom Highlight API (Task 9) and the Task 1
+  spike go to the maintainer; `<mark>` wrapping is the only marker strategy
+  shipped (§4).
+- 2026-11-03 — Options: `inlineOverlay` toggle and a "Hidden on these
+  sites" list (`overlay_site_off`) added under Advanced.

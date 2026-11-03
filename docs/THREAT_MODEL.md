@@ -73,6 +73,7 @@ installed. Both already hold the assets.
 | B9 | extension → cloud provider | prompts, audio, API keys | user-initiated only; keys memory-only in the companion child process, never written to its disk or logs |
 | B10 | extension → companion | transcription jobs | pinned to `127.0.0.1`/`localhost`; optional shared token on every path except `/health` |
 | B11 | storage → screen | keys and tokens | presence-only rendering; credential inputs are `type="password"` and never repopulate a secret into a visible field |
+| B12 | host page ↔ inline-overlay card iframe | `xray:overlay:*` messages from the extension-origin card (`overlay-card.html`, a web-accessible resource any page can embed) | **Sender rule: `sender.id` is our runtime id, extension protocol, `pathname === '/src/overlay/overlay-card.html'`, `sender.tab` present and its URL bound to the requested URL; tabless senders only from `src/sidepanel/index.html`.** Card is inert unless `window.parent === window.top` (and `ancestorOrigins.length === 1` where available). Open events reach the content script through an isolated-world `env.onOpen` callback, not a DOM event. Receiver-side shape validation on every `xray:overlay:*`. Card text lives only in the extension-origin iframe |
 
 ---
 
@@ -135,6 +136,25 @@ accepted with its consequence stated.
   Countered by never auto-applying model output and by quote grounding,
   not by trying to sanitize adversarial prose.
 
+- **G8 — inline overlay residuals (flag `inlineOverlay`, default off).**
+  Accepted, with consequences stated:
+  - The host page can observe **which spans are highlighted**: the
+    `<mark>` wraps are in its own DOM. It learns that the operator holds
+    something for that URL and where, not what.
+  - The host page can **UI-redress the card iframe** (make it transparent
+    or overlay it) to clickjack trusted clicks: attach an
+    attacker-chosen quote or anchor to a note the operator typed, or
+    complete a two-click delete of one of the operator's notes for that
+    page. The card's content stays unreadable cross-origin.
+  - **Fingerprinting** via static web-accessible resources is accepted
+    (`nip07-bridge.js` is already one; `use_dynamic_url` was not used).
+  - A compromised renderer could ask `xray:overlay:lookup` about **any
+    URL**: lookup does not bind `message.url` to `sender.tab.url`, so it
+    learns archive membership, quotes and judgment kinds. *Deferred
+    hardening.*
+  - The card and note handlers are **not** gated by `inlineOverlay` or
+    `overlay_site_off` (only `lookup` and `openInSidePanel` are).
+
 ---
 
 ## 6. Changes recorded here
@@ -143,3 +163,4 @@ accepted with its consequence stated.
 |---|---|
 | 2026-08-09 | Document created (T2). NIP-07 return path hardened: unguessable ids, request/response equality checks, BIP-340 verification (B2). `nip04Encrypt`/`nip04Decrypt` removed from the bridge — unreachable from the client, callable by any page. `web_accessible_resources` entry for `nip07-bridge.js` removed: no `getURL` call site, and it let any site fingerprint the extension by its stable ID. `__xrApiHookSetPatterns`/`__xrApiHookMatch` removed from the MAIN world. |
 | 2026-08-09 | `local_keys` excluded from `mergeBackup` accrual (B6) — importing a colleague's file no longer installs their signing keys. Companion auth-token field made `type="password"` (B11). |
+| 2026-11-03 | Inline overlay boundary B12 and residual risks G8 recorded (spec `docs/superpowers/specs/2026-11-02-inline-overlay-design.md` §5.3). |
