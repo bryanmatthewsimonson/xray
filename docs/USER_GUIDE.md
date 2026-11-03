@@ -416,7 +416,11 @@ Inline overlay**, Save, and reload open tabs.
 With it on, text on the page that matches something you hold locally for
 that URL is highlighted: claims, extraction quotes, forensic findings and
 your own notes. Each highlight has a small pin; click it to open a card
-with the details. Anything X-Ray could not find on the page is counted in
+with the details. Pins on extraction quotes say their review state in
+words ("unreviewed model proposal" or "accepted"), and pins on claims you
+have judged say so ("assessed", "verdict"). Rejected extraction rows are
+not highlighted; the chip counts them, and its list keeps them behind
+**Show rejected**. Anything X-Ray could not find on the page is counted in
 a corner chip ("N notes · M not located") and listed there, never
 dropped. On YouTube, items with a time get ticks on the progress bar;
 clicking a tick seeks, and playing across one briefly pops its card.
@@ -426,17 +430,23 @@ publishes nothing; the card text is shown in an extension frame the page
 cannot read. A page can still see *which* spans are highlighted, since the
 highlights live in its DOM (docs/THREAT_MODEL.md, G8).
 
-**Notes.** Select text on any page and run the **Add X-Ray note to
-selection** command. It has **no default key**: bind one at your
+**Notes.** Select text on any page, captured or not, and run the **Add
+X-Ray note to selection** command. A note on a page you have not captured
+still shows on that page; X-Ray needs a capture only for claims,
+extraction and findings. It has **no default key**: bind one at your
 browser's shortcuts page (`chrome://extensions/shortcuts` in Chrome and
 Edge; Add-ons Manager, gear menu, **Manage Extension Shortcuts** in
 Firefox). Notes are local, survive reloads and are included in backups.
 
 **Turning it off for one site.** Use the chip's **Hide on this site**.
 Hidden hosts are listed under **Settings → Advanced → Hidden on these
-sites**, each with a **Remove** button. Captures never include the
-overlay's marks, so the captured text and hash are the same with it on or
-off.
+sites**, each with a **Remove** button.
+
+**Captures.** The overlay is removed from the page while a capture runs
+and put back when the capture finishes or fails, so captures are not
+affected by it: the captured text and hash are the same with it on or
+off. This is verified by unit tests; the live browser walk is still
+pending.
 
 ---
 

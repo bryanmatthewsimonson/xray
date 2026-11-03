@@ -43,7 +43,8 @@ npm run clean          # rm -rf dist
 
 `esbuild.config.mjs` produces eleven bundles from entry points. The manifest
 and HTML shells reference `dist/*.bundle.js`; **`src/` is never loaded
-directly except the two MAIN-world page scripts.** Entry points:
+directly except the two MAIN-world page scripts** (and the HTML/CSS
+shells, including the web-accessible `src/overlay/overlay-card.html`). Entry points:
 
 - `src/content/index.js` → `content.bundle.js` (IIFE, isolated world, every tab)
 - `src/background/index.js` → `background.bundle.js` (**ESM** service worker, `conditions: ['worker','browser']`)

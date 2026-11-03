@@ -128,7 +128,9 @@ Item = {
    `xray:overlay:lookup {url}` (if the flag is on and the site is not in
    `overlay_site_off`).
 2. Background returns `{ items: [] }` immediately for non-archived URLs
-   (hot path), else `toLookupItems(buildOverlay(...))`.
+   (hot path), else `toLookupItems(buildOverlay(...))`. _(Amended
+   2026-11-03: a non-archived URL still returns the user's `page_notes`
+   for it; all other kinds need an article. No notes means `[]`.)_
 3. Content script resolves anchors (and, on YouTube, uses `seconds`) and
    draws markers.
 4. Click/hover on a pin or tick → content script positions the iframe and
@@ -179,9 +181,12 @@ isolated-world callback: `env.onOpen(detail)` (with `env.onClose`,
 page scripts can neither forge nor observe an open. Teardown restores the
 **exact original text nodes** from a split log (never `Node.normalize()`,
 which would merge or alter nodes the page owns). Overlay nodes are stripped
-from captures by `src/shared/overlay-strip.js` (used by `content-extractor`
-and `html-snapshot`), so the captured Markdown and hash are identical with
-the overlay on or off. Notes on `youtu.be`, `/shorts/`, `/embed/` and
+from captures in two layers: the content script **suspends** the overlay
+(removes marks, pins, chip, style, YouTube strip and card frame) for the
+whole of every capture and re-applies it after, success or failure; and
+`src/shared/overlay-strip.js` strips any survivor from cloned DOM
+(`content-extractor`, `html-snapshot`). So the captured Markdown and hash
+are identical with the overlay on or off (unit-tested; live walk pending). Notes on `youtu.be`, `/shorts/`, `/embed/` and
 `/live/` URLs resolve to the canonical watch URL. Forensic findings are
 first-class anchored items (one per anchor on the page URL), not
 attachments to claims.
@@ -340,3 +345,24 @@ writing it.)
   shipped (§4).
 - 2026-11-03 — Options: `inlineOverlay` toggle and a "Hidden on these
   sites" list (`overlay_site_off`) added under Advanced.
+- 2026-11-03 — Fixed (final review I1): live-DOM capture paths (simple
+  extractor fallback, Twitter, YouTube transcript scrape, FB/IG) could read
+  overlay markers. The overlay is now suspended around every capture
+  (`withOverlaySuspended`; `suspend()`/`resume()` on the `startOverlay`
+  handle) and resumes even when the capture fails; `overlay-strip.js`
+  stays as the second line of defence (§4).
+- 2026-11-03 — Fixed (I2): notes on non-archived pages are shown. `lookup`
+  and `card` return the page's `page_notes` without an archived article
+  (other kinds stay empty); unarchived notes are keyed under the canonical
+  URL (YouTube watch form), and notes are read under every address form,
+  so a youtu.be note saved before capture is found after it (§3).
+- 2026-11-03 — Fixed (I3): `xray:overlay:card` and `note:save`/`note:delete`
+  refuse (`disabled`) when `inlineOverlay` is off, and from the
+  page-embedded card on hosts in `overlay_site_off` (§5.1, §5.3).
+- 2026-11-03 — Fixed (I4): §4 implemented. Extraction pins carry the
+  review state as text ("unreviewed model proposal" / "accepted");
+  rejected rows are not marked in the page (the chip counts them; list mode
+  keeps them behind "Show rejected"); claims with judgments get
+  `xr-ov-judged` and a pin label naming the kinds ("assessed", "verdict").
+  Pin labels use fixed strings only, never item content; extraction has
+  its own highlight colour.

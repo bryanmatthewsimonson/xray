@@ -147,13 +147,20 @@ accepted with its consequence stated.
     complete a two-click delete of one of the operator's notes for that
     page. The card's content stays unreadable cross-origin.
   - **Fingerprinting** via static web-accessible resources is accepted
-    (`nip07-bridge.js` is already one; `use_dynamic_url` was not used).
+    (`nip07-bridge.js` is already one, restored in `a3a8e02` after the
+    2026-08-09 removal; `use_dynamic_url` was not used).
   - A compromised renderer could ask `xray:overlay:lookup` about **any
     URL**: lookup does not bind `message.url` to `sender.tab.url`, so it
     learns archive membership, quotes and judgment kinds. *Deferred
     hardening.*
-  - The card and note handlers are **not** gated by `inlineOverlay` or
-    `overlay_site_off` (only `lookup` and `openInSidePanel` are).
+  - The card and note handlers refuse (`disabled`) when `inlineOverlay`
+    is off, so with the flag off a page that frames the card can neither
+    write notes nor probe the archive. The page-embedded card also refuses
+    on hosts in `overlay_site_off`; the tabless side panel (our own page)
+    is gated by the flag only. *(Fixed 2026-11-03.)*
+  - The card still posts its rendered height (`size`) and `changed` to
+    the parent with `'*'`, so the page can roughly tell an empty card from
+    a long one, and that a note was saved. No text crosses. *Deferred.*
 
 ---
 
@@ -163,4 +170,4 @@ accepted with its consequence stated.
 |---|---|
 | 2026-08-09 | Document created (T2). NIP-07 return path hardened: unguessable ids, request/response equality checks, BIP-340 verification (B2). `nip04Encrypt`/`nip04Decrypt` removed from the bridge — unreachable from the client, callable by any page. `web_accessible_resources` entry for `nip07-bridge.js` removed: no `getURL` call site, and it let any site fingerprint the extension by its stable ID. `__xrApiHookSetPatterns`/`__xrApiHookMatch` removed from the MAIN world. |
 | 2026-08-09 | `local_keys` excluded from `mergeBackup` accrual (B6) — importing a colleague's file no longer installs their signing keys. Companion auth-token field made `type="password"` (B11). |
-| 2026-11-03 | Inline overlay boundary B12 and residual risks G8 recorded (spec `docs/superpowers/specs/2026-11-02-inline-overlay-design.md` §5.3). |
+| 2026-11-03 | Inline overlay boundary B12 and residual risks G8 recorded (spec `docs/superpowers/specs/2026-11-02-inline-overlay-design.md` §5.3). Note on the 2026-08-09 row: the `nip07-bridge.js` web-accessible entry removed there was restored in `a3a8e02` (JOURNAL 2026-08-11, "I broke NIP-07 in the field"), so it is still a static `<all_urls>` WAR and the B12/G8 fingerprinting premise stands. Card and note handlers gated on `inlineOverlay` and `overlay_site_off` (G8). |

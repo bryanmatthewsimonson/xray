@@ -53,6 +53,16 @@ is likely invisible there.
 overlay falls back to the side panel, but the side panel cannot self-open
 without a user gesture, so the user gets a toast instead.
 
+**Captures suspend the overlay (fix wave, same day).** Stripping overlay
+nodes from cloned DOM was not enough: several capture paths read the LIVE
+page (the simple-extractor fallback, Twitter's tweet text, the YouTube
+transcript-panel scrape, FB/IG), so a re-capture with the overlay on could
+carry pin text and `<mark>` into the Markdown and fork the published `x`
+hash. Rather than patch each handler, the content script now suspends the
+overlay for the whole capture and resumes it after, even on failure; a
+guard test pins that `UI.openReader` is reached only through that wrapper.
+The strip stays as the second layer.
+
 **Live walk.** Pending (maintainer, Edge + Firefox): record pass/fail per
 `OV.*` row of the SMOKE_TEST section here.
 
