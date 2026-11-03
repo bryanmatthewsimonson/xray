@@ -74,6 +74,7 @@ export const defaultIo = {
     loadFlags,
     isEnabled,
     getURL: (p) => chrome.runtime.getURL(p),
+    runtimeId: () => chrome.runtime.id,
     readSiteOff,
     getArticle,
     getArticleExtraction,
@@ -186,12 +187,27 @@ async function handleLookup(message, io) {
     return { ok: true, items: toLookupItems(items) };
 }
 
+/**
+ * Our overlay-card page, matched by sender id + extension scheme + exact
+ * pathname rather than by the full base URL, so it holds whatever host
+ * the browser gives the frame. `onMessage` only ever delivers senders
+ * from this extension, and the id check makes that explicit; a content
+ * script (https: page URL) can never pass the scheme check.
+ */
+function isOurCard(sender, senderUrl, io) {
+    if (!sender.id || sender.id !== io.runtimeId()) return false;
+    let u;
+    let base;
+    try { u = new URL(senderUrl); base = new URL(io.getURL('')); } catch (_) { return false; }
+    return u.protocol === base.protocol && u.pathname === '/' + OVERLAY_CARD_PATH;
+}
+
 /** True only for our overlay iframe on the matching tab, or a tabless extension page. */
 function senderAllowed(sender, message, io) {
     const senderUrl = sender && typeof sender.url === 'string' ? sender.url : '';
     if (!senderUrl) return false;
     if (sender.tab) {
-        if (!senderUrl.startsWith(io.getURL(OVERLAY_CARD_PATH))) return false;
+        if (!isOurCard(sender, senderUrl, io)) return false;
         const tabUrl = sender.tab.url;
         return typeof tabUrl === 'string'
             && Utils.normalizeUrl(tabUrl) === Utils.normalizeUrl(message.url);
@@ -284,6 +300,8 @@ export async function handleOverlayMessage(message, sender, io = defaultIo) {
                 return await handleLookup(message, io);
             case 'xray:overlay:openInSidePanel':
                 if (!validUrl(message.url)) return BAD;
+                await io.loadFlags();
+                if (!io.isEnabled('inlineOverlay')) return { ok: false, error: 'disabled' };
                 return await handleOpenInSidePanel(message, sender, io);
             case 'xray:overlay:card':
             case 'xray:overlay:note:save':

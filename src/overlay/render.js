@@ -21,6 +21,8 @@ const KIND_LABELS = Object.freeze({
     note: 'Your note'
 });
 
+const own = (obj, key) => typeof key === 'string' && Object.prototype.hasOwnProperty.call(obj, key);
+
 const MAX_RENDER_CHARS = 20000;
 // Mirrors page-notes.js MAX_NOTE_TEXT (kept literal so this module stays
 // import-free; a test pins the two together). The background enforces it.
@@ -107,9 +109,10 @@ function bodyFor(item) {
                 + row('Role', d.role)
                 + row('Counter-read', d.counter_note);
         case 'extraction': {
-            const state = REVIEW_LABELS[item.reviewState] || REVIEW_LABELS.unreviewed;
+            const key = own(REVIEW_LABELS, item.reviewState) ? item.reviewState : 'unreviewed';
+            const state = REVIEW_LABELS[key];
             return `<p class="xr-ov-text">${esc(str(d.text))}</p>`
-                + `<div class="xr-ov-review xr-ov-review-${esc(item.reviewState || 'unreviewed')}">`
+                + `<div class="xr-ov-review xr-ov-review-${key}">`
                 + `Review state: ${esc(state)}</div>`
                 + row('Why', d.why);
         }
@@ -131,7 +134,7 @@ function actionsFor(item, opts) {
 
 function renderCard(item, opts) {
     if (!item || typeof item !== 'object' || typeof item.id !== 'string') return '';
-    const kind = KIND_LABELS[item.kind] ? item.kind : null;
+    const kind = own(KIND_LABELS, item.kind) ? item.kind : null;
     if (!kind) return '';
     const quote = str(item.quote);
     const when = formatSeconds(item.seconds);

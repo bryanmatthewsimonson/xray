@@ -9,15 +9,26 @@
 // scripts share `window.parent` with our content script and can read
 // the frame's src. So:
 //
+//   * TOP-LEVEL PARENT ONLY. Our content script runs with
+//     all_frames:false, so the card we mount always has the top window
+//     as its parent. A card nested deeper (e.g. an ad iframe on an
+//     archived page framing us with its own nonce) would pass the
+//     background's tab-URL binding, because the tab is still the
+//     archived page, and could have the user's items rendered in a
+//     frame it positions and sizes. So the card stays inert unless
+//     `window.parent === window.top` (and, where the browser exposes
+//     it, `location.ancestorOrigins` has exactly one entry). What
+//     remains is the TOP page itself framing the card: it can only get
+//     its own URL's items, inside a cross-origin frame it cannot read.
 //   * The nonce in our URL hash (checked on every `show`) only filters
 //     stray / crossed messages between mounts. It is NOT a secret: an
 //     embedder that frames the card itself picks the nonce, and the
 //     host page can read ours from the DOM. Do not over-trust it.
-//   * The real protection is (1) the background answers
-//     `xray:overlay:card` / `note:*` only for this frame bound to its
-//     TAB's URL (background/overlay.js `senderAllowed`), so a hostile
-//     embedder can only ever make us show its own page's items, inside
-//     a cross-origin frame it cannot read; and (2) nothing is ever
+//   * The real protection is (1) the top-level check above plus the
+//     background answering `xray:overlay:card` / `note:*` only for this
+//     frame bound to its TAB's URL (background/overlay.js
+//     `senderAllowed`), so the only possible embedder (the top page)
+//     can only make us show that page's own items; and (2) nothing is ever
 //     saved or deleted because of a message — saving and deleting need
 //     a trusted user click inside this frame (delete: two clicks).
 //   * We render only items the background returned (and only ids we
@@ -25,7 +36,7 @@
 //     type- and length-checked here, rendered escaped, and the
 //     background's note:save validation is the gate.
 
-import { renderCards, renderList, renderEditor } from './render.js';
+import { renderCards, renderList, renderEditor, esc } from './render.js';
 
 export { renderCards, renderList, renderEditor } from './render.js';
 
@@ -92,6 +103,21 @@ function parseShow(data) {
     };
 }
 
+/**
+ * True only when our parent is the top window: the frame our
+ * (all_frames:false) content script mounts. Fails closed.
+ */
+function isTopLevelChild(win) {
+    try {
+        if (!win.parent || win.parent === win || win.parent !== win.top) return false;
+        const ao = win.location && win.location.ancestorOrigins;
+        if (ao && typeof ao.length === 'number' && ao.length !== 1) return false;
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
 export function startCard(env = {}) {
     const win = env.window || (typeof window !== 'undefined' ? window : null);
     const doc = env.document || (win && win.document);
@@ -100,6 +126,7 @@ export function startCard(env = {}) {
 
     const nonce = String((win.location && win.location.hash) || '').replace(/^#/, '');
     if (!NONCE_RE.test(nonce)) return { stop() {} };   // not mounted by us: stay inert
+    if (!isTopLevelChild(win)) return { stop() {} };    // nested embedder: stay inert
 
     const root = doc.getElementById('xr-ov-root');
     let ctx = null;            // the one accepted `show`
@@ -128,7 +155,14 @@ export function startCard(env = {}) {
     }
 
     function status(text) {
-        paint(`<p class="xr-ov-status">${text}</p>`);
+        paint(`<p class="xr-ov-status">${esc(text)}</p>`);
+    }
+
+    function editorStatus(text) {
+        try {
+            const p = doc.querySelector('.xr-ov-editor .xr-ov-status');
+            if (p) p.textContent = text;
+        } catch (_) { /* ignore */ }
     }
 
     function renderItems() {
@@ -200,7 +234,8 @@ export function startCard(env = {}) {
         } catch (_) { resp = null; }
         busy = false;
         if (!resp || !resp.ok || !resp.note || typeof resp.note.id !== 'string') {
-            status('Could not save the note.');
+            // Keep the editor (and the user's typing); report in place.
+            editorStatus('Could not save the note. Your text is still here.');
             return;
         }
         post({ xrOv: 'changed' });

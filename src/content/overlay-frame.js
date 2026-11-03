@@ -92,16 +92,10 @@ export function mountFrame(env = {}) {
     let height = FRAME_HEIGHT;
     let anchorRect = null;
 
-    function allowedOrigins() {
-        // The origin of the URL we actually set as src, plus the
-        // extension's base origin — Chrome's `use_dynamic_url` may give
-        // the card a per-session origin. The SOURCE check below (our
-        // own iframe's contentWindow) is what binds the channel.
-        const set = new Set();
-        try { set.add(originOf(chromeApi.runtime.getURL(CARD_PATH))); } catch (_) { /* ignore */ }
-        try { set.add(originOf(chromeApi.runtime.getURL(''))); } catch (_) { /* ignore */ }
-        set.delete('');
-        return set;
+    // The origin of the URL we set as src. Together with the SOURCE
+    // check (our own iframe's contentWindow) it binds the channel.
+    function cardOrigin() {
+        try { return originOf(chromeApi.runtime.getURL(CARD_PATH)); } catch (_) { return ''; }
     }
 
     function place() {
@@ -140,7 +134,8 @@ export function mountFrame(env = {}) {
 
     function onMessage(ev) {
         if (!frame || !ev || ev.source !== frame.contentWindow) return;
-        if (!allowedOrigins().has(ev.origin)) return;
+        const origin = cardOrigin();
+        if (!origin || ev.origin !== origin) return;
         const data = ev.data;
         if (!data || typeof data !== 'object' || data.nonce !== nonce) return;
         switch (data.xrOv) {
@@ -169,8 +164,14 @@ export function mountFrame(env = {}) {
         }
     }
 
-    async function fallback(itemIds) {
+    async function fallback(itemIds, mode) {
         close();
+        if (mode === 'new-note') {
+            // The side panel is read-only: pointing it at an empty item
+            // list would only clobber a useful focus. Say so instead.
+            notify('X-Ray cannot open its note editor on this page: the page blocks the X-Ray card.');
+            return;
+        }
         let resp = null;
         try {
             resp = await chromeApi.runtime.sendMessage({
@@ -223,7 +224,7 @@ export function mountFrame(env = {}) {
         }
         timer = setTimeout(() => {
             timer = null;
-            if (pending) fallback(itemIds);
+            if (pending) fallback(itemIds, mode);
         }, FALLBACK_MS);
     }
 

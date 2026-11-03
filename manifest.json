@@ -113,8 +113,7 @@
       ],
       "matches": [
         "<all_urls>"
-      ],
-      "use_dynamic_url": true
+      ]
     }
   ],
   "declarative_net_request": {

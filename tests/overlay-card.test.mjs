@@ -62,6 +62,17 @@ test('unknown kinds and malformed items render nothing', () => {
     assert.equal(renderCards([{ id: 'x', kind: 'script' }, null, 5, { kind: 'claim' }]), '');
 });
 
+test('prototype keys are not kinds or review states', () => {
+    for (const kind of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+        assert.equal(renderCards([{ id: 'x', kind, detail: {} }]), '', kind);
+    }
+    const html = renderCards([{ id: 'e', kind: 'extraction', reviewState: 'constructor', detail: { text: 't' } }]);
+    assert.ok(html.includes('xr-ov-review-unreviewed'));
+    assert.ok(html.includes('Review state: unreviewed model proposal'));
+    assert.ok(!html.includes('constructor'));
+    assert.ok(!html.includes('function'));
+});
+
 test('rejected hidden unless showRejected', () => {
     const items = [extraction('rejected'), extraction('accepted', 2)];
     const hidden = renderList(items);
@@ -111,21 +122,24 @@ test('note actions are omitted when actions:false (side panel)', () => {
 
 const NONCE = 'abcdefghijklmnop0123';
 
-function makeCardEnv({ hash = '#' + NONCE, cardResponse } = {}) {
+function makeCardEnv({ hash = '#' + NONCE, cardResponse, saveResponse, top, ancestorOrigins } = {}) {
     const posted = [];
     const sent = [];
     const listeners = {};
     const parent = { postMessage: (m, o) => posted.push({ m, o }) };
     const root = { innerHTML: '' };
     const textarea = { value: '' };
+    const statusP = { textContent: '' };
     const doc = {
         documentElement: { scrollHeight: 200 },
+        querySelector: (sel) => (sel === '.xr-ov-editor .xr-ov-status' ? statusP : null),
         getElementById: (id) => (id === 'xr-ov-root' ? root : id === 'xr-ov-note-text' ? textarea : null),
         addEventListener: (t, f) => { (listeners['doc:' + t] = listeners['doc:' + t] || []).push(f); }
     };
     const win = {
-        location: { hash },
+        location: ancestorOrigins ? { hash, ancestorOrigins } : { hash },
         parent,
+        top: top === undefined ? parent : top,
         addEventListener: (t, f) => { (listeners[t] = listeners[t] || []).push(f); }
     };
     const chromeApi = {
@@ -133,7 +147,9 @@ function makeCardEnv({ hash = '#' + NONCE, cardResponse } = {}) {
             sendMessage: async (m) => {
                 sent.push(m);
                 if (m.type === 'xray:overlay:card') return cardResponse ? cardResponse(m) : { ok: true, items: [] };
-                if (m.type === 'xray:overlay:note:save') return { ok: true, note: { id: 'pn_00000000000000aa' } };
+                if (m.type === 'xray:overlay:note:save') {
+                    return saveResponse || { ok: true, note: { id: 'pn_00000000000000aa' } };
+                }
                 return { ok: true };
             }
         }
@@ -147,7 +163,7 @@ function makeCardEnv({ hash = '#' + NONCE, cardResponse } = {}) {
         await fire('doc:click', { isTrusted: trusted, target: { closest: () => btn }, preventDefault() {} });
         return btn;
     };
-    return { posted, sent, root, textarea, win, doc, chromeApi, fire, click, parent };
+    return { posted, sent, root, textarea, statusP, win, doc, chromeApi, fire, click, parent };
 }
 
 const flush = () => new Promise((r) => setImmediate(r));
@@ -159,6 +175,53 @@ test('card: posts ready with its own nonce; an invalid hash leaves it inert', ()
     const bad = makeCardEnv({ hash: '#short' });
     startCard({ window: bad.win, document: bad.doc, chrome: bad.chromeApi });
     assert.equal(bad.posted.length, 0);
+});
+
+test('card: stays inert when its parent is not the top window (nested embedder)', async () => {
+    const env = makeCardEnv({ top: { other: true } });
+    startCard({ window: env.win, document: env.doc, chrome: env.chromeApi });
+    assert.equal(env.posted.length, 0, 'no ready');
+    await env.fire('message', {
+        source: env.parent,
+        data: { xrOv: 'show', nonce: NONCE, url: 'https://victim.example/', itemIds: ['claim:c1'], mode: 'cards' }
+    });
+    await flush();
+    assert.ok(!env.sent.some((m) => m.type === 'xray:overlay:card'), 'never asks for card content');
+    assert.equal(env.sent.length, 0);
+});
+
+test('card: stays inert when ancestorOrigins shows more than one ancestor', async () => {
+    const env = makeCardEnv({ ancestorOrigins: { length: 2 } });
+    startCard({ window: env.win, document: env.doc, chrome: env.chromeApi });
+    await env.fire('message', {
+        source: env.parent,
+        data: { xrOv: 'show', nonce: NONCE, url: 'https://victim.example/', itemIds: ['claim:c1'], mode: 'cards' }
+    });
+    await flush();
+    assert.equal(env.posted.length, 0);
+    assert.equal(env.sent.length, 0);
+    // Exactly one ancestor (the top page) is the normal case.
+    const ok = makeCardEnv({ ancestorOrigins: { length: 1 } });
+    startCard({ window: ok.win, document: ok.doc, chrome: ok.chromeApi });
+    assert.equal(ok.posted[0].m.xrOv, 'ready');
+});
+
+test('card: a failed save keeps the editor and the typed text', async () => {
+    const env = makeCardEnv({ saveResponse: { ok: false, error: 'bad request' } });
+    startCard({ window: env.win, document: env.doc, chrome: env.chromeApi });
+    await env.fire('message', {
+        source: env.parent,
+        data: { xrOv: 'show', nonce: NONCE, url: 'https://a.example/', itemIds: [], mode: 'new-note', draft: { quote: 'q' } }
+    });
+    await flush();
+    const editorHtml = env.root.innerHTML;
+    env.textarea.value = 'typed by the user';
+    await env.click('save', null, true);
+    await flush();
+    assert.equal(env.root.innerHTML, editorHtml, 'editor not repainted');
+    assert.equal(env.textarea.value, 'typed by the user');
+    assert.match(env.statusP.textContent, /Could not save/);
+    assert.ok(!env.posted.some((p) => p.m.xrOv === 'changed'));
 });
 
 test('card: ignores show with a wrong nonce or from a non-parent source', async () => {
@@ -389,6 +452,33 @@ test('no ready in 1500 ms → openInSidePanel sent', async () => {
     }
 });
 
+test('new-note CSP fallback: toast only, no side-panel focus written', async () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+        const t = makeFrameEnv();
+        const f = mountFrame(t.env);
+        f.open({ itemIds: [], rect: RECT, mode: 'new-note', draft: { quote: 'q' } });
+        mock.timers.tick(1500);
+        await flush();
+        assert.equal(t.sent.length, 0, 'no openInSidePanel');
+        assert.equal(t.notices.length, 1);
+        assert.equal(t.frame.parentNode, null);
+        f.close();
+    } finally {
+        mock.timers.reset();
+    }
+});
+
+test('frame: only the card src origin is accepted', () => {
+    const t = makeFrameEnv();
+    const f = mountFrame(t.env);
+    f.open({ itemIds: [], rect: RECT, mode: 'cards' });
+    const nonce = (t.frame.src || t.frame.attrs.src).split('#')[1];
+    t.fire('message', { source: t.contentWindow, origin: 'chrome-extension://other', data: { xrOv: 'ready', nonce } });
+    assert.equal(t.contentWindow.posted.length, 0);
+    f.close();
+});
+
 test('ready in time cancels the fallback', () => {
     mock.timers.enable({ apis: ['setTimeout'] });
     try {
@@ -425,11 +515,13 @@ test('positionFor clamps the card to the viewport', () => {
 // Background: xray:overlay:openInSidePanel
 // ---------------------------------------------------------------------------
 
-function sidePanelIo() {
+function sidePanelIo({ flag = true } = {}) {
     const writes = [];
     const opened = [];
     return {
         writes, opened,
+        loadFlags: async () => {},
+        isEnabled: (f) => f === 'inlineOverlay' && flag,
         getURL: (p) => EXT_ORIGIN + '/' + p,
         writeSidePanelFocus: async (v) => { writes.push(v); },
         openSidePanel: async (tab) => { opened.push(tab.id); return true; }
@@ -467,4 +559,13 @@ test('openInSidePanel: itemIds must be an array of at most 500 strings', async (
     const ok = await handleOverlayMessage(
         { type: 'xray:overlay:openInSidePanel', url, itemIds: new Array(500).fill('a') }, tabSender(url), io);
     assert.equal(ok.ok, true);
+});
+
+test('openInSidePanel: refused while the inlineOverlay flag is off', async () => {
+    const io = sidePanelIo({ flag: false });
+    const url = 'https://a.example/post';
+    const r = await handleOverlayMessage({ type: 'xray:overlay:openInSidePanel', url, itemIds: [] }, tabSender(url), io);
+    assert.equal(r.ok, false);
+    assert.equal(io.writes.length, 0);
+    assert.equal(io.opened.length, 0);
 });

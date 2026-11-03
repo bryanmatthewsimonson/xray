@@ -35,6 +35,7 @@ function makeIo({ flag = true, siteOff = [], archived } = {}) {
     return {
         reads, savedNotes,
         getURL: (p) => EXT + p,
+        runtimeId: () => 'abc',
         loadFlags: async () => {},
         isEnabled: (f) => f === 'inlineOverlay' && flag,
         readSiteOff: async () => siteOff,
@@ -60,7 +61,7 @@ function makeIo({ flag = true, siteOff = [], archived } = {}) {
     };
 }
 
-const iframeSender = (tabUrl = URL1) => ({ url: CARD + '?x=1', tab: { id: 1, url: tabUrl } });
+const iframeSender = (tabUrl = URL1, over = {}) => ({ id: 'abc', url: CARD + '?x=1', tab: { id: 1, url: tabUrl }, ...over });
 const pageSender = { url: URL1, tab: { id: 1, url: URL1 } };
 const panelSender = { url: EXT + 'src/sidepanel/index.html' };
 const lookup = (io, url = URL1) => handleOverlayMessage({ type: 'xray:overlay:lookup', url }, pageSender, io);
@@ -255,4 +256,36 @@ test('youtu.be tab: a saved note is found by lookup and can be deleted', async (
     assert.ok(r.items.some((i) => i.id === 'note:' + saved.note.id));
     const del = await handleOverlayMessage({ type: 'xray:overlay:note:delete', url: tab, id: saved.note.id }, sender, io);
     assert.deepEqual(del, { ok: true });
+});
+
+// ---- card sender rule: id + extension scheme + exact pathname ----------
+
+test('card sender: https page at the card pathname is refused even with our id', async () => {
+    const s = iframeSender(URL1, { url: 'https://evil.example/src/overlay/overlay-card.html' });
+    const r = await handleOverlayMessage({ type: 'xray:overlay:card', url: URL1, itemIds: [] }, s, makeIo());
+    assert.equal(r.error, 'forbidden');
+});
+
+test('card sender: extension-scheme card URL with query and hash is accepted (any host)', async () => {
+    for (const url of [CARD + '?a=1#n', 'chrome-extension://some-guid/src/overlay/overlay-card.html#abc']) {
+        const r = await handleOverlayMessage(
+            { type: 'xray:overlay:card', url: URL1, itemIds: [] }, iframeSender(URL1, { url }), makeIo());
+        assert.equal(r.ok, true, url);
+    }
+});
+
+test('card sender: extension scheme with another pathname is refused', async () => {
+    const s = iframeSender(URL1, { url: EXT + 'src/overlay/overlay-card.html/x' });
+    const r = await handleOverlayMessage({ type: 'xray:overlay:card', url: URL1, itemIds: [] }, s, makeIo());
+    assert.equal(r.error, 'forbidden');
+    const s2 = iframeSender(URL1, { url: EXT + 'src/reader/index.html' });
+    assert.equal((await handleOverlayMessage({ type: 'xray:overlay:card', url: URL1, itemIds: [] }, s2, makeIo())).error, 'forbidden');
+});
+
+test('card sender: wrong or missing sender.id is refused', async () => {
+    for (const id of ['other-ext', undefined]) {
+        const r = await handleOverlayMessage(
+            { type: 'xray:overlay:card', url: URL1, itemIds: [] }, iframeSender(URL1, { id }), makeIo());
+        assert.equal(r.error, 'forbidden', String(id));
+    }
 });
