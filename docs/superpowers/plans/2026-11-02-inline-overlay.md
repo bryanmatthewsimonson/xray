@@ -265,3 +265,55 @@ Skip entirely if spec §9 records `CSS.highlights` as page-readable in any brows
 - [ ] **Step 3:** Run the `architect`, `security-threat-modeler`, `schema-evolution` and `verification-engineer` skills against the branch and record each report's verdict in the PR body. Fix anything a report marks as required.
 - [ ] **Step 4:** Maintainer live walk: the new SMOKE_TEST section on Edge and Firefox (Substack with claims; generic news; YouTube via captions; YouTube via transcription). Record pass/fail per row in the JOURNAL entry.
 - [ ] **Step 5: Commit**: `git commit -m "docs(overlay): smoke section, journal, threat model, guide"`
+
+## Execution record (2026-11-03)
+
+Executed subagent-driven. Tasks 2–8 and 10 complete; Task 1 (spike) and Task 9 (Highlight API) deferred to the maintainer, along with the four discipline-skill reviews and the live SMOKE_TEST walk.
+
+### Deferred follow-ups (final-review triage, all can-ship-deferred)
+
+| # | Task | Item | Verdict | Reason |
+|---|---|---|---|---|
+| 1 | T2 | NFKC per code point; decomposed text won't compose | can-ship-deferred | Rare. It degrades to "not located" and stays listed, never dropped. |
+| 2 | T2 | Exact match lacks a word-boundary check | can-ship-deferred | Only very short quotes are affected. The worst case is a mis-placed highlight, and the card is still correct. |
+| 3 | T2 | Fuzzy 50-region cap filled in quote order | can-ship-deferred | Bounded cost by design. A miss falls back to "not located". |
+| 4 | T2 | End offset +1 can split a surrogate pair | can-ship-deferred | Cosmetic, for emoji at a quote edge only. Teardown restores the exact nodes. |
+| 5 | T2 | `quoteToSeconds` rebuilds the index per call | can-ship-deferred | Already mitigated: `assemble` memoizes per quote (`background/overlay.js:162`). |
+| 6 | T2 | Quote starting inside a `[m:ss]` link uses the previous link's time | can-ship-deferred | The tick lands at most one caption paragraph early. Not data-affecting. |
+| 7 | T2 | Test gaps: non-unique context fallback, locate end on separator | can-ship-deferred | Edge coverage only. The core paths are tested. |
+| 8 | T2 | No separate RED run recorded | can-ship-deferred | Process note. Not observable in the product. |
+| 9 | T3 | PRIVACY: `toLookupItems` copies `anchor` by reference | resolved (no action) | Folded into T5: `sanitizeAnchor` plus a polluted-anchor guard test (`overlay-guards.test.mjs:25`). |
+| 10 | T3 | `detail` duplicates fields in whole records | can-ship-deferred | Internal shape only. It never leaves extension contexts. |
+| 11 | T3 | No separate RED run | can-ship-deferred | Process note. |
+| 12 | T4 | applyBackup/export round-trip and clear not separately tested | can-ship-deferred | Covered structurally by `WORKSPACE_CONTENT_KEYS`. Add a fixture when schema-evolution reviews. |
+| 13 | T4 | Blank-line nit in `backup-merge.test.mjs` | can-ship-deferred | Style. |
+| 14 | T5 | PRIVACY: lookup doesn't bind `message.url` to `sender.tab.url` | can-ship-deferred | It needs a compromised renderer, which is already documented in G8. SPA tab-URL lag makes a strict bind risky. Revisit with phase 3. |
+| 15 | T5 | Card and note handlers ignore `inlineOverlay` and `overlay_site_off` | **must-fix-before-merge** | Flag-off write path and membership oracle. See I3. |
+| 16 | T5 | Anchor selector strings uncapped in the background | can-ship-deferred | The only accepted senders (our card, capped at 4096, and the side panel) are ours. Bounded. |
+| 17 | T5 | Global chrome stub in the overlay-background test never torn down | can-ship-deferred | Test hygiene. `node --test` isolates files per process. |
+| 18 | T5 | No TDD red-first | can-ship-deferred | Process note. |
+| 19 | T5 | Note on a not-yet-archived youtu.be page orphaned once archived | **must-fix-before-merge** | Part of the broader I2: notes on any unarchived page are invisible. Fix them together. |
+| 20 | T6 | Re-add budget spent by unrelated mutations | can-ship-deferred | Degrades to fewer markers, per spec §5.2. Never breaks the page. |
+| 21 | T6 | Observer on `pickRoot` misses a replaced `<article>` | can-ship-deferred | Same degradation. The smoke walk will show how often it happens. |
+| 22 | T6 | `boundaryEntry` refuses an element container with a non-text child | can-ship-deferred | The command no-ops, with no data effect. Pair it with the M3 toast. |
+| 23 | T6 | Duplicate `.xr-ov-chip` CSS rules | can-ship-deferred | Style (`overlay.js:35,39`). |
+| 24 | T6 | Retry `setTimeout` not cancelled on teardown | can-ship-deferred | Guarded by `dead`, so it has no effect. |
+| 25 | T6 | No TDD red-first | can-ship-deferred | Process note. |
+| 26 | T6 | `overlay.js:6` header still mentions `xr-ov:open` | resolved (no action) | The header now says `env.onOpen` (`overlay.js:5-6`). |
+| 27 | T7 | Frame positioned once, not re-placed on scroll or resize | can-ship-deferred | Cosmetic. `position:fixed`, and any page click closes it. |
+| 28 | T7 | New `console.warn` in the side panel; `index.css` uses 2-space indent | can-ship-deferred | The file already uses `console.warn`. CLAUDE.md bans bare `console.log`, not `warn`. |
+| 29 | T7 | Stale test title "dispatch xr-ov:open"; esbuild header says "seven bundles" | can-ship-deferred | Cosmetic. A good one-line fix in the I1–I4 round. |
+| 30 | T7 | Side panel can't self-open without a gesture; read-only fallback lacks unlocated marking | can-ship-deferred | A browser constraint. The toast tells the user, and the focus key persists. |
+| 31 | T8 | Tick mousedown/pointerdown not stopped | can-ship-deferred | YouTube's scrubber seeks to about the same pixel, so the result is equivalent. |
+| 32 | T8 | `yt-navigate-finish` re-applies when the URL is unchanged (chip flicker) | can-ship-deferred | Cosmetic. `gen` guards correctness. |
+| 33 | T8 | Auto-close test stubs the frame; no RED run | can-ship-deferred | Coverage-quality note. The smoke walk covers the live path. |
+| 34 | T8 | NaN-duration drop doesn't call `onLocated`; a `layout()` throw re-polls | can-ship-deferred | Before the first layout, `giveUp` bounds it at 10 s. After that, a 2 s recheck that throws is cheap and logs only in debug. |
+| 35 | T10 | THREAT_MODEL §6 2026-08-09 row says the nip07 WAR was removed | can-ship-deferred | Docs consistency. Add a one-line "restored in a3a8e02" note so G8's premise stands. |
+| 36 | T10 | CLAUDE.md "src/ is never loaded directly except…" now inexact | can-ship-deferred | The card loads `dist/overlay.bundle.js`. Only the HTML and CSS come from `src/`, as with every other page shell. |
+| 37 | T10 | USER_GUIDE 3.8 states same-hash-with-overlay as fact; only unit-tested | **must-fix-before-merge** | It is currently false for live-DOM capture paths. Fix I1, or soften the sentence. |
+
+### Parked after the final fix wave
+
+- Parked — suspend() teardown steps not individually wrapped; a throw in stopYouTube leaves marks during that one capture — Ruling: real, deferred; overlay-strip clone stripping is the second line of defence for Readability/snapshot paths, and the page recovers on resume — cost if wrong: one capture with pin text in Markdown.
+- Parked — capture triggered before startOverlay finishes init runs unsuspended — Ruling: real, narrow window, deferred — cost if wrong: same as above, rarely.
+- Parked — THREAT_MODEL G8 "not what" wording outdated by I4 pin labels (page can read review-state/judgment-kind labels) — Ruling: real doc residual, hand to security-threat-modeler review — cost if wrong: threat model understates by-design exposure.
