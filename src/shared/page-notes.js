@@ -10,6 +10,7 @@ import { normalize } from './metadata/url-normalizer.js';
 
 const STORAGE_KEY = 'page_notes';
 export const MAX_NOTE_TEXT = 10000;
+export const NOTE_ID_RE = /^pn_[0-9a-f]{16}$/;
 
 function newId() {
     const bytes = new Uint8Array(8);
@@ -19,7 +20,7 @@ function newId() {
 
 async function readAll() {
     const map = await Storage.get(STORAGE_KEY, {});
-    return map && typeof map === 'object' ? map : {};
+    return map && typeof map === 'object' && !Array.isArray(map) ? map : {};
 }
 
 export const PageNotes = {
@@ -40,10 +41,14 @@ export const PageNotes = {
         }
         if (typeof url !== 'string' || !url) throw new Error('Note url is required');
 
+        if (id !== undefined && id !== null && !(typeof id === 'string' && NOTE_ID_RE.test(id))) {
+            throw new Error('Invalid note id');
+        }
+
         const map = await readAll();
         const now = Date.now();
         const noteId = id || newId();
-        const prior = map[noteId];
+        const prior = Object.hasOwn(map, noteId) ? map[noteId] : null;
         const note = {
             id: noteId,
             url: normalize(url),
@@ -61,7 +66,7 @@ export const PageNotes = {
 
     async remove(id) {
         const map = await readAll();
-        if (!(id in map)) return;
+        if (typeof id !== 'string' || !Object.hasOwn(map, id)) return;
         delete map[id];
         await Storage.set(STORAGE_KEY, map);
     }

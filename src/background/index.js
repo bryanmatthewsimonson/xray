@@ -35,6 +35,7 @@ import { crossrefRequestFor, mapCrossrefWork } from '../shared/crossref.js';
 import { lookupPodcastIdentity } from '../shared/podcast-identity.js';
 import { articleAnswersTo } from '../shared/url-identity.js';
 import { Signer } from '../shared/signer.js';
+import { handleOverlayMessage } from './overlay.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { publishConfirmed, IDENTITY_KINDS } from '../shared/confirmed-publish.js';
 import { gatePublish } from '../shared/publish-gate.js';
@@ -1117,6 +1118,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 sendResponse({ ok: false, error: err && err.message ? err.message : String(err) });
             }
         })();
+        return true; // async
+    }
+
+    // Inline overlay (flag inlineOverlay): lookup for content scripts;
+    // card/note messages only from our own overlay iframe. The sender
+    // checks live in overlay.js.
+    if (typeof message.type === 'string' && message.type.startsWith('xray:overlay:')) {
+        handleOverlayMessage(message, sender)
+            .then((res) => sendResponse(res))
+            .catch(() => sendResponse({ ok: false, error: 'bad request' }));
         return true; // async
     }
 

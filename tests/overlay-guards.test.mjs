@@ -22,6 +22,29 @@ test('toLookupItems output keys are a subset of LOOKUP_ALLOWED_KEYS for every ki
     assert.ok(!JSON.stringify(lookup).includes('SECRET'));
 });
 
+test('toLookupItems copies anchors defensively (only locating selector fields)', () => {
+    const polluted = [
+        { type: 'TextQuoteSelector', exact: 'e', prefix: 'p', suffix: 's', note: 'SECRET', label: 'SECRET' },
+        { type: 'TextPositionSelector', start: 1, end: 4, extra: { deep: 'SECRET' } },
+        'SECRET', null, 7
+    ];
+    const items = buildOverlay(URL1, {
+        claims: [
+            { id: 'c1', text: 't', quote: 'q', anchor: polluted },
+            { id: 'c2', text: 't', quote: 'q', anchor: { type: 'TextQuoteSelector', exact: 'e', note: 'SECRET' } },
+            { id: 'c3', text: 't', quote: 'q', anchor: 'SECRET' }
+        ]
+    });
+    const lookup = toLookupItems(items);
+    assert.ok(!JSON.stringify(lookup).includes('SECRET'));
+    assert.deepEqual(lookup[0].anchor, [
+        { type: 'TextQuoteSelector', exact: 'e', prefix: 'p', suffix: 's' },
+        { type: 'TextPositionSelector', start: 1, end: 4 }
+    ]);
+    assert.deepEqual(lookup[1].anchor, { type: 'TextQuoteSelector', exact: 'e' });
+    assert.equal(lookup[2].anchor, null);
+});
+
 test('LOOKUP_ALLOWED_KEYS contains none of the private-text keys', () => {
     for (const bad of ['text', 'content', 'body', 'note', 'verdict', 'assessment', 'stance', 'labels']) {
         assert.ok(!LOOKUP_ALLOWED_KEYS.includes(bad), bad);

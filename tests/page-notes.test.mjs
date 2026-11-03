@@ -91,3 +91,16 @@ test('remove deletes by id and is a no-op for unknown ids', async () => {
     await PageNotes.remove(a.id);
     assert.deepEqual((await PageNotes.list()).map((n) => n.id), [b.id]);
 });
+
+test('save rejects a malformed id; prototype-key ids never alias', async () => {
+    for (const id of ['constructor', '__proto__', 'pn_zz', 'pn_0123456789abcdeF']) {
+        await assert.rejects(PageNotes.save({ id, url: URL_A, text: 'x' }), /Invalid note id/);
+    }
+});
+
+test('a stored page_notes map that is an array is treated as empty', async () => {
+    _stateStore.set('page_notes', [{ id: 'pn_0123456789abcdef', url: URL_A, text: 'x' }]);
+    assert.deepEqual(await PageNotes.list(), []);
+    await PageNotes.remove('0');
+    _stateStore.delete('page_notes');
+});

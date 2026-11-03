@@ -200,7 +200,15 @@ export const FLAGS_DEFAULTS = Object.freeze({
   // as a coordinate to a separately signed claim), not a narrow
   // projection. So the default stays off, and turning it on is a
   // decision about disclosure rather than a convenience.
-  extractionAnalysisPublishing: false
+  extractionAnalysisPublishing: false,
+
+  // Inline overlay (docs/superpowers/specs/2026-11-02-inline-overlay-design.md):
+  // gates the xray:overlay:* lookup — the content script marks passages
+  // on a page you have ALREADY archived (claims, findings, extraction
+  // rows, your own page notes) and shows a card from the extension's own
+  // iframe. Purely local and read-only on the wire: no kind, nothing
+  // published. Off = the background answers every lookup with no items.
+  inlineOverlay: false
 });
 
 /**

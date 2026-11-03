@@ -13,6 +13,34 @@ export const LOOKUP_ALLOWED_KEYS = Object.freeze([
     'id', 'kind', 'anchor', 'quote', 'seconds', 'judgmentKinds', 'reviewState'
 ]);
 
+const SELECTOR_STRING_FIELDS = ['type', 'exact', 'prefix', 'suffix'];
+const SELECTOR_NUMBER_FIELDS = ['start', 'end'];
+const MAX_SELECTORS = 8;
+
+function sanitizeSelector(sel) {
+    if (!sel || typeof sel !== 'object' || Array.isArray(sel)) return null;
+    const out = {};
+    for (const k of SELECTOR_STRING_FIELDS) {
+        if (typeof sel[k] === 'string') out[k] = sel[k];
+    }
+    for (const k of SELECTOR_NUMBER_FIELDS) {
+        if (typeof sel[k] === 'number' && Number.isFinite(sel[k])) out[k] = sel[k];
+    }
+    return out;
+}
+
+/**
+ * Copy an anchor (selector array or single selector) keeping only the
+ * locating fields. Anything else on a stored selector (labels, notes,
+ * extra properties) must never ride along to a content script.
+ */
+export function sanitizeAnchor(anchor) {
+    if (Array.isArray(anchor)) {
+        return anchor.slice(0, MAX_SELECTORS).map(sanitizeSelector).filter(Boolean);
+    }
+    return sanitizeSelector(anchor);
+}
+
 const EXTRACTION_REVIEW = { open: 'unreviewed', accepted: 'accepted', dismissed: 'rejected' };
 
 function judgments(assessments, verdicts) {
@@ -104,6 +132,7 @@ export function toLookupItems(items) {
     return (items || []).map((it) => {
         const out = {};
         for (const k of LOOKUP_ALLOWED_KEYS) out[k] = it[k];
+        out.anchor = sanitizeAnchor(it.anchor);
         return out;
     });
 }
