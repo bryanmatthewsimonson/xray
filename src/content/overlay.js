@@ -12,6 +12,7 @@ import { Storage } from '../shared/storage.js';
 import {
     buildTextIndex, resolve, locate, ACCEPT_CONFIDENCE
 } from '../shared/anchor-resolve.js';
+import { mountYouTube, isWatchPage } from './overlay-youtube.js';
 
 export const URL_POLL_MS = 1000;
 export const OBSERVER_DEBOUNCE_MS = 2000;
@@ -207,6 +208,7 @@ export function startOverlay(env = {}) {
     const doc = env.document || (win && win.document);
     const chromeApi = env.chrome || (typeof chrome !== 'undefined' ? chrome : null);
     const onOpen = typeof env.onOpen === 'function' ? env.onOpen : () => {};
+    const onClose = typeof env.onClose === 'function' ? env.onClose : () => {};
     const getVideoSeconds = typeof env.getVideoSeconds === 'function' ? env.getVideoSeconds : () => null;
     if (!win || !doc || !chromeApi || !chromeApi.runtime) return { teardown() {} };
 
@@ -231,6 +233,8 @@ export function startOverlay(env = {}) {
     let unresolved = 0;
     let unresolvedIds = [];    // ids the list card marks "not located"
     let busy = false;          // true while WE mutate the DOM
+    let yt = null;             // YouTube ticks handle (watch pages only)
+    const ytLocated = new Set(); // ids a YouTube tick locates (not 'not located')
 
     // -- hand-off to the card UI ----------------------------------
     // An isolated-world callback, NOT a DOM event: page scripts can both
@@ -328,6 +332,12 @@ export function startOverlay(env = {}) {
         return made;
     }
 
+    function markUnresolved(id) {
+        if (ytLocated.has(id)) return;   // a progress-bar tick locates it
+        unresolved++;
+        unresolvedIds.push(id);
+    }
+
     function place() {
         removeMarkers();
         const segs = collectSegments(pickRoot(doc));
@@ -350,14 +360,14 @@ export function startOverlay(env = {}) {
                     if (r.range && r.confidence >= ACCEPT_CONFIDENCE) loc = locate(index, r.range.start, r.range.end);
                 } catch (_) { loc = null; }
             }
-            if (!loc) { unresolved++; unresolvedIds.push(it.id); continue; }
+            if (!loc) { markUnresolved(it.id); continue; }
             planned.push({ it, loc });
         }
         const pinGroups = new Map(); // key (ref+endOffset) -> {outerMark, ids}
         for (const { it, loc } of planned) {
             const si = index.map.findIndex((e) => e.ref === loc.startRef);
             const ei = index.map.findIndex((e) => e.ref === loc.endRef);
-            if (si < 0 || ei < 0 || ei < si) { unresolved++; unresolvedIds.push(it.id); continue; }
+            if (si < 0 || ei < 0 || ei < si) { markUnresolved(it.id); continue; }
             let lastMark = null;
             const lastKey = { ref: loc.endRef, end: loc.endOffset };
             for (let i = si; i <= ei; i++) {
@@ -376,7 +386,7 @@ export function startOverlay(env = {}) {
                     lastMark = x.mark;
                 }
             }
-            if (!lastMark) { unresolved++; unresolvedIds.push(it.id); continue; }
+            if (!lastMark) { markUnresolved(it.id); continue; }
             // Pins group items that end on the same text position.
             let key = null;
             for (const [k, g] of pinGroups) {
@@ -505,9 +515,31 @@ export function startOverlay(env = {}) {
         }
     }
 
+    function stopYouTube() {
+        if (yt) { yt.teardown(); yt = null; }
+        ytLocated.clear();
+    }
+
+    function startYouTube(myGen) {
+        if (!isWatchPage(currentUrl)) return;
+        const timed = items.filter((i) => typeof i.seconds === 'number' && isFinite(i.seconds) && i.seconds >= 0);
+        if (!timed.length) return;
+        const handle = mountYouTube({ window: win, document: doc, onOpen: fireOpen, onClose }, timed);
+        yt = handle;
+        handle.ready.then((r) => {
+            if (dead || myGen !== gen || yt !== handle) return;
+            for (const id of r.located) ytLocated.add(id);
+            // Located by a tick: no longer 'not located' in the chip or list.
+            unresolvedIds = unresolvedIds.filter((id) => !ytLocated.has(id));
+            unresolved = unresolvedIds.length;
+            guarded(buildChip);
+        }).catch((err) => Utils.error('overlay: youtube locate failed', err));
+    }
+
     async function apply() {
         const myGen = ++gen;
         stopObserver();
+        stopYouTube();   // ticks go before the new lookup resolves
         guarded(() => { removeMarkers(); removeChip(); });
         items = [];
         reAdds = 0;
@@ -522,6 +554,7 @@ export function startOverlay(env = {}) {
         try {
             guarded(() => { ensureStyle(); place(); buildChip(); });
             startObserver();
+            startYouTube(myGen);
         } catch (err) {
             Utils.error('overlay: apply failed', err);
             guarded(() => { removeMarkers(); removeChip(); });
@@ -553,12 +586,22 @@ export function startOverlay(env = {}) {
         dead = true;
         gen++;
         stopObserver();
+        stopYouTube();
+        try { doc.removeEventListener('yt-navigate-finish', onYtNavigate); } catch (_) { /* ignore */ }
         if (urlTimer) { clearInterval(urlTimer); urlTimer = null; }
         try { chromeApi.runtime.onMessage.removeListener(onMessage); } catch (_) { /* ignore */ }
         guarded(() => { removeMarkers(); removeChip(); });
         if (styleEl && styleEl.parentNode) styleEl.parentNode.removeChild(styleEl);
         styleEl = null;
     }
+
+    // YouTube is a SPA: it fires this DOM event on document after each
+    // navigation. We only listen (never dispatch).
+    function onYtNavigate() {
+        if (dead) return;
+        apply().catch((err) => Utils.error('overlay: relookup failed', err));
+    }
+    try { doc.addEventListener('yt-navigate-finish', onYtNavigate); } catch (_) { /* ignore */ }
 
     try { chromeApi.runtime.onMessage.addListener(onMessage); } catch (_) { /* ignore */ }
     urlTimer = setInterval(() => {

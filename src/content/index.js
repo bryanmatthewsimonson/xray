@@ -14,6 +14,7 @@ import { NIP07Client } from './nip07-client.js';
 import { UI } from './ui.js';
 import { startOverlay } from './overlay.js';
 import { mountFrame } from './overlay-frame.js';
+import { isWatchPage, videoSeconds } from './overlay-youtube.js';
 import { installBufferListener, configureInterceptor } from '../shared/api-hook-buffer.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 
@@ -167,7 +168,12 @@ async function init() {
                 notify: (m) => UI.showToast(m, 'warning'),
                 onChanged: () => overlay && overlay.refresh()
             });
-            overlay = startOverlay({ window, document, chrome, onOpen: (d) => frame.open(d) });
+            overlay = startOverlay({
+                window, document, chrome,
+                onOpen: (d) => frame.open(d),
+                onClose: () => frame.close(),
+                getVideoSeconds: () => (isWatchPage(window.location.href) ? videoSeconds(document) : null)
+            });
         }
     } catch (err) {
         Utils.error('Inline overlay failed to start:', err);

@@ -5,12 +5,13 @@
 // capture: pin text ("X-Ray") would change the canonical article hash,
 // and the card iframe has no place in evidence.
 //
-// Pins, the chip, the injected style and the card iframe are removed;
+// Pins, the chip, the injected style, the card iframe and the YouTube
+// progress-bar strip/ticks are removed;
 // <mark> wrappers are unwrapped so the page text is identical to a page
 // the overlay never touched. Never call this on the live page — the
 // content script's own teardown restores the live DOM exactly.
 
-export const OVERLAY_REMOVE_SELECTOR = '.xr-ov-pin, .xr-ov-chip, #xr-ov-style, .xr-ov-frame';
+export const OVERLAY_REMOVE_SELECTOR = '.xr-ov-pin, .xr-ov-chip, #xr-ov-style, .xr-ov-frame, .xr-ov-yt-strip, .xr-ov-yt-tick';
 
 export function stripOverlayNodes(root) {
     try {
