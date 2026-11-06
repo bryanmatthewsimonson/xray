@@ -273,3 +273,19 @@ test('publish-select: mirrors — labeled + wire-ready + not-yet-mirrored', asyn
     mirrors = selectMirrors(await ctx());
     assert.deepEqual(mirrors.map((m) => m.assessment.id), [retry.id], 'unmirrored-but-published retries');
 });
+
+test('publish-select: a stale depends-on link publishes on the ordinary 30055 path (not revision/*)', async () => {
+    resetState();
+    const pubClaim = await ClaimModel.create({ text: 'Ours, published.', source_url: 'https://example.com/p' });
+    await ClaimModel.markPublished(pubClaim.id, 'e'.repeat(64), PUBKEY_A);
+    const foreignCoord = buildClaimCoord(PUBKEY_B, 'their-d');
+    const dep = await EvidenceLinker.create({
+        source_claim_id: pubClaim.id, target_claim_id: foreignCoord,
+        relationship: 'depends-on',
+        target_snapshot: { url: 'https://example.com/f', text: 'Foreign.' }
+    });
+    const sel = selectLinksToPublish(await ctx());
+    assert.equal(sel.length, 1);
+    assert.equal(sel[0].link.id, dep.id);
+    assert.equal(sel[0].link.relationship, 'depends-on');
+});

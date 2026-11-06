@@ -427,3 +427,65 @@ test('evidence: parseRelationshipEvent rejects non-30055 events, tolerates missi
     assert.equal(parsed.target.coord, `30040:${PUBKEY_B}:claim_bbbbbbbbbbbbbbbb`);
     assert.equal(parsed.suggestedBy, 'user', 'defaults when absent');
 });
+
+test('builder: depends-on is directional — endpoints stay in semantic order and the d is deterministic', async () => {
+    const A = '30040:' + 'a'.repeat(64) + ':claim-a';
+    const B = '30040:' + 'b'.repeat(64) + ':claim-b';
+    const { event, dTag } = await buildClaimRelationshipEvent({ sourceCoord: B, targetCoord: A, relationship: 'depends-on' });
+    const aTags = event.tags.filter((t) => t[0] === 'a');
+    assert.deepEqual(aTags.map((t) => [t[1], t[3]]), [[B, 'source'], [A, 'target']], 'B depends on A: not sorted');
+    assert.deepEqual(event.tags.find((t) => t[0] === 'relationship'), ['relationship', 'depends-on']);
+    assert.match(dTag, /^rel:[0-9a-f]{16}$/);
+    assert.equal(event.tags.find((t) => t[0] === 'd')[1], dTag);
+    const same = await buildClaimRelationshipEvent({ sourceCoord: B, targetCoord: A, relationship: 'depends-on' });
+    assert.equal(same.dTag, dTag, 'recomputable from (source, target, relationship)');
+    const reversed = await buildClaimRelationshipEvent({ sourceCoord: A, targetCoord: B, relationship: 'depends-on' });
+    assert.notEqual(reversed.dTag, dTag, 'A→B and B→A are two edges');
+    const sup = await buildClaimRelationshipEvent({ sourceCoord: B, targetCoord: A, relationship: 'supports' });
+    assert.notEqual(sup.dTag, dTag, 'coexists with supports on the same ordered pair');
+});
+
+test('builder: depends-on rejects a self-loop like every other relationship', async () => {
+    const A = '30040:' + 'a'.repeat(64) + ':claim-a';
+    await assert.rejects(
+        buildClaimRelationshipEvent({ sourceCoord: A, targetCoord: A, relationship: 'depends-on' }),
+        /cannot link a claim to itself/
+    );
+});
+
+test('linker: depends-on stores directionally, dedupes on the ordered triple, and coexists with supports', async () => {
+    resetState();
+    const ab = await EvidenceLinker.create({ source_claim_id: A, target_claim_id: B, relationship: 'depends-on' });
+    assert.equal(ab.relationship, 'depends-on');
+    assert.equal(ab.source_claim_id, A);
+    assert.equal(ab.target_claim_id, B);
+    const again = await EvidenceLinker.create({ source_claim_id: A, target_claim_id: B, relationship: 'depends-on' });
+    assert.equal(again.id, ab.id, 'idempotent on (source, target, depends-on)');
+    const ba = await EvidenceLinker.create({ source_claim_id: B, target_claim_id: A, relationship: 'depends-on' });
+    assert.notEqual(ba.id, ab.id, 'the reverse edge is a second record (a cycle is stored, never refused — §2.3)');
+    const sup = await EvidenceLinker.create({ source_claim_id: A, target_claim_id: B, relationship: 'supports' });
+    assert.notEqual(sup.id, ab.id);
+    assert.ok(!ab.attestation, 'attestation metadata is a supports-only field');
+});
+
+test('linker: depends-on rejects a self-loop and is NOT in the picker vocabulary yet', async () => {
+    resetState();
+    await assert.rejects(
+        EvidenceLinker.create({ source_claim_id: A, target_claim_id: A, relationship: 'depends-on' }),
+        /Cannot link a claim to itself/
+    );
+    assert.equal(EVIDENCE_RELATIONSHIPS.includes('depends-on'), false, 'picker unchanged until D.3');
+    assert.equal(EVIDENCE_RELATIONSHIP_LABELS['depends-on'], 'Depends on');
+    assert.equal(typeof EVIDENCE_RELATIONSHIP_ICONS['depends-on'], 'string');
+});
+
+test('parse: a foreign depends-on event round-trips with source/target in tag order', async () => {
+    const A = '30040:' + 'a'.repeat(64) + ':claim-a';
+    const B = '30040:' + 'b'.repeat(64) + ':claim-b';
+    const { event } = await buildClaimRelationshipEvent({ sourceCoord: B, targetCoord: A, relationship: 'depends-on', note: 'B presupposes A' });
+    const p = parseRelationshipEvent({ ...event, id: 'f'.repeat(64), pubkey: 'c'.repeat(64) });
+    assert.equal(p.relationship, 'depends-on');
+    assert.equal(p.source.coord, B);
+    assert.equal(p.target.coord, A);
+    assert.equal(p.note, 'B presupposes A');
+});

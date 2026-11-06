@@ -124,6 +124,26 @@ export function isRevisionRelationship(relationship) {
     return REVISION_RELATIONSHIPS.includes(relationship);
 }
 
+/**
+ * Claim dependency (docs/CLAIM_DEPENDENCY_DESIGN.md §2.1) — the
+ * necessary-condition edge on the kind-30055 link substrate, additive
+ * like the Phase-14 values. DIRECTIONAL: source depends on target —
+ * the source claim cannot be true unless the target claim is true.
+ * Distinct from `supports`, which is evidential (B survives A being
+ * false whenever B has other support); several `depends-on` edges
+ * behave like AND, several `supports` edges like OR. Kept OUT of
+ * CLAIM_RELATIONSHIPS so the Phase-11 link picker is unchanged until
+ * slice D.3 adds the authoring test ("could the source still be true
+ * if the target turned out false? then it is supports").
+ */
+export const DEPENDENCY_RELATIONSHIPS = Object.freeze([
+    'depends-on'
+]);
+
+export function isDependencyRelationship(relationship) {
+    return DEPENDENCY_RELATIONSHIPS.includes(relationship);
+}
+
 // ------------------------------------------------------------------
 // Provenance — the manual-now / LLM-ready seam.
 // ------------------------------------------------------------------

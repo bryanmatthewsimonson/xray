@@ -35,7 +35,7 @@ import { Utils } from './utils.js';
 import { ClaimModel } from './claim-model.js';
 import { normalize as normalizeUrl } from './metadata/url-normalizer.js';
 import {
-    CLAIM_RELATIONSHIPS, REVISION_RELATIONSHIPS,
+    CLAIM_RELATIONSHIPS, REVISION_RELATIONSHIPS, DEPENDENCY_RELATIONSHIPS,
     isSymmetricRelationship, isValidSuggestedBy
 } from './assessment-taxonomy.js';
 import {
@@ -50,12 +50,17 @@ import { EVIDENCE_TIERS, isValidEvidenceTier } from './truth-taxonomy.js';
 
 export const EVIDENCE_RELATIONSHIPS = CLAIM_RELATIONSHIPS;
 
-// Every relationship the linker will STORE: the Phase-11 four plus the
-// Phase-14 diachronic `revision/*` values. `EVIDENCE_RELATIONSHIPS`
-// (above) is deliberately the original four so the Phase-11 link picker
-// is unchanged; create() validates against this wider union.
+// Every relationship the linker will STORE: the Phase-11 four, the
+// Phase-14 diachronic `revision/*` values, and the claim-dependency
+// `depends-on` (docs/CLAIM_DEPENDENCY_DESIGN.md §2.1 — source depends
+// on target; directional, never sorted; a reverse edge is a second
+// record, so a cycle is stored and surfaced, never refused, §2.3).
+// `EVIDENCE_RELATIONSHIPS` (above) is deliberately the original four so
+// the Phase-11 link picker is unchanged — `depends-on` reaches the
+// picker only with slice D.3's authoring test; create() validates
+// against this wider union.
 const ALL_LINK_RELATIONSHIPS = Object.freeze([
-    ...CLAIM_RELATIONSHIPS, ...REVISION_RELATIONSHIPS
+    ...CLAIM_RELATIONSHIPS, ...REVISION_RELATIONSHIPS, ...DEPENDENCY_RELATIONSHIPS
 ]);
 
 // Legacy `contextualizes` keeps label/icon entries so pre-11.1
@@ -69,7 +74,8 @@ export const EVIDENCE_RELATIONSHIP_LABELS = {
     contextualizes:    'Contextualizes',
     'narrative-patch': 'Patches',
     recharacterizes:   'Recharacterizes',
-    'walks-back':      'Walks back'
+    'walks-back':      'Walks back',
+    'depends-on':      'Depends on'
 };
 
 export const EVIDENCE_RELATIONSHIP_ICONS = {
@@ -80,7 +86,8 @@ export const EVIDENCE_RELATIONSHIP_ICONS = {
     contextualizes:    '◇',
     'narrative-patch': '▥',
     recharacterizes:   '✎',
-    'walks-back':      '↩'
+    'walks-back':      '↩',
+    'depends-on':      '⤵'
 };
 
 // ------------------------------------------------------------------
