@@ -24,6 +24,14 @@ additive except two entries: the Instagram capture fix, which changes
 tag values on new captures, and the reservation of kinds 30050–30053
 and 9803, a retirement of kinds that were never emitted.
 
+- **Kind 30055 `relationship` gains `depends-on`** — the claim
+  dependency edge (source depends on target: the source claim cannot
+  be true unless the target claim is true), directional and hashed in
+  semantic order like `supports`. Accepted by the builder, the local
+  linker, the parser and the ordinary 30055 publish path; not yet
+  offered in the reader's link picker and not yet rendered (slices
+  D.2–D.3 of `docs/CLAIM_DEPENDENCY_DESIGN.md`). Spec:
+  `docs/NIP_DRAFT.md` §Kind 30055.
 - **New kind 30070, ExtractionAnalysis** — one addressable event per
   author per article (`d` = `xray-extraction:<article hash>`) that
   publishes the article's whole extraction layer: every
