@@ -105,7 +105,7 @@ function renderCaseBriefSection(host, brief) {
     const counts = [];
     if ((b.positions || []).length) counts.push(`${b.positions.length} position${b.positions.length === 1 ? '' : 's'}`);
     if ((b.cruxes || []).length) counts.push(`${b.cruxes.length} crux${b.cruxes.length === 1 ? '' : 'es'}`);
-    if ((b.load_bearing || []).length) counts.push(`${b.load_bearing.length} load-bearing claim${b.load_bearing.length === 1 ? '' : 's'}`);
+    if ((b.load_bearing || []).length) counts.push(`${b.load_bearing.length} brief-critical claim${b.load_bearing.length === 1 ? '' : 's'}`);
     if ((brief.memberHashes || []).length) counts.push(`${brief.memberHashes.length} member source${brief.memberHashes.length === 1 ? '' : 's'}`);
     if (counts.length) box.appendChild(el('div', 'xr-inspector__brief-counts', counts.join(' · ')));
     box.appendChild(el('div', 'xr-inspector__brief-note',

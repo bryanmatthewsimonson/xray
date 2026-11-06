@@ -302,8 +302,12 @@ export async function openLlmReview(opts) {
                     // extract (UA.1) — with its why as the tooltip — or
                     // the legacy is_key on parked pre-UA.1 batches.
                     // Neither writes claim.is_key at accept (guard rail 6).
+                    // Claim dependency D.3: the words "load-bearing" now
+                    // name the MEASURED dependent count on the case
+                    // dashboard; this model-asserted flag is labelled as
+                    // the model's reading of the article.
                     const why = p.load_bearing && p.why_load_bearing
-                        ? ` title="Load-bearing: ${escapeHtml(truncate(p.why_load_bearing, 200))}"` : '';
+                        ? ` title="Argument-critical (the model's reading of this article): ${escapeHtml(truncate(p.why_load_bearing, 200))}"` : '';
                     const star = (p.load_bearing || p.is_key) ? `<span${why}>⭐ </span>` : '';
                     const ab = about.length ? ` <span class="xr-llm__dim">about ${escapeHtml(about.join(', '))}</span>` : '';
                     return `${star}${escapeHtml(truncate(p.text, 160))}${ab}${quoteHtml(p.quote)}`;

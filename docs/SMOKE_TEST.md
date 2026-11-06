@@ -1535,6 +1535,24 @@ Needs a case with claims; the LLM steps (P26.n–q) additionally need
 
 ---
 
+## Claim dependencies (D.1–D.3)
+
+The `depends-on` edge (`docs/CLAIM_DEPENDENCY_DESIGN.md`): source
+depends on target — the source claim cannot be true unless the target
+claim is true. Needs a case with three or more claims across two
+articles. No LLM, no relay. JOURNAL 2026-11-06.
+
+| # | Step | Expected |
+|---|---|---|
+| P-D.a | Reader ▸ 🔗 on a claim ▸ pick a target ▸ click **Depends on** | ✅ an italic line appears under the picker: "Could the source still be true if the target turned out to be false? If yes, the link is `supports`, not `depends-on`."; picking **Supports** hides it; **Save link** stores the link and the claim card shows "⤵ Depends on →" |
+| P-D.b | Case dashboard ▸ Evidence ▸ the row of the claim that was DEPENDED ON | ✅ a muted chip reads "Load-bearing (1 dependent)"; its tooltip starts "Claims that cannot be true unless this one is:" and names the dependent by text with its chain |
+| P-D.c | That row ▸ **Trace dependencies** ▸ If negated | ✅ a line "If this claim were false, 1 claim would lose a necessary premise" with the chain in its derivation, then the fixed line "The truth of a premise establishes nothing about its dependents; only falsity propagates."; If removed reads "Removing this claim leaves 1 claim without a necessary premise" |
+| P-D.d | Attach two claims that both depend on a third as **Supports** on one hypothesis card | ✅ under the card's sections: "Two arguments that rest on one premise are not independent. Named, never weighed." and "Shared premise (2 supporting attachments rest on it): “<premise text>”"; no count is compared across cards |
+| P-D.e | Case graph section | ✅ an arrow runs from the dependent claim's article to the premise's article (arrowhead on the premise), in the accent color, distinct from the dashed red contradiction edge; the counts line ends "· 1 dependency arrow"; hovering reads "depends on … (the arrow points at the premise)" |
+| P-D.f | Case dashboard ▸ Published claims list (after the links publish) | ✅ the dependent's row shows "→ depends on: <premise>", the premise's row "← depended on by: <dependent>" |
+| P-D.g | Draw A depends on B and B depends on A (two links) | ✅ both rows show a "circular premise" warn chip naming both claims; Trace dependencies on either reads "Circular premise: 2 claims depend on each other"; nothing refuses the link |
+| P-D.h | Reader ▸ ✨ Suggest… ▸ hover a ⭐ | ✅ the tooltip begins "Argument-critical (the model's reading of this article):" — the words "load-bearing" appear only on the measured chip of P-D.b |
+
 ## Phase 28 — Corpus intake automation (28.1)
 
 Network required (real fetches). Use 2–3 easy-tier URLs from
