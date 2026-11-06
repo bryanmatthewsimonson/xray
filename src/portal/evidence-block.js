@@ -14,7 +14,8 @@ import { auditCardChipData } from '../shared/audit/display.js';
 import { mountTraceExpander } from './trace-block.js';
 import {
     claimLoad, findDependencyCycles, loadLabel, loadTooltip,
-    premiseVerdictMarkers, premiseMarkerLabel, premiseMarkerTooltip, PREMISE_INCONSISTENCY_LABEL
+    premiseVerdictMarkers, premiseMarkerLabel, premiseMarkerTooltip, inconsistencyLabel, ownVerdictLabel,
+    PREMISE_INCONSISTENCY_TITLE, MAX_PREMISE_MARKERS
 } from '../shared/case-dependencies.js';
 import { Utils } from '../shared/utils.js';
 import { EventBuilder } from '../shared/event-builder.js';
@@ -231,15 +232,31 @@ export function renderEvidenceBlock(host, dossierOrId, opts = {}) {
                     // marker when this claim's own head is established-true.
                     // Nothing here changes any verdict.
                     const markers = premiseVerdictMarkers(data, c.claim_id);
-                    for (const row of markers.derivation) {
-                        const chip = el('span', 'xr-badge xr-badge--warn xr-badge--premise', premiseMarkerLabel(row));
-                        chip.title = premiseMarkerTooltip(row, data.claimsById || {});
-                        li.appendChild(chip);
-                    }
-                    if (markers.inconsistency) {
-                        const chip = el('span', 'xr-badge xr-badge--warn', PREMISE_INCONSISTENCY_LABEL);
-                        chip.title = 'This claim\'s own verdict is shown unchanged; the premise\'s verdict is another adjudication. Both stand until someone supersedes one.';
-                        li.appendChild(chip);
+                    if (markers.count > 0) {
+                        // The dependent's own verdicts, side by side, unchanged.
+                        for (const o of markers.own) {
+                            const chip = el('span', 'xr-badge xr-badge--muted', ownVerdictLabel(o));
+                            chip.title = 'This claim\'s own verdict, as its adjudicator left it.';
+                            li.appendChild(chip);
+                        }
+                        const shown = markers.derivation.slice(0, MAX_PREMISE_MARKERS);
+                        for (const row of shown) {
+                            const chip = el('span', 'xr-badge xr-badge--warn xr-badge--premise', premiseMarkerLabel(row));
+                            chip.title = premiseMarkerTooltip(row, data.claimsById || {});
+                            li.appendChild(chip);
+                        }
+                        const rest = markers.derivation.slice(MAX_PREMISE_MARKERS);
+                        if (rest.length > 0) {
+                            // Disclosed, never merged: the overflow names each one.
+                            const more = el('span', 'xr-badge xr-badge--warn', `+${rest.length} more adjudication${rest.length === 1 ? '' : 's'}`);
+                            more.title = rest.map((row) => premiseMarkerLabel(row)).join('\n');
+                            li.appendChild(more);
+                        }
+                        for (const inc of markers.inconsistencies) {
+                            const chip = el('span', 'xr-badge xr-badge--warn', inconsistencyLabel(inc));
+                            chip.title = PREMISE_INCONSISTENCY_TITLE;
+                            li.appendChild(chip);
+                        }
                     }
                 }
                 // 26 CF.2 — the structural counterfactual, per claim.

@@ -29,7 +29,8 @@ import {
 } from '../shared/llm-jobs.js';
 import { Utils } from '../shared/utils.js';
 import {
-    sharedPremises, premiseVerdictMarkers, premiseMarkerLabel, premiseMarkerTooltip, PREMISE_INCONSISTENCY_LABEL
+    sharedPremises, premiseVerdictMarkers, premiseMarkerLabel, premiseMarkerTooltip, inconsistencyLabel,
+    PREMISE_INCONSISTENCY_TITLE, MAX_PREMISE_MARKERS
 } from '../shared/case-dependencies.js';
 
 function sendMessage(msg) {
@@ -134,10 +135,13 @@ export function buildHypothesisBlockModel(map, { dependencies = [], claimsById =
     // verdicts, wire); an empty envelope yields no markers.
     const markerData = { links: { dependencies }, claimsById, propositions: propositions || { all: {} }, verdicts: verdicts || { byProposition: {} }, wire: wire || { verdicts: [] } };
     const markersFor = (ref) => {
+        if (dependencies.length === 0) return { premiseMarkers: [], premiseOverflow: null, inconsistencies: [] };
         const m = premiseVerdictMarkers(markerData, ref);
+        const rest = m.derivation.slice(MAX_PREMISE_MARKERS);
         return {
-            premiseMarkers: m.derivation.map((row) => ({ label: premiseMarkerLabel(row), tooltip: premiseMarkerTooltip(row, claimsById) })),
-            inconsistency: m.inconsistency ? PREMISE_INCONSISTENCY_LABEL : null
+            premiseMarkers: m.derivation.slice(0, MAX_PREMISE_MARKERS).map((row) => ({ label: premiseMarkerLabel(row), tooltip: premiseMarkerTooltip(row, claimsById) })),
+            premiseOverflow: rest.length ? { label: `+${rest.length} more adjudication${rest.length === 1 ? '' : 's'}`, tooltip: rest.map(premiseMarkerLabel).join('\n') } : null,
+            inconsistencies: m.inconsistencies.map((i) => ({ label: inconsistencyLabel(i), tooltip: PREMISE_INCONSISTENCY_TITLE }))
         };
     };
     const empty = map.hypotheses.length === 0 && map.dangling.edges.length === 0;
@@ -654,12 +658,11 @@ export function renderHypothesesBlock(host, { data, dossier, callbacks = {} }) {
                         line.appendChild(v);
                     }
                     // D.4 — premise-verdict markers, one per adjudication.
-                    for (const m of edge.premiseMarkers || []) {
+                    for (const m of [...(edge.premiseMarkers || []), ...(edge.premiseOverflow ? [edge.premiseOverflow] : []), ...(edge.inconsistencies || [])]) {
                         const b = el('span', 'xr-badge xr-badge--warn xr-badge--premise', m.label);
                         b.title = m.tooltip;
                         line.appendChild(b);
                     }
-                    if (edge.inconsistency) line.appendChild(el('span', 'xr-badge xr-badge--warn', edge.inconsistency));
                     row.appendChild(line);
                     if (edge.quote) row.appendChild(el('blockquote', 'xr-finding-row__quote', edge.quote));
                     if (edge.note) row.appendChild(el('div', 'xr-inspector__mono', edge.note));

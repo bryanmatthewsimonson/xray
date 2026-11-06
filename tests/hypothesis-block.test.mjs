@@ -163,8 +163,18 @@ test('hypothesis-block: an edge whose claim rests on a premise adjudicated false
     assert.equal(e1.premiseMarkers.length, 1);
     assert.equal(e1.premiseMarkers[0].label, 'premise adjudicated false by Dr Ferran under Preponderance of the evidence');
     assert.match(e1.premiseMarkers[0].tooltip, /Premise: “Premise claim\.”/);
-    assert.equal(e1.inconsistency, null, 'c1 has no verdict of its own');
+    assert.deepEqual(e1.inconsistencies, [], 'c1\'s own head is contested, not established-true');
+    assert.equal(e1.premiseOverflow, null);
     assert.deepEqual(e3.premiseMarkers, []);
+    // A positive inconsistency: give c1 an established-true head too.
+    data.propositions.all.p1 = { id: 'p1', claim_id: 'claim_00000000000000c1', proposition_class: 'state-fact' };
+    data.verdicts.byProposition.p1 = [{ id: 'v1x', proposition_id: 'p1', verdict: 'established-true', standard_of_proof: 'preponderance', adjudicator: { label: 'Dr Ferran', pubkey: null }, superseded_by: null }];
+    const model2 = buildHypothesisBlockModel(buildHypothesisMap({ data, brief: null, hypotheses: [h1], edges: [edge('hedge_1', h1.id, 'claim_00000000000000c1', 'supports')] }, null),
+        { dependencies, claimsById: data.claimsById, verdicts: data.verdicts, wire: data.wire, propositions: data.propositions });
+    const e1b = model2.cards[0].sections.find((x) => x.role === 'supports').edges[0];
+    assert.equal(e1b.inconsistencies.length, 1);
+    assert.match(e1b.inconsistencies[0].label, /^claim adjudicated true by Dr Ferran under Preponderance of the evidence; premise adjudicated false by Dr Ferran under Preponderance of the evidence — an inconsistency, not a correction$/);
+    assert.ok(e1b.inconsistencies[0].tooltip.length > 20);
     const banned = /consensus|majority|most adjudicators|\bagree|outvoted|\bwins?\b|more likely|less likely|probab|confidence|score/i;
     for (const s of allStrings(model)) assert.doesNotMatch(s, banned, `forbidden phrasing in: "${s}"`);
 });

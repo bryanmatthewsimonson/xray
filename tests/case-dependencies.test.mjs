@@ -7,13 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-// D.4 pulls verdictVariance from the adjudication model, whose storage
-// import probes chrome.storage at load; stub it as the dossier tests do.
-globalThis.chrome = globalThis.chrome || {
-    storage: { local: { get(_k, cb) { cb({}); }, set(_o, cb) { cb && cb(); }, remove(_k, cb) { cb && cb(); } } }
-};
-
-const { dependentsOf, premisesOf, claimLoad, findDependencyCycles, sharedPremises, loadLabel, loadTooltip, premiseVerdictMarkers, premiseMarkerLabel, premiseMarkerTooltip, PREMISE_INCONSISTENCY_LABEL } =
+const { dependentsOf, premisesOf, claimLoad, findDependencyCycles, sharedPremises, loadLabel, loadTooltip, premiseVerdictMarkers, premiseMarkerLabel, premiseMarkerTooltip, inconsistencyLabel, ownVerdictLabel, PREMISE_INCONSISTENCY_TITLE, MAX_PREMISE_MARKERS } =
     await import('../src/shared/case-dependencies.js');
 
 const A = 'claim_000000000000000a';
@@ -248,10 +242,17 @@ test('loadLabel / loadTooltip: a measured count with every dependent named by te
 // D.4 — the live per-adjudicator badge (§3.4, R-026)
 // ------------------------------------------------------------------
 
+const PK1 = '1'.repeat(64), PK2 = '2'.repeat(64), PK3 = '3'.repeat(64);
+// Parser-shaped wire rows: `id` is the d tag (the SAME for every
+// author's verdict on one proposition); `eventId` is unique.
+function wireRow(eventId, pubkey, verdict, standard, over = {}) {
+    return { id: 'verdict:abcdef0123456789', proposition_id: 'p_a', verdict, standardOfProof: standard, pubkey, eventId: eventId.repeat(64), created_at: 100, ...over };
+}
+
 // A (premise) ← B ← C. p_a on A: v0 established-true SUPERSEDED by v1
 // established-false (Dr Ferran, beyond reasonable doubt); two wire
 // established-true verdicts on p_a from other authors. p_c on C: head
-// established-true.
+// established-true, no adjudicator (this X-Ray's own record).
 function verdictData(over = {}) {
     return {
         claimsById: { [A]: { text: 'A says.' }, [B]: { text: 'B says.' }, [C]: { text: 'C says.' } },
@@ -267,10 +268,7 @@ function verdictData(over = {}) {
             ],
             p_c: [{ id: 'v2', proposition_id: 'p_c', verdict: 'established-true', standard_of_proof: 'preponderance', adjudicator: null, superseded_by: null }]
         } },
-        wire: { verdicts: [
-            { id: 'w1', proposition_id: 'p_a', verdict: 'established-true', standardOfProof: 'preponderance', pubkey: '1'.repeat(64), eventId: 'e'.repeat(64) },
-            { id: 'w2', proposition_id: 'p_a', verdict: 'established-true', standardOfProof: 'clear-and-convincing', pubkey: '2'.repeat(64), eventId: 'f'.repeat(64) }
-        ] },
+        wire: { verdicts: [wireRow('e', PK1, 'established-true', 'preponderance'), wireRow('f', PK2, 'established-true', 'clear-and-convincing')] },
         ...over
     };
 }
@@ -287,33 +285,83 @@ test('premiseVerdictMarkers: one marker per established-false verdict on a trans
     assert.equal(row.source, 'local');
     assert.equal(row.verdict_id, 'v1');
     assert.deepEqual(row.distribution.by_state, { 'established-false': 1, 'established-true': 2 });
+    assert.ok(!('unanimous' in row.distribution), 'no consensus-shaped flag rides on a row');
     assert.deepEqual(row.distribution.authors_by_state['established-true'].map((a) => a.author), ['111111111111…', '222222222222…']);
-    assert.equal(r.own_state, 'established-true');
+    assert.deepEqual(row.distribution.authors_by_state['established-true'].map((a) => a.id), ['e'.repeat(64), 'f'.repeat(64)], 'wire rows are keyed by event id, never the shared d tag');
+});
+
+test('premiseVerdictMarkers: the dependent\'s own verdicts are listed (local heads AND wire), and an own established-true head makes an inconsistency row that names both sides', () => {
+    const r = premiseVerdictMarkers(verdictData(), C);
+    assert.equal(r.own.length, 1);
+    assert.equal(r.own[0].verdict, 'established-true');
+    assert.equal(r.own[0].author, 'this X-Ray\'s record (no adjudicator named)');
+    assert.equal(r.inconsistencies.length, 1);
+    assert.equal(r.inconsistencies[0].same_author, false);
     assert.equal(r.inconsistency, true);
+    assert.equal(inconsistencyLabel(r.inconsistencies[0]),
+        'claim adjudicated true by this X-Ray\'s record (no adjudicator named) under Preponderance of the evidence; premise adjudicated false by Dr Ferran under Beyond reasonable doubt — two adjudicators disagree; neither corrects the other');
+    assert.equal(ownVerdictLabel(r.own[0]), 'verdict: Established true — by this X-Ray\'s record (no adjudicator named) under Preponderance of the evidence');
 });
 
-test('premiseVerdictMarkers: a superseded verdict never produces a marker; no premises or no verdicts produce nothing; missing keys do not throw', () => {
-    assert.equal(premiseVerdictMarkers(verdictData(), A).count, 0, 'A has no premises');
-    const only = verdictData({ verdicts: { byProposition: { p_a: [
-        { id: 'v9', proposition_id: 'p_a', verdict: 'established-false', standard_of_proof: 'preponderance', adjudicator: null, superseded_by: 'gone' }
-    ] } }, wire: { verdicts: [] } });
-    assert.equal(premiseVerdictMarkers(only, C).count, 0, 'a superseded false verdict is not a head');
-    const bare = premiseVerdictMarkers({ links: { dependencies: [link('link_ba', B, A)] } }, B);
-    assert.equal(bare.count, 0);
-    assert.equal(bare.own_state, null);
-    assert.equal(bare.inconsistency, false);
-});
-
-test('premiseVerdictMarkers: a wire established-false verdict is its own marker; the dependent\'s own established-false head is not an inconsistency', () => {
+test('premiseVerdictMarkers: the same adjudicator on both sides is an inconsistency, not a correction', () => {
     const d = verdictData();
-    d.wire.verdicts.push({ id: 'w3', proposition_id: 'p_a', verdict: 'established-false', standardOfProof: 'preponderance', pubkey: '3'.repeat(64), eventId: 'a'.repeat(64) });
-    d.verdicts.byProposition.p_c = [{ id: 'v2', proposition_id: 'p_c', verdict: 'established-false', standard_of_proof: 'preponderance', adjudicator: null, superseded_by: null }];
+    d.verdicts.byProposition.p_c[0].adjudicator = { label: 'Dr Ferran', pubkey: null };
     const r = premiseVerdictMarkers(d, C);
-    assert.equal(r.count, 2, 'two false verdicts, two markers — never merged');
+    assert.equal(r.inconsistencies[0].same_author, true);
+    assert.match(inconsistencyLabel(r.inconsistencies[0]), /— an inconsistency, not a correction$/);
+});
+
+test('premiseVerdictMarkers: every proposition of the dependent is read, not the first by id', () => {
+    const d = verdictData();
+    // a second proposition on C whose id sorts FIRST and whose head is established-false
+    d.propositions.all.a_first = { id: 'a_first', claim_id: C, proposition_class: 'state-fact' };
+    d.verdicts.byProposition.a_first = [{ id: 'v5', proposition_id: 'a_first', verdict: 'established-false', standard_of_proof: 'preponderance', adjudicator: null, superseded_by: null }];
+    const r = premiseVerdictMarkers(d, C);
+    assert.equal(r.own.length, 2);
+    assert.equal(r.inconsistencies.length, 1, 'the established-true head on p_c still makes the row');
+    assert.equal(r.inconsistencies[0].own.proposition_id, 'p_c');
+});
+
+test('premiseVerdictMarkers: supersession — a false superseded by true vanishes; every un-superseded local head is listed (merge can leave two)', () => {
+    const d = verdictData({ wire: { verdicts: [] } });
+    d.verdicts.byProposition.p_a = [
+        { id: 'v1', proposition_id: 'p_a', verdict: 'established-false', standard_of_proof: 'preponderance', adjudicator: null, superseded_by: 'v6' },
+        { id: 'v6', proposition_id: 'p_a', verdict: 'established-true', standard_of_proof: 'preponderance', adjudicator: null, superseded_by: null, supersedes: 'v1' }
+    ];
+    assert.equal(premiseVerdictMarkers(d, C).count, 0, 'the false verdict was superseded by true');
+    d.verdicts.byProposition.p_a.push({ id: 'v7', proposition_id: 'p_a', verdict: 'established-false', standard_of_proof: 'clear-and-convincing', adjudicator: { label: 'Colleague' }, superseded_by: null });
+    const r = premiseVerdictMarkers(d, C);
+    assert.equal(r.count, 1, 'a second un-superseded head (a merged-in chain) is its own marker');
+    assert.deepEqual(r.derivation[0].distribution.by_state, { 'established-false': 1, 'established-true': 1 }, 'both heads are in the distribution');
+});
+
+test('premiseVerdictMarkers: stale wire rows are dropped — an older version of one author\'s verdict, and a row another row supersedes', () => {
+    const d = verdictData({ verdicts: { byProposition: {} } });
+    d.wire.verdicts = [
+        wireRow('a', PK3, 'established-false', 'preponderance', { created_at: 10 }),
+        wireRow('b', PK3, 'established-true', 'preponderance', { created_at: 20 }),            // same author, same d, newer
+        wireRow('c', PK1, 'established-false', 'preponderance', { created_at: 30 }),
+        wireRow('d', PK1, 'established-true', 'preponderance', { created_at: 40, supersedesEventId: 'c'.repeat(64) })
+    ];
+    const r = premiseVerdictMarkers(d, C);
+    assert.equal(r.count, 0, 'no live established-false verdict remains');
+    assert.deepEqual(r.derivation, []);
+});
+
+test('premiseVerdictMarkers: a wire established-false verdict is its own marker, local markers sort before wire, and no premises / no verdicts / null data give nothing', () => {
+    const d = verdictData();
+    d.wire.verdicts.push(wireRow('a', PK3, 'established-false', 'preponderance'));
+    const r = premiseVerdictMarkers(d, C);
+    assert.equal(r.count, 2);
     assert.deepEqual(r.derivation.map((x) => x.source), ['local', 'wire']);
     assert.equal(r.derivation[1].author, '333333333333…');
-    assert.equal(r.own_state, 'established-false');
-    assert.equal(r.inconsistency, false);
+    assert.equal(r.derivation[1].verdict_id, 'a'.repeat(64));
+    assert.equal(premiseVerdictMarkers(verdictData(), A).count, 0, 'A has no premises');
+    const noVerdicts = verdictData({ verdicts: { byProposition: {} }, wire: { verdicts: [] } });
+    assert.equal(premiseVerdictMarkers(noVerdicts, C).count, 0, 'propositions without verdicts');
+    assert.equal(premiseVerdictMarkers(null, C).count, 0);
+    const bare = premiseVerdictMarkers({ links: { dependencies: [link('link_ba', B, A)] } }, B);
+    assert.deepEqual([bare.count, bare.own, bare.inconsistency], [0, [], false]);
 });
 
 test('premiseMarkerLabel / premiseMarkerTooltip: who and by what standard, every state listed, the fixed closing line', () => {
@@ -324,13 +372,25 @@ test('premiseMarkerLabel / premiseMarkerTooltip: who and by what standard, every
     assert.match(tip, /Established false ×1 — Dr Ferran \(Beyond reasonable doubt\)/);
     assert.match(tip, /Established true ×2 — 111111111111… \(Preponderance of the evidence\), 222222222222… \(Clear and convincing\)/);
     assert.ok(tip.endsWith('One adjudicator\'s verdict, shown beside the others. No verdict on this claim is recomputed.'));
-    const anon = premiseMarkerLabel({ ...row, author: 'you (this X-Ray)' });
-    assert.equal(anon, 'premise adjudicated false by you (this X-Ray) under Beyond reasonable doubt');
 });
 
-test('premise markers: no consensus / majority / likelihood phrasing in any string', () => {
-    const row = premiseVerdictMarkers(verdictData(), C).derivation[0];
-    const banned = /consensus|majority|most adjudicators|\bagree|outvoted|\bwins?\b|more likely|less likely|probab|confidence|score/i;
-    for (const s of [premiseMarkerLabel(row), premiseMarkerTooltip(row, {}), PREMISE_INCONSISTENCY_LABEL]) assert.doesNotMatch(s, banned, s);
-    assert.equal(PREMISE_INCONSISTENCY_LABEL, 'claim adjudicated true, premise adjudicated false — an inconsistency, not a correction');
+test('premise markers: no consensus / majority / tally / likelihood / "is false" phrasing in any string, across every verdict state', () => {
+    const d = verdictData();
+    d.wire.verdicts.push(
+        wireRow('a', PK3, 'contested', 'preponderance'),
+        wireRow('b', '4'.repeat(64), 'unresolved', 'preponderance'),
+        wireRow('c', '5'.repeat(64), 'insufficient-evidence', 'preponderance')
+    );
+    const r = premiseVerdictMarkers(d, C);
+    const banned = /consensus|majority|most adjudicators|\bagree|outvoted|\bwins?\b|likel|probab|confidence|score|unanimous|tally|overall|settled|%|premise is false|claim is true/i;
+    const strings = [
+        ...r.derivation.map(premiseMarkerLabel),
+        ...r.derivation.map((row) => premiseMarkerTooltip(row, d.claimsById)),
+        ...r.inconsistencies.map(inconsistencyLabel),
+        ...r.own.map(ownVerdictLabel),
+        PREMISE_INCONSISTENCY_TITLE
+    ];
+    assert.ok(strings.length >= 5);
+    for (const s of strings) assert.doesNotMatch(s, banned, s);
+    assert.ok(Number.isInteger(MAX_PREMISE_MARKERS) && MAX_PREMISE_MARKERS >= 2);
 });
