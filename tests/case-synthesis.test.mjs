@@ -755,3 +755,19 @@ test('v9 blindness refusal: a non-empty entities list with NO usable row is malf
     // An EMPTY list stays valid — an article can name nothing.
     assert.equal(CS.validateCorpusExtract({ position: { summary: 's' }, entities: [] }).ok, true);
 });
+
+test('case-synthesis: filterProposals turns a load_bearing entry\'s rests_on into depends-on proposals — each target validated, self and null-source rejected with reasons (D.5)', () => {
+    const brief = { summary: 's', load_bearing: [
+        { claim_ref: 'c1', article_hash: 'A', quote: 'q', why: 'rests on the log', rests_on: ['c2', 'c1', 'nope'] },
+        { claim_ref: null, article_hash: 'A', quote: 'q', rests_on: ['c2'] }
+    ], proposals: [{ kind: 'relationship', source_claim_id: 'c1', target_claim_id: 'c2', relationship: 'depends-on' }] };
+    const { acceptable, rejected } = CS.filterProposals(brief, { claimsById: { c1: {}, c2: {} } });
+    assert.deepEqual(acceptable.map((p) => [p.source_claim_id, p.target_claim_id, p.relationship, p.from_rests_on === true]),
+        [['c1', 'c2', 'depends-on', true]], 'the explicit duplicate proposal dedups against the rests_on row');
+    assert.equal(acceptable[0].note, 'rests on the log');
+    assert.deepEqual(rejected.map((r) => r.reason).sort(),
+        ['rests_on names no source claim (claim_ref is null)', 'source and target are the same claim', 'unknown target claim nope']);
+    assert.ok(CS.validateCaseBrief({ summary: 's', load_bearing: [{ article_hash: 'A', quote: 'q', rests_on: ['c2'] }] }).ok, 'rests_on is in the brief schema');
+    assert.ok(CS.validateCaseBrief({ summary: 's', proposals: [{ kind: 'relationship', relationship: 'depends-on' }] }).ok, 'depends-on is in the proposal enum');
+    assert.ok(!CS.validateCaseBrief({ summary: 's', proposals: [{ kind: 'relationship', relationship: 'walks-back' }] }).ok);
+});

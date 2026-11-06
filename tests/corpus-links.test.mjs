@@ -45,8 +45,8 @@ test('corpus-links: the tool schema has no numeric-scoring slot', () => {
         assert.ok(!FORBIDDEN_KEY.test(key), `forbidden numeric-scoring key in tool schema: ${key}`);
     }
     const rel = tool.input_schema.properties.proposals.items.properties.relationship;
-    assert.deepEqual([...rel.enum].sort(), ['contradicts', 'duplicates', 'supports', 'updates'],
-        'the enum is exactly the CLAIM_RELATIONSHIPS vocabulary');
+    assert.deepEqual([...rel.enum].sort(), ['contradicts', 'depends-on', 'duplicates', 'supports', 'updates'],
+        'the enum is exactly the PROPOSABLE_RELATIONSHIPS vocabulary (the picker set, D.5)');
 });
 
 test('corpus-links: the system prompt forbids verdicts and invented ids', () => {
@@ -69,7 +69,7 @@ test('corpus-links: the user prompt renders the index + existing links', () => {
 });
 
 test('corpus-links: prompt version + claims cap exported', () => {
-    assert.equal(CLAIM_LINKS_PROMPT_VERSION, 'claim-links-v1');
+    assert.equal(CLAIM_LINKS_PROMPT_VERSION, 'claim-links-v2');
     assert.equal(MAX_CLAIM_LINKS_CLAIMS, 150);
 });
 
@@ -139,4 +139,16 @@ test('linkRecordKey matches proposalKey for the same pair+relationship', () => {
     const link = { source_claim_id: C2, target_claim_id: C1, relationship: 'contradicts' };
     const proposal = { kind: 'relationship', source_claim_id: C1, target_claim_id: C2, relationship: 'contradicts' };
     assert.equal(linkRecordKey(link), proposalKey(proposal));
+});
+
+test('prepareLinkProposals: depends-on is proposable; a revision value is not (D.5)', () => {
+    const { acceptable, rejected } = prepareLinkProposals({
+        proposals: [
+            { source_claim_id: C1, target_claim_id: C2, relationship: 'depends-on', note: 'cannot be true without it' },
+            { source_claim_id: C1, target_claim_id: C2, relationship: 'narrative-patch' }
+        ]
+    }, { claimsById: CLAIMS_BY_ID });
+    assert.deepEqual(acceptable.map((p) => p.relationship), ['depends-on']);
+    assert.equal(rejected.length, 1);
+    assert.match(rejected[0].reason, /invalid relationship "narrative-patch"/);
 });

@@ -757,3 +757,9 @@ test('normalizeProposals: missing/unknown entity_type defaults to thing, flagged
     assert.equal(n.entityTypeByRef.E1, 'thing');
     assert.equal(n.entityTypeByRef.E4, 'person');
 });
+
+test('validateProposal: depends-on is a valid proposed relationship with two refs; a revision value is not a relationship (D.5)', () => {
+    const ctx = { claimRefs: new Set(['C1', 'C2']) };
+    assert.equal(P.validateProposal({ kind: 'relationship', relationship: 'depends-on', source_claim_ref: 'C1', target_claim_ref: 'C2' }, ctx).ok, true);
+    assert.equal(P.validateProposal({ kind: 'relationship', relationship: 'walks-back', source_claim_ref: 'C1', target_claim_ref: 'C2' }, ctx).ok, false);
+});

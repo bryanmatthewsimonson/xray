@@ -27,7 +27,7 @@
 // Pure: no chrome, no network, no DOM, no clock. audit-prompt.js /
 // lens-prompt.js are the pattern.
 
-import { CLAIM_RELATIONSHIPS } from './assessment-taxonomy.js';
+import { CLAIM_RELATIONSHIPS, PROPOSABLE_RELATIONSHIPS, DEPENDENCY_AUTHORING_TEST } from './assessment-taxonomy.js';
 
 // The entity types the MAP may propose (corpus-v9): everything but
 // `case` — the researcher's workspace is never named inside an article
@@ -105,7 +105,10 @@ const MAP_ENTITY_TYPES = Object.freeze(['person', 'organization', 'place', 'thin
 // layer keeps claim-shaped atoms (MA.4 scope, guard rail 4). One-time
 // cost: every corpus-v8 cached extract is orphaned (MA.1, as ever).
 export const MAP_PROMPT_VERSION = 'corpus-v9';
-export const CORPUS_PROMPT_VERSION = 'corpus-v9';
+// corpus-v10 (claim dependency D.5): the REDUCE schema gained `rests_on`
+// on load_bearing entries and `depends-on` in the proposal enum —
+// reduce-only, so MAP_PROMPT_VERSION (the extract cache key) stays.
+export const CORPUS_PROMPT_VERSION = 'corpus-v10';
 export const MAP_TOOL_NAME = 'emit_corpus_extract';
 export const REDUCE_TOOL_NAME = 'emit_case_brief';
 export const HYPOTHESIS_EDGE_PROMPT_VERSION = 'hyp-edges-v1';
@@ -365,7 +368,12 @@ export function buildReduceTool() {
                             claim_ref: { type: ['string', 'null'], description: 'An existing claim id, or null.' },
                             article_hash: { type: 'string' },
                             quote: { type: 'string', description: 'Verbatim span from the named member.' },
-                            why: { type: 'string' }
+                            why: { type: 'string' },
+                            rests_on: {
+                                type: 'array', items: { type: 'string' },
+                                description: 'EXISTING claim ids (from the claims index) this claim CANNOT be true without — '
+                                    + 'necessary conditions only, never mere support, never itself. Omit rather than guess.'
+                            }
                         },
                         required: ['article_hash', 'quote']
                     }
@@ -384,7 +392,7 @@ export function buildReduceTool() {
                             kind: { type: 'string', enum: ['relationship', 'is_key', 'claim'] },
                             source_claim_id: { type: 'string', description: 'relationship: the source claim id (existing).' },
                             target_claim_id: { type: 'string', description: 'relationship: the target claim id (existing).' },
-                            relationship: { type: 'string', enum: [...CLAIM_RELATIONSHIPS], description: 'relationship: the typed link.' },
+                            relationship: { type: 'string', enum: [...PROPOSABLE_RELATIONSHIPS], description: 'relationship: the typed link. `depends-on` = the source cannot be true unless the target is.' },
                             claim_id: { type: 'string', description: 'is_key: the existing claim id to flag load-bearing.' },
                             article_hash: { type: 'string', description: 'claim: the member the new claim is drawn from.' },
                             text: { type: 'string', description: 'claim: the claim text.' },
@@ -429,6 +437,15 @@ export function buildReduceSystemPrompt({ caseName = '', scopeQuestion = '' } = 
         '  object maps each key to its full 64-hex hash. Anywhere the tool asks for an',
         '  `article_hash` (holders, evidence_refs, load_bearing, claim proposals), supply the',
         '  FULL hash from `articles` or the extract headers — never an `art` key.',
+        'DEPENDENCIES (claim dependency — docs/CLAIM_DEPENDENCY_DESIGN.md):',
+        '- A `depends-on` relationship means the SOURCE claim cannot be true unless the TARGET claim',
+        '  is true — a necessary condition, not evidence. Several dependencies behave like AND;',
+        '  several `supports` like OR. The test, every time: ' + DEPENDENCY_AUTHORING_TEST,
+        '- On each `load_bearing` entry, `rests_on` lists the EXISTING claim ids (from the claims',
+        '  index) that claim cannot be true without — necessary conditions only, never mere support,',
+        '  never the claim itself. Omit `rests_on` rather than guess.',
+        '- Propose `depends-on` on BOTH sides of a disagreement where it exists — a corpus whose',
+        '  dependencies all sit under one position deserves scrutiny, not smoothing.',
         'HARD RULES (docs/PHILOSOPHY.md):',
         '- NEVER output a verdict, score, probability, or "who is right". Disagreement is DATA —',
         '  present it, do not resolve it.',
@@ -528,7 +545,7 @@ export function buildHypothesisEdgeUserPrompt({ dossierDigest = '', hypotheses =
 // output is proposals ONLY: every mutation stays behind human Accept.
 // ------------------------------------------------------------------
 
-export const CLAIM_LINKS_PROMPT_VERSION = 'claim-links-v1';
+export const CLAIM_LINKS_PROMPT_VERSION = 'claim-links-v2';   // D.5: depends-on joins the enum
 export const CLAIM_LINKS_TOOL_NAME = 'propose_claim_links';
 export const MAX_CLAIM_LINKS_OUTPUT_TOKENS = 32768;
 // The claims-index cap, matching digestDossier's 150-claim bound.
@@ -538,7 +555,7 @@ export function buildClaimLinksTool() {
     return {
         name: CLAIM_LINKS_TOOL_NAME,
         description: 'Propose typed relationships between EXISTING captured claims from '
-            + 'DIFFERENT articles: which contradict, support, update, or duplicate which. '
+            + 'DIFFERENT articles: which contradict, support, update, duplicate, or depend on which. '
             + 'NEVER judge which claim is right or attach any strength — a human reviews '
             + 'every proposal.',
         input_schema: {
@@ -552,7 +569,7 @@ export function buildClaimLinksTool() {
                         properties: {
                             source_claim_id: { type: 'string', description: 'An EXISTING claim id from the supplied index. Never invent one.' },
                             target_claim_id: { type: 'string', description: 'An EXISTING claim id from the supplied index. Never the same as source.' },
-                            relationship: { type: 'string', enum: [...CLAIM_RELATIONSHIPS], description: 'How source relates to target.' },
+                            relationship: { type: 'string', enum: [...PROPOSABLE_RELATIONSHIPS], description: 'How source relates to target. `depends-on` = the source cannot be true unless the target is.' },
                             note: { type: 'string', description: 'One sentence: why these two claims relate this way.' }
                         },
                         required: ['source_claim_id', 'target_claim_id', 'relationship']
@@ -572,7 +589,13 @@ export function buildClaimLinksSystemPrompt({ caseName = '', scopeQuestion = '' 
         'You are given an index of captured claims (id — article — text) and the list of',
         'relationships that already exist.',
         'Scan the index for pairs of claims from DIFFERENT articles that contradict, support,',
-        'update, or duplicate each other, and propose EVERY such pair you find.',
+        'update, duplicate, or depend on each other, and propose EVERY such pair you find.',
+        'DEPENDENCIES (claim dependency — docs/CLAIM_DEPENDENCY_DESIGN.md):',
+        '- A `depends-on` relationship means the SOURCE claim cannot be true unless the TARGET claim',
+        '  is true — a necessary condition, not evidence. Several dependencies behave like AND;',
+        '  several `supports` like OR. The test, every time: ' + DEPENDENCY_AUTHORING_TEST,
+        '- Propose `depends-on` on BOTH sides of a disagreement where it exists — a corpus whose',
+        '  dependencies all sit under one position deserves scrutiny, not smoothing.',
         'HARD RULES (docs/PHILOSOPHY.md, docs/CASE_SYNTHESIS_DESIGN.md):',
         '- NEVER output a verdict, score, probability, or "who is right". Disagreement is DATA —',
         '  surface it, do not resolve it. A `contradicts` proposal takes no side.',
