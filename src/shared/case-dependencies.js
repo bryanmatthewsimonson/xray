@@ -201,3 +201,27 @@ export function sharedPremises(dependencies, hypothesisEdges) {
         : a.premise_ref < b.premise_ref ? -1 : a.premise_ref > b.premise_ref ? 1 : 0));
     return { count: rows.length, derivation: rows };
 }
+
+// ------------------------------------------------------------------
+// D.3 — the load chip's strings (§3.1, §5). Pure: the DOM projects
+// them 1:1. "Load-bearing" in the UI means THIS measured count and
+// nothing else; it is a per-claim section size, never compared
+// across claims.
+// ------------------------------------------------------------------
+
+/** `Load-bearing (n dependents)`, or '' when nothing depends on the claim. */
+export function loadLabel(load) {
+    const n = (load && load.count) || 0;
+    if (n === 0) return '';
+    return `Load-bearing (${n} ${n === 1 ? 'dependent' : 'dependents'})`;
+}
+
+/** One line per dependent — its text (or ref) and the chain that reaches it. */
+export function loadTooltip(load, claimsById = {}) {
+    const rows = ((load && load.derivation) || []).map((d) => {
+        const c = claimsById[d.ref];
+        const name = c && c.text ? `“${String(c.text).slice(0, 120)}”` : d.ref;
+        return `${name} (via ${d.chain.join(' → ')})`;
+    });
+    return ['Claims that cannot be true unless this one is:', ...rows].join('\n');
+}

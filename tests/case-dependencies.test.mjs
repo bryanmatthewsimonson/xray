@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { dependentsOf, premisesOf, claimLoad, findDependencyCycles, sharedPremises } =
+const { dependentsOf, premisesOf, claimLoad, findDependencyCycles, sharedPremises, loadLabel, loadTooltip } =
     await import('../src/shared/case-dependencies.js');
 
 const A = 'claim_000000000000000a';
@@ -220,4 +220,20 @@ test('sharedPremises: output passes the banned-key / numeric-beside-derivation w
         }
     };
     walk(sharedPremises(deps2(), edges()), 'shared');
+});
+
+// ------------------------------------------------------------------
+// D.3 — the load chip (docs/CLAIM_DEPENDENCY_DESIGN.md §3.1, §5)
+// ------------------------------------------------------------------
+
+test('loadLabel / loadTooltip: a measured count with every dependent named by text and chain; empty when nothing depends', () => {
+    const claimsById = { [B]: { text: 'B says.' }, [C]: { text: 'C says.' } };
+    const load = claimLoad(deps(), A);
+    assert.equal(loadLabel(load), 'Load-bearing (3 dependents)');
+    assert.equal(loadLabel(claimLoad(deps(), Q)), '');
+    const tip = loadTooltip(load, claimsById);
+    assert.match(tip, /^Claims that cannot be true unless this one is:\n/);
+    assert.match(tip, new RegExp(`“C says\\.” \\(via ${A} → ${B} → ${C}\\)`));
+    assert.match(tip, new RegExp(`${D} \\(via ${A} → ${D}\\)`), 'an unresolved ref shows its id');
+    assert.equal(loadLabel({ count: 1, derivation: [] }), 'Load-bearing (1 dependent)');
 });

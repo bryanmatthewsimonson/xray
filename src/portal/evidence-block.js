@@ -12,6 +12,7 @@ import { el, truncate } from './dom.js';
 import { assembleCaseDossier } from '../shared/case-dossier.js';
 import { auditCardChipData } from '../shared/audit/display.js';
 import { mountTraceExpander } from './trace-block.js';
+import { claimLoad, findDependencyCycles, loadLabel, loadTooltip } from '../shared/case-dependencies.js';
 import { Utils } from '../shared/utils.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { linkRunFindingsToClaims } from '../shared/audit/findings-claims.js';
@@ -104,6 +105,12 @@ export function renderEvidenceBlock(host, dossierOrId, opts = {}) {
         } catch (err) { Utils.error('Forensic-claim join failed (enrichment only)', err); }
 
         const list = el('ul', 'xr-list');
+        // Claim dependency D.3 — the dependency family and its cycles, once.
+        const dependencyLinks = (data && data.links && data.links.dependencies) || [];
+        const cycleByRef = new Map();
+        for (const comp of findDependencyCycles(dependencyLinks).derivation) {
+            for (const r of comp.refs) cycleByRef.set(r, comp);
+        }
         for (const row of ev.articles.slice(0, MAX_ROWS)) {
             const li = el('li', 'xr-row xr-case__evrow');
             const head = el('div', 'xr-row__head');
@@ -196,6 +203,24 @@ export function renderEvidenceBlock(host, dossierOrId, opts = {}) {
                     chip.title = 'Behavioral findings whose evidence anchors this passage — '
                         + 'structure at this location, never a verdict on the claim or the person.';
                     li.appendChild(chip);
+                }
+                // Claim dependency D.3 — the measured load (§3.1) and a
+                // circular-premise marker (§2.3). Cycles are computed
+                // once per render, above the row loop.
+                if (data && c.claim_id && dependencyLinks.length > 0) {
+                    const load = claimLoad(dependencyLinks, c.claim_id);
+                    const label = loadLabel(load);
+                    if (label) {
+                        const chip = el('span', 'xr-badge xr-badge--muted xr-badge--load', label);
+                        chip.title = loadTooltip(load, data.claimsById || {});
+                        li.appendChild(chip);
+                    }
+                    const cycle = cycleByRef.get(c.claim_id);
+                    if (cycle) {
+                        const chip = el('span', 'xr-badge xr-badge--warn', 'circular premise');
+                        chip.title = `These claims depend on each other: ${cycle.refs.join(', ')}`;
+                        li.appendChild(chip);
+                    }
                 }
                 // 26 CF.2 — the structural counterfactual, per claim.
                 if (data && c.claim_id) {
