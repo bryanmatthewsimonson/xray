@@ -46,7 +46,7 @@ import {
     buildKnots, buildTimelineEvents, buildEntitiesInvolved
 } from './case-dossier.js';
 import { attestationConvergence } from './truth-attestation.js';
-import { dependentsOf, findDependencyCycles } from './claim-dependencies.js';
+import { dependentsOf, findDependencyCycles } from './case-dependencies.js';
 
 export const COUNTERFACTUAL_MODES = Object.freeze(['remove', 'negate']);
 

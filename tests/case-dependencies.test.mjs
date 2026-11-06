@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 const { dependentsOf, premisesOf, claimLoad, findDependencyCycles, sharedPremises } =
-    await import('../src/shared/claim-dependencies.js');
+    await import('../src/shared/case-dependencies.js');
 
 const A = 'claim_000000000000000a';
 const B = 'claim_000000000000000b';

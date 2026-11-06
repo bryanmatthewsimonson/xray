@@ -1,4 +1,4 @@
-// Claim dependencies — the pure walks (claim dependency D.2,
+// Case dependencies — the pure walks (claim dependency D.2,
 // docs/CLAIM_DEPENDENCY_DESIGN.md §2.3, §3.1–§3.3).
 //
 // Substrate: `links.dependencies` from collectCaseDossierData — every
