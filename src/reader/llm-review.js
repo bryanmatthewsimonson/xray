@@ -41,7 +41,7 @@ import { AssessmentModel } from '../shared/assessment-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import { ForensicModel, ForensicBaseline } from '../shared/forensic-model.js';
 import { SUGGESTABLE_ENTITY_TYPES } from '../shared/llm-prompts.js';
-import { STANCE_VALUES, STANCE_LABELS, CLAIM_RELATIONSHIPS, REVISION_RELATIONSHIPS } from '../shared/assessment-taxonomy.js';
+import { STANCE_VALUES, STANCE_LABELS, PROPOSABLE_RELATIONSHIPS, REVISION_RELATIONSHIPS } from '../shared/assessment-taxonomy.js';
 import { ROLES, BASIS_VALUES } from '../shared/forensic-taxonomy.js';
 import {
     normalizeProposals, validateProposal, subjectLabelOf, PROPOSAL_ORDER,
@@ -108,7 +108,7 @@ const EDIT_FIELDS = {
         { key: 'rationale', label: 'Rationale', type: 'textarea' }
     ],
     relationship: [
-        { key: 'relationship', label: 'Relationship', type: 'select', options: CLAIM_RELATIONSHIPS },
+        { key: 'relationship', label: 'Relationship', type: 'select', options: PROPOSABLE_RELATIONSHIPS },
         { key: 'note', label: 'Note', type: 'text' }
     ],
     revision: [

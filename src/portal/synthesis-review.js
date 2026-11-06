@@ -19,6 +19,10 @@ export function describeProposal(p, claimsById) {
     if (p.kind === 'relationship') {
         const s = claimsById[p.source_claim_id];
         const t = claimsById[p.target_claim_id];
+        if (p.from_rests_on && !p.source_claim_id) {
+            return `Dependency proposal with no source claim (the brief quoted “${truncate(p.quote || '', 60)}” but named no claim): `
+                + `rests on "${truncate((t && t.text) || p.target_claim_id, 50)}"`;
+        }
         const line = `Link: "${truncate((s && s.text) || p.source_claim_id, 50)}" ${p.relationship} `
             + `"${truncate((t && t.text) || p.target_claim_id, 50)}"`;
         // Claim dependency D.5: the authoring test travels with every
@@ -112,7 +116,7 @@ export function renderProposals(host, { acceptable, rejected, claimsById, member
         `Proposals — review and accept (${open.length})`);
     host.appendChild(heading);
     // D.5 — dependency proposals disclosed, survivors and drops alike.
-    const depLine = dependencyProposalSummary(acceptable, rejected);
+    const depLine = dependencyProposalSummary(open, rejected);   // open rows only: "to review" means untriaged
     if (depLine) host.appendChild(el('div', 'xr-inspector__mono', depLine));
     if (open.length === 0 && accepted.length === 0 && dismissed.length === 0
             && (!rejected || rejected.length === 0)) {

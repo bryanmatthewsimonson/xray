@@ -322,11 +322,16 @@ test('case-synthesis: proposalKey sorts endpoints for symmetric relationships on
     // "A supports B" must not hide "B supports A".
     const k = (s, t, r) => CS.proposalKey({ kind: 'relationship', source_claim_id: s, target_claim_id: t, relationship: r });
     assert.equal(k('c2', 'c1', 'contradicts'), 'rel:c1|c2:contradicts', 'symmetric: order does not fork the key');
-    assert.equal(k('c1', 'c2', 'supports'), 'rel:c1|c2:supports');
-    assert.equal(k('c2', 'c1', 'supports'), 'rel:c2|c1:supports', 'directional: the reverse is a different proposal');
+    // Directional keys carry their own prefix so NO legacy sorted key
+    // (`rel:c1|c2:supports`, written for either direction before D.5)
+    // can equal a new ordered one — legacy directional triage entries
+    // are inert, never a false match (JOURNAL 2026-11-06).
+    assert.equal(k('c1', 'c2', 'supports'), 'rel-dir:c1|c2:supports');
+    assert.equal(k('c2', 'c1', 'supports'), 'rel-dir:c2|c1:supports', 'directional: the reverse is a different proposal');
+    assert.notEqual(k('c1', 'c2', 'supports'), 'rel:c1|c2:supports', 'never the legacy sorted shape');
     assert.notEqual(k('c1', 'c2', 'depends-on'), k('c2', 'c1', 'depends-on'));
     assert.notEqual(k('c1', 'c2', 'depends-on'), k('c1', 'c2', 'supports'), 'the relationship is in the key');
-    assert.equal(CS.linkRecordKey({ source_claim_id: 'c2', target_claim_id: 'c1', relationship: 'depends-on' }), 'rel:c2|c1:depends-on');
+    assert.equal(CS.linkRecordKey({ source_claim_id: 'c2', target_claim_id: 'c1', relationship: 'depends-on' }), 'rel-dir:c2|c1:depends-on');
     assert.equal(CS.linkRecordKey({ source_claim_id: 'c2', target_claim_id: 'c1', relationship: 'duplicates' }), 'rel:c1|c2:duplicates');
     assert.equal(CS.proposalKey({ kind: 'is_key', claim_id: 'c1' }), 'key:c1');
     assert.equal(CS.proposalKey({ kind: 'claim', article_hash: 'A', text: 't' }), 'claim:A|t');
@@ -785,4 +790,39 @@ test('case-synthesis: dependencyProposalSummary counts dependency proposals and 
     assert.equal(CS.dependencyProposalSummary([acc[0], acc[0]], []), '2 dependency proposals to review');
     assert.equal(CS.dependencyProposalSummary([{ kind: 'relationship', relationship: 'supports' }], []), '');
     assert.equal(CS.dependencyProposalSummary([], [{ kind: 'relationship', relationship: 'depends-on', reason: 'r' }]), '0 dependency proposals to review · 1 dropped (r)');
+});
+
+test('case-synthesis: filterProposals — a depends-on inside one article is deferred (rejected with a reason); a rests_on source not from its quoted article is rejected; a null source rejects one row per target (D.5 review)', () => {
+    const claimsById = {
+        c1: { id: 'c1', article_hash: 'A' }, c2: { id: 'c2', article_hash: 'A' }, c3: { id: 'c3', article_hash: 'B' }
+    };
+    const brief = { summary: 's', load_bearing: [
+        { claim_ref: 'c1', article_hash: 'A', quote: 'q', rests_on: ['c2', 'c3'] },      // c2 same article, c3 other
+        { claim_ref: 'c3', article_hash: 'A', quote: 'q', rests_on: ['c1'] },            // claim_ref c3 is from B, quoted A
+        { claim_ref: null, article_hash: 'A', quote: 'q', rests_on: ['c1', 'c3'] }
+    ], proposals: [
+        { kind: 'relationship', source_claim_id: 'c2', target_claim_id: 'c1', relationship: 'depends-on' },   // same article, explicit
+        { kind: 'relationship', source_claim_id: 'c2', target_claim_id: 'c1', relationship: 'supports' }      // same article, NOT a dependency: allowed as before
+    ] };
+    const { acceptable, rejected } = CS.filterProposals(brief, { claimsById, memberHashes: new Set(['A', 'B']) });
+    assert.deepEqual(acceptable.map((p) => `${p.source_claim_id} ${p.relationship} ${p.target_claim_id}`), ['c1 depends-on c3', 'c2 supports c1']);
+    const reasons = rejected.map((r) => r.reason);
+    assert.equal(reasons.filter((r) => r === 'a dependency inside one article is deferred (docs/CLAIM_DEPENDENCY_DESIGN.md §4)').length, 2);
+    assert.ok(reasons.includes('claim_ref c3 is not from the quoted article'));
+    assert.equal(reasons.filter((r) => r === 'rests_on names no source claim (claim_ref is null)').length, 2, 'one rejected row per target');
+    assert.ok(rejected.filter((r) => r.reason.startsWith('rests_on names no source')).every((r) => r.target_claim_id), 'each names its target');
+});
+
+test('case-synthesis: filterProposals — two load_bearing claims resting on each other yield BOTH directions (a cycle is shown, not refused); an existing supports link never rejects a depends-on (D.5 review)', () => {
+    const claimsById = { c1: { id: 'c1', article_hash: 'A' }, c3: { id: 'c3', article_hash: 'B' } };
+    const brief = { summary: 's', load_bearing: [
+        { claim_ref: 'c1', article_hash: 'A', quote: 'q', rests_on: ['c3'] },
+        { claim_ref: 'c3', article_hash: 'B', quote: 'q', rests_on: ['c1'] }
+    ] };
+    const { acceptable } = CS.filterProposals(brief, { claimsById });
+    assert.deepEqual(acceptable.map((p) => `${p.source_claim_id}→${p.target_claim_id}`), ['c1→c3', 'c3→c1']);
+    const existing = new Set([CS.linkRecordKey({ source_claim_id: 'c1', target_claim_id: 'c3', relationship: 'supports' })]);
+    const { acceptable: fresh, rejected } = CS.prepareLinkProposals({ proposals: [{ source_claim_id: 'c1', target_claim_id: 'c3', relationship: 'depends-on' }] }, { claimsById, existingKeys: existing });
+    assert.equal(fresh.length, 1, 'a different relationship on the same pair is a different key');
+    assert.equal(rejected.length, 0);
 });

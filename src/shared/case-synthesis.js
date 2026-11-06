@@ -705,8 +705,11 @@ export function groundCaseBrief(brief, indexByMember) {
  * made this load-bearing for depends-on).
  */
 function pairKey(a, b, relationship) {
-    const pair = isSymmetricRelationship(relationship) ? [a, b].sort() : [a, b];
-    return `rel:${pair.join('|')}:${relationship}`;
+    // Directional keys carry their own prefix so no legacy sorted key
+    // (`rel:…`, written for either direction before D.5) can equal a
+    // new ordered one: legacy directional triage entries are inert.
+    if (isSymmetricRelationship(relationship)) return `rel:${[a, b].sort().join('|')}:${relationship}`;
+    return `rel-dir:${a}|${b}:${relationship}`;
 }
 
 export function proposalKey(p) {
@@ -722,6 +725,8 @@ export function proposalKey(p) {
  * needs an existing claim id; claim needs a real member and (already
  * grounded) quote. Rejected rows carry a human reason.
  */
+const sameArticle = (a, b) => Boolean(a && b && a.article_hash && b.article_hash && a.article_hash === b.article_hash);
+
 export function filterProposals(brief, { claimsById = {}, memberHashes = new Set() } = {}) {
     const acceptable = [];
     const rejected = [];
@@ -733,14 +738,18 @@ export function filterProposals(brief, { claimsById = {}, memberHashes = new Set
     const fromRestsOn = [];
     for (const lb of (brief.load_bearing || [])) {
         if (!lb || !Array.isArray(lb.rests_on) || lb.rests_on.length === 0) continue;
-        if (!lb.claim_ref) {
-            rejected.push({ kind: 'relationship', relationship: 'depends-on', rests_on: lb.rests_on, from_rests_on: true,
-                reason: 'rests_on names no source claim (claim_ref is null)' });
-            continue;
-        }
         for (const target of lb.rests_on) {
-            fromRestsOn.push({ kind: 'relationship', source_claim_id: lb.claim_ref, target_claim_id: String(target || ''),
-                relationship: 'depends-on', note: lb.why || '', from_rests_on: true });
+            const row = { kind: 'relationship', source_claim_id: lb.claim_ref || null, target_claim_id: String(target || ''),
+                relationship: 'depends-on', note: lb.why || '', from_rests_on: true, quote: lb.quote || '' };
+            if (!lb.claim_ref) {
+                rejected.push({ ...row, reason: 'rests_on names no source claim (claim_ref is null)' });
+            } else if (claimsById[lb.claim_ref] && claimsById[lb.claim_ref].article_hash && lb.article_hash
+                    && claimsById[lb.claim_ref].article_hash !== lb.article_hash) {
+                // The quote grounds the ARTICLE; the source claim must be from it.
+                rejected.push({ ...row, reason: `claim_ref ${lb.claim_ref} is not from the quoted article` });
+            } else {
+                fromRestsOn.push(row);
+            }
         }
     }
     for (const p of [...fromRestsOn, ...(brief.proposals || [])]) {
@@ -754,6 +763,11 @@ export function filterProposals(brief, { claimsById = {}, memberHashes = new Set
             else if (!claimsById[p.target_claim_id]) reason = `unknown target claim ${p.target_claim_id}`;
             else if (p.source_claim_id === p.target_claim_id) reason = 'source and target are the same claim';
             else if (!PROPOSABLE_RELATIONSHIPS.includes(p.relationship)) reason = `invalid relationship "${p.relationship}"`;
+            else if (p.relationship === 'depends-on' && sameArticle(claimsById[p.source_claim_id], claimsById[p.target_claim_id])) {
+                // Intra-article dependencies are a later, separate decision
+                // (docs/CLAIM_DEPENDENCY_DESIGN.md §4 item 3).
+                reason = 'a dependency inside one article is deferred (docs/CLAIM_DEPENDENCY_DESIGN.md §4)';
+            }
         } else if (p.kind === 'is_key') {
             if (!claimsById[p.claim_id]) reason = `unknown claim ${p.claim_id}`;
         } else if (p.kind === 'claim') {

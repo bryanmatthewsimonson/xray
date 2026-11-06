@@ -66,3 +66,15 @@ test('synthesis-review: a depends-on row shows the authoring test; a supports ro
     const sup = describeProposal(rel('c1', 'c2'), claimsById);
     assert.ok(!sup.includes('Could the source still be true'));
 });
+
+test('synthesis-review: a legacy sorted triage key never matches a new directional proposal (D.5 review)', () => {
+    const triage = { 'rel:c1|c2:supports': 'dismissed' };   // written before D.5 for EITHER direction
+    assert.equal(partitionProposals([rel('c1', 'c2')], triage).open.length, 1);
+    assert.equal(partitionProposals([rel('c2', 'c1')], triage).open.length, 1);
+});
+
+test('synthesis-review: a rests_on row with no source claim says so and names its target (D.5 review)', () => {
+    const row = { kind: 'relationship', source_claim_id: null, target_claim_id: 'c2', relationship: 'depends-on', from_rests_on: true, quote: 'The lab log.' };
+    const text = describeProposal(row, { c2: { text: 'Target says.' } });
+    assert.match(text, /^Dependency proposal with no source claim \(the brief quoted “The lab log\.” but named no claim\): rests on "Target says\."/);
+});

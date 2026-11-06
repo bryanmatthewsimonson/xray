@@ -99,6 +99,10 @@ and 9803, a retirement of kinds that were never emitted.
   reasons. Proposal keys now keep endpoint order for directional
   relationships, so a dismissed "A supports B" no longer hides "B
   supports A" (a dismissed directional proposal reappears once).
+  Every stored case brief reads as stale after this change and
+  re-runs on demand; the re-run re-bills the synthesis call only — the
+  per-article extracts stay cached. `rests_on` never publishes: the
+  kind-30068 brief carries the load-bearing claims as before.
 - **Claim dependencies, adjudicated (D.4).** When a verdict on a
   premise is established-false, every claim that rests on it shows
   "premise adjudicated false by <author> under <standard>" — one chip

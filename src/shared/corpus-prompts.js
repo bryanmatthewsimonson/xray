@@ -371,8 +371,8 @@ export function buildReduceTool() {
                             why: { type: 'string' },
                             rests_on: {
                                 type: 'array', items: { type: 'string' },
-                                description: 'EXISTING claim ids (from the claims index) this claim CANNOT be true without — '
-                                    + 'necessary conditions only, never mere support, never itself. Omit rather than guess.'
+                                description: 'EXISTING claim ids (from the claims index, from OTHER articles) this claim CANNOT be true without — '
+                                    + 'necessary conditions only, never mere support, never itself. `why` then states why it cannot stand without them. Omit rather than guess.'
                             }
                         },
                         required: ['article_hash', 'quote']
@@ -426,8 +426,8 @@ export function buildReduceSystemPrompt({ caseName = '', scopeQuestion = '' } = 
         '  significant disagreement rather than stopping at a handful.',
         'PROPOSALS (a human accepts or rejects each — nothing you propose is applied on its own):',
         '- Scan the digest\'s claims index for pairs of claims from DIFFERENT articles (the `art`',
-        '  key differs) that contradict, support, update, or duplicate each other. Propose EVERY',
-        '  such pair you find as a `relationship` proposal citing both existing claim ids —',
+        '  key differs) that contradict, support, update, duplicate, or depend on each other.',
+        '  Propose EVERY such pair you find as a `relationship` proposal citing both existing claim ids —',
         '  cross-article links are the corpus\'s connective tissue and the primary thing this',
         '  synthesis adds over reading articles one at a time. Do not re-propose pairs already',
         '  listed under `contradictions` in the digest.',
@@ -441,9 +441,11 @@ export function buildReduceSystemPrompt({ caseName = '', scopeQuestion = '' } = 
         '- A `depends-on` relationship means the SOURCE claim cannot be true unless the TARGET claim',
         '  is true — a necessary condition, not evidence. Several dependencies behave like AND;',
         '  several `supports` like OR. The test, every time: ' + DEPENDENCY_AUTHORING_TEST,
-        '- On each `load_bearing` entry, `rests_on` lists the EXISTING claim ids (from the claims',
-        '  index) that claim cannot be true without — necessary conditions only, never mere support,',
-        '  never the claim itself. Omit `rests_on` rather than guess.',
+        '- Two channels, same review: a `relationship` proposal with `depends-on`, or — on a',
+        '  `load_bearing` entry — `rests_on`, the EXISTING claim ids (from the claims index, from',
+        '  OTHER articles) that claim cannot be true without: necessary conditions only, never mere',
+        '  support, never the claim itself. When you give `rests_on`, its `why` must say why the',
+        '  claim cannot stand without them (it becomes each proposed link\'s note). Omit rather than guess.',
         '- Propose `depends-on` on BOTH sides of a disagreement where it exists — a corpus whose',
         '  dependencies all sit under one position deserves scrutiny, not smoothing.',
         'HARD RULES (docs/PHILOSOPHY.md):',
@@ -594,16 +596,15 @@ export function buildClaimLinksSystemPrompt({ caseName = '', scopeQuestion = '' 
         '- A `depends-on` relationship means the SOURCE claim cannot be true unless the TARGET claim',
         '  is true — a necessary condition, not evidence. Several dependencies behave like AND;',
         '  several `supports` like OR. The test, every time: ' + DEPENDENCY_AUTHORING_TEST,
-        '- Propose `depends-on` on BOTH sides of a disagreement where it exists — a corpus whose',
-        '  dependencies all sit under one position deserves scrutiny, not smoothing.',
         'HARD RULES (docs/PHILOSOPHY.md, docs/CASE_SYNTHESIS_DESIGN.md):',
         '- NEVER output a verdict, score, probability, or "who is right". Disagreement is DATA —',
         '  surface it, do not resolve it. A `contradicts` proposal takes no side.',
         '- Claim ids come ONLY from the supplied index; never invent, abbreviate, or shorthand',
         '  one. Never link a claim to itself. If no listed pair relates, propose nothing.',
         '- Do not re-propose a relationship that already exists (the existing list is supplied).',
-        '- Propose relationships in BOTH directions of disagreement where they exist — a corpus',
-        '  whose contradictions all point one way deserves scrutiny, not smoothing.',
+        '- Propose relationships — `depends-on` included — on BOTH sides of a disagreement where',
+        '  they exist; a corpus whose contradictions or dependencies all point one way deserves',
+        '  scrutiny, not smoothing.',
         '- The `note` explains the relation in one sentence; it must not argue a conclusion.'
     ].filter(Boolean).join('\n');
 }

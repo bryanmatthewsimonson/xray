@@ -17,7 +17,7 @@ import { el } from './dom.js';
 import { Utils } from '../shared/utils.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import { getCaseLinkRun, saveCaseLinkRun } from '../shared/audit/audit-cache.js';
-import { prepareLinkProposals, dependencyProposalSummary, linkRecordKey } from '../shared/case-synthesis.js';
+import { prepareLinkProposals, linkRecordKey } from '../shared/case-synthesis.js';
 import { CLAIM_LINKS_PROMPT_VERSION, MAX_CLAIM_LINKS_CLAIMS } from '../shared/corpus-prompts.js';
 import {
     runLlmJob, ackLlmJob, llmJobScopeKey, llmJobRequestHash, jobElapsedSeconds, jobFailureNote
@@ -59,7 +59,7 @@ export function renderLinksBlock(host, { data, dossier, callbacks = {} }) {
         block.appendChild(el('h3', 'xr-case__heading',
             'Cross-article links — suggested relationships, not a ruling'));
         block.appendChild(el('p', 'xr-case__explainer',
-            'Proposes supports / contradicts / updates / duplicates relationships between '
+            'Proposes supports / contradicts / updates / duplicates / depends-on relationships between '
             + 'captured claims from different sources — reviewable structure the corpus '
             + 'analysis then builds on. Accepting a link never judges which claim is right.'));
 
@@ -185,10 +185,8 @@ export function renderLinksBlock(host, { data, dossier, callbacks = {} }) {
                 // identical Suggest picks it up with no new call.
                 if (saved) ackLlmJob(sendMessage, resp.jobId).catch(() => {});
 
-                const depLine = dependencyProposalSummary(acceptable, rejected);   // D.5 disclosure
                 status.textContent = `Done — ${acceptable.length} proposal${acceptable.length === 1 ? '' : 's'}`
-                    + (rejected.length ? ` (${rejected.length} rejected)` : '') + '.'
-                    + (depLine ? ` ${depLine}.` : '');
+                    + (rejected.length ? ` (${rejected.length} rejected)` : '') + '.';
                 renderStored(record);
             } finally {
                 runBtn.disabled = false;
