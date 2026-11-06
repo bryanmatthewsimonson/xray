@@ -452,3 +452,29 @@ test('builder: depends-on rejects a self-loop like every other relationship', as
         /cannot link a claim to itself/
     );
 });
+
+test('linker: depends-on stores directionally, dedupes on the ordered triple, and coexists with supports', async () => {
+    resetState();
+    const ab = await EvidenceLinker.create({ source_claim_id: A, target_claim_id: B, relationship: 'depends-on' });
+    assert.equal(ab.relationship, 'depends-on');
+    assert.equal(ab.source_claim_id, A);
+    assert.equal(ab.target_claim_id, B);
+    const again = await EvidenceLinker.create({ source_claim_id: A, target_claim_id: B, relationship: 'depends-on' });
+    assert.equal(again.id, ab.id, 'idempotent on (source, target, depends-on)');
+    const ba = await EvidenceLinker.create({ source_claim_id: B, target_claim_id: A, relationship: 'depends-on' });
+    assert.notEqual(ba.id, ab.id, 'the reverse edge is a second record (a cycle is stored, never refused — §2.3)');
+    const sup = await EvidenceLinker.create({ source_claim_id: A, target_claim_id: B, relationship: 'supports' });
+    assert.notEqual(sup.id, ab.id);
+    assert.ok(!ab.attestation, 'attestation metadata is a supports-only field');
+});
+
+test('linker: depends-on rejects a self-loop and is NOT in the picker vocabulary yet', async () => {
+    resetState();
+    await assert.rejects(
+        EvidenceLinker.create({ source_claim_id: A, target_claim_id: A, relationship: 'depends-on' }),
+        /Cannot link a claim to itself/
+    );
+    assert.equal(EVIDENCE_RELATIONSHIPS.includes('depends-on'), false, 'picker unchanged until D.3');
+    assert.equal(EVIDENCE_RELATIONSHIP_LABELS['depends-on'], 'Depends on');
+    assert.equal(typeof EVIDENCE_RELATIONSHIP_ICONS['depends-on'], 'string');
+});
