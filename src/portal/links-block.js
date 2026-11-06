@@ -17,7 +17,7 @@ import { el } from './dom.js';
 import { Utils } from '../shared/utils.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import { getCaseLinkRun, saveCaseLinkRun } from '../shared/audit/audit-cache.js';
-import { prepareLinkProposals, linkRecordKey } from '../shared/case-synthesis.js';
+import { prepareLinkProposals, dependencyProposalSummary, linkRecordKey } from '../shared/case-synthesis.js';
 import { CLAIM_LINKS_PROMPT_VERSION, MAX_CLAIM_LINKS_CLAIMS } from '../shared/corpus-prompts.js';
 import {
     runLlmJob, ackLlmJob, llmJobScopeKey, llmJobRequestHash, jobElapsedSeconds, jobFailureNote
@@ -185,8 +185,10 @@ export function renderLinksBlock(host, { data, dossier, callbacks = {} }) {
                 // identical Suggest picks it up with no new call.
                 if (saved) ackLlmJob(sendMessage, resp.jobId).catch(() => {});
 
+                const depLine = dependencyProposalSummary(acceptable, rejected);   // D.5 disclosure
                 status.textContent = `Done — ${acceptable.length} proposal${acceptable.length === 1 ? '' : 's'}`
-                    + (rejected.length ? ` (${rejected.length} rejected)` : '') + '.';
+                    + (rejected.length ? ` (${rejected.length} rejected)` : '') + '.'
+                    + (depLine ? ` ${depLine}.` : '');
                 renderStored(record);
             } finally {
                 runBtn.disabled = false;

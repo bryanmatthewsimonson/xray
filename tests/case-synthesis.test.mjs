@@ -771,3 +771,18 @@ test('case-synthesis: filterProposals turns a load_bearing entry\'s rests_on int
     assert.ok(CS.validateCaseBrief({ summary: 's', proposals: [{ kind: 'relationship', relationship: 'depends-on' }] }).ok, 'depends-on is in the proposal enum');
     assert.ok(!CS.validateCaseBrief({ summary: 's', proposals: [{ kind: 'relationship', relationship: 'walks-back' }] }).ok);
 });
+
+test('case-synthesis: dependencyProposalSummary counts dependency proposals and discloses every distinct drop reason; empty when none (D.5)', () => {
+    const acc = [{ kind: 'relationship', relationship: 'depends-on' }, { kind: 'relationship', relationship: 'supports' }];
+    const rej = [
+        { kind: 'relationship', relationship: 'depends-on', reason: 'unknown target claim x' },
+        { kind: 'relationship', relationship: 'depends-on', reason: 'unknown target claim x' },
+        { kind: 'relationship', relationship: 'depends-on', reason: 'source and target are the same claim' },
+        { kind: 'is_key', reason: 'unknown claim' }
+    ];
+    assert.equal(CS.dependencyProposalSummary(acc, rej),
+        '1 dependency proposal to review · 3 dropped (unknown target claim x; source and target are the same claim)');
+    assert.equal(CS.dependencyProposalSummary([acc[0], acc[0]], []), '2 dependency proposals to review');
+    assert.equal(CS.dependencyProposalSummary([{ kind: 'relationship', relationship: 'supports' }], []), '');
+    assert.equal(CS.dependencyProposalSummary([], [{ kind: 'relationship', relationship: 'depends-on', reason: 'r' }]), '0 dependency proposals to review · 1 dropped (r)');
+});

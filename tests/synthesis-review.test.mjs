@@ -12,7 +12,8 @@ globalThis.chrome = globalThis.chrome || {
     storage: { local: { get(_k, cb) { cb({}); }, set(_o, cb) { cb && cb(); }, remove(_k, cb) { cb && cb(); } } }
 };
 
-const { partitionProposals } = await import('../src/portal/synthesis-review.js');
+const { partitionProposals, describeProposal } = await import('../src/portal/synthesis-review.js');
+const { DEPENDENCY_AUTHORING_TEST } = await import('../src/shared/assessment-taxonomy.js');
 const { proposalKey } = await import('../src/shared/case-synthesis.js');
 
 const rel = (s, t) => ({ kind: 'relationship', source_claim_id: s, target_claim_id: t, relationship: 'supports' });
@@ -55,4 +56,13 @@ test('synthesis-review: empty inputs partition to empty — the zero-proposals m
     assert.deepEqual([open, accepted, dismissed], [[], [], []]);
     const noTriage = partitionProposals([rel('c1', 'c2')]);
     assert.equal(noTriage.open.length, 1, 'triage map optional');
+});
+
+test('synthesis-review: a depends-on row shows the authoring test; a supports row does not (D.5)', () => {
+    const claimsById = { c1: { text: 'Source says.' }, c2: { text: 'Target says.' } };
+    const dep = describeProposal({ kind: 'relationship', source_claim_id: 'c1', target_claim_id: 'c2', relationship: 'depends-on' }, claimsById);
+    assert.match(dep, /^Link: "Source says\." depends-on "Target says\."/);
+    assert.ok(dep.endsWith(` — ${DEPENDENCY_AUTHORING_TEST}`));
+    const sup = describeProposal(rel('c1', 'c2'), claimsById);
+    assert.ok(!sup.includes('Could the source still be true'));
 });

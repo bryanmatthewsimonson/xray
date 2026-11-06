@@ -804,3 +804,20 @@ export function prepareLinkProposals(linksInput, { claimsById = {}, existingKeys
 export function linkRecordKey(link) {
     return pairKey(link.source_claim_id, link.target_claim_id, link.relationship);
 }
+
+/**
+ * Claim dependency D.5 — the one-line disclosure a surface shows beside
+ * its proposals: how many `depends-on` proposals survived the firewall
+ * and how many it dropped, with every distinct reason. '' when the run
+ * proposed no dependency at all. A count, never a judgment.
+ */
+export function dependencyProposalSummary(acceptable, rejected) {
+    const isDep = (p) => p && p.kind === 'relationship' && p.relationship === 'depends-on';
+    const kept = (acceptable || []).filter(isDep);
+    const dropped = (rejected || []).filter(isDep);
+    if (kept.length === 0 && dropped.length === 0) return '';
+    const reasons = [...new Set(dropped.map((r) => r.reason).filter(Boolean))];
+    let line = `${kept.length} dependency proposal${kept.length === 1 ? '' : 's'} to review`;
+    if (dropped.length > 0) line += ` · ${dropped.length} dropped${reasons.length ? ` (${reasons.join('; ')})` : ''}`;
+    return line;
+}
