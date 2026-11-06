@@ -85,8 +85,11 @@ export function selectAssessmentsToPublish({ assessments, claims, canon }) {
 /**
  * Links that are wire-ready (both endpoints) and stale. Legacy
  * `contextualizes` records never publish — the relationship isn't in
- * the kind-30055 vocabulary. Each entry: `{ link, source, target }`
- * with per-endpoint `{ coord, url, eventId }`.
+ * the kind-30055 vocabulary. The claim-dependency `depends-on` edge
+ * (docs/CLAIM_DEPENDENCY_DESIGN.md §7) publishes HERE, under the same
+ * flag as `supports`; only the `revision/*` family routes elsewhere.
+ * Each entry: `{ link, source, target }` with per-endpoint
+ * `{ coord, url, eventId }`.
  */
 export function selectLinksToPublish({ links, claims, canon }) {
     const out = [];

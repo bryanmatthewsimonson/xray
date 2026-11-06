@@ -34,6 +34,10 @@ the entry's heading anchor in its monthly file.
 
 <!-- journal-index:start -->
 
+## 2026-11
+
+- **2026-11-06** — [`depends-on` joins the kind-30055 vocabulary (claim dependency D.1)](journal/2026-11.md#2026-11-06--depends-on-joins-the-kind-30055-vocabulary-claim-dependency-d1) · wire, design, one-way-door
+
 ## 2026-09
 
 - **2026-09-30** — [An embedded tweet's text no longer becomes live code on the captured page](journal/2026-09.md#2026-09-30--an-embedded-tweets-text-no-longer-becomes-live-code-on-the-captured-page) · bug, security

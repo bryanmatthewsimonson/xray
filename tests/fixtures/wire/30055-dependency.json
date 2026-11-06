@@ -1,0 +1,95 @@
+{
+  "builder": {
+    "fn": "buildClaimRelationshipEvent",
+    "module": "src/shared/metadata/builders.js"
+  },
+  "createdAt": 1700000000,
+  "event": {
+    "content": "Cannot be true unless the court filing exists.",
+    "created_at": 1700000000,
+    "id": "a3209812e7511346a50fa27cbfe453bbf909c6702377d7c4997b5551655a876f",
+    "kind": 30055,
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "sig": "4dd08216d55f62652fc38ed1d789614689b78c44d80101011153b1656f2aec6084146c5519813c9cd4a51a1ea20c9520c79590c2ab9c254afd3b615c1b39821c",
+    "tags": [
+      [
+        "d",
+        "rel:13e4b5d5d0e1ffab"
+      ],
+      [
+        "a",
+        "30040:f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9:claim_9836a677b251aa14",
+        "wss://relay.example",
+        "source"
+      ],
+      [
+        "a",
+        "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_c6bfed4695f9ee16",
+        "",
+        "target"
+      ],
+      [
+        "e",
+        "f4b3da9d105e7e6b499e86cf6846efe71b7d7ee89a4ed6529a12e2394fa9983f",
+        "",
+        "source"
+      ],
+      [
+        "e",
+        "9836a677b251aa14a6c57afaea5f02d7dd622ad46022512a7174eb2e4d7c55dd",
+        "",
+        "target"
+      ],
+      [
+        "relationship",
+        "depends-on"
+      ],
+      [
+        "r",
+        "https://example.com/video-2?utm_source=x"
+      ],
+      [
+        "r",
+        "https://example.com/video-1"
+      ],
+      [
+        "i",
+        "https://example.com/video-2"
+      ],
+      [
+        "i",
+        "https://example.com/video-1"
+      ],
+      [
+        "k",
+        "web"
+      ],
+      [
+        "suggested-by",
+        "user"
+      ],
+      [
+        "client",
+        "xray"
+      ]
+    ]
+  },
+  "inputs": {
+    "note": "Cannot be true unless the court filing exists.",
+    "relationship": "depends-on",
+    "sourceCoord": "30040:f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9:claim_9836a677b251aa14",
+    "sourceEventId": "f4b3da9d105e7e6b499e86cf6846efe71b7d7ee89a4ed6529a12e2394fa9983f",
+    "sourceRelayHint": "wss://relay.example",
+    "sourceUrl": "https://example.com/video-2?utm_source=x",
+    "suggestedBy": "user",
+    "targetCoord": "30040:79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798:claim_c6bfed4695f9ee16",
+    "targetEventId": "9836a677b251aa14a6c57afaea5f02d7dd622ad46022512a7174eb2e4d7c55dd",
+    "targetRelayHint": "",
+    "targetUrl": "https://example.com/video-1"
+  },
+  "kind": 30055,
+  "notes": "Directional edge (depends-on): source depends on target, NOT sorted — docs/CLAIM_DEPENDENCY_DESIGN.md §2.1. Same endpoints as 30055-relationship so the two differ only in relationship, note and d.",
+  "rebuild": "exact",
+  "shape": "dependency",
+  "signer": "TV1"
+}
