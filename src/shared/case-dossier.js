@@ -165,14 +165,33 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
                 && (orbitClaimIds.has(sourceRef) || orbitClaimIds.has(targetRef))) {
             related.push(withRefs);
         }
-        // Claim dependency D.2 (docs/CLAIM_DEPENDENCY_DESIGN.md §3) — the
-        // necessary-condition family the dependency walks run over:
-        // every depends-on link with an orbit endpoint (source depends
-        // on target). Kept OUT of `related`: the support-loss diff is
-        // supports-specific and a dependency is not evidential support.
-        if (link.relationship === 'depends-on'
-                && (orbitClaimIds.has(sourceRef) || orbitClaimIds.has(targetRef))) {
-            dependencies.push(withRefs);
+    }
+    // Claim dependency D.2 (docs/CLAIM_DEPENDENCY_DESIGN.md §3) — the
+    // necessary-condition family the dependency walks run over: every
+    // depends-on link REACHABLE from the orbit, to a fixpoint (source
+    // depends on target). An endpoint-in-orbit test would cut a chain
+    // the moment it passed through an out-of-orbit claim, and the walk
+    // would silently stop one hop short. Kept OUT of `related`: the
+    // support-loss diff is supports-specific and a dependency is not
+    // evidential support.
+    {
+        const candidates = Object.values(allLinks)
+            .filter((link) => link.relationship === 'depends-on')
+            .map((link) => ({ ...link, source_ref: canon(link.source_claim_id), target_ref: canon(link.target_claim_id) }));
+        const reached = new Set(orbitClaimIds);
+        const taken = new Set();
+        let grew = true;
+        while (grew) {
+            grew = false;
+            for (const link of candidates) {
+                if (taken.has(link.id)) continue;
+                if (reached.has(link.source_ref) || reached.has(link.target_ref)) {
+                    taken.add(link.id);
+                    dependencies.push(link);
+                    if (!reached.has(link.source_ref)) { reached.add(link.source_ref); grew = true; }
+                    if (!reached.has(link.target_ref)) { reached.add(link.target_ref); grew = true; }
+                }
+            }
         }
     }
     // Contradicts in id order (deterministic knot node ordering).

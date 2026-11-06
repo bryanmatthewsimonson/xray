@@ -363,6 +363,26 @@ test('case-dossier: links.dependencies carries every orbit depends-on link, id-s
     assert.ok(!data.links.related.some((l) => l.relationship === 'depends-on'), 'related stays supports/updates/duplicates');
 });
 
+test('case-dossier: links.dependencies follows a chain through out-of-orbit claims to a fixpoint (review finding 4)', async () => {
+    resetState();
+    const { kase, person, a1, b1 } = await seedOrbit();
+    // orbit a1 ← x ← y ← orbit b1: x and y are person-only claims (not in
+    // the orbit). The y→x link has NO orbit endpoint and must still be
+    // collected, or dependentsOf(a1) silently stops at x.
+    const x = await ClaimModel.create({ text: 'X.', source_url: 'https://example.com/x', about: [person.id] });
+    const y = await ClaimModel.create({ text: 'Y.', source_url: 'https://example.com/y', about: [person.id] });
+    await EvidenceLinker.create({ source_claim_id: x.id, target_claim_id: a1.id, relationship: 'depends-on' });
+    await EvidenceLinker.create({ source_claim_id: y.id, target_claim_id: x.id, relationship: 'depends-on' });
+    await EvidenceLinker.create({ source_claim_id: b1.id, target_claim_id: y.id, relationship: 'depends-on' });
+    // Disconnected noise stays out.
+    await EvidenceLinker.create({ source_claim_id: 'claim_1111111111111111', target_claim_id: 'claim_2222222222222222', relationship: 'depends-on' });
+    const data = await collectCaseDossierData(kase.id, injected());
+    assert.equal(data.links.dependencies.length, 3);
+    assert.ok(data.links.dependencies.some((l) => l.source_ref === y.id && l.target_ref === x.id), 'the no-orbit-endpoint link rides along');
+    const ids = data.links.dependencies.map((l) => l.id);
+    assert.deepEqual(ids, [...ids].sort());
+});
+
 test('case-dossier: integrity heads join by orbit entity; forensic bridge stamps matched_via', async () => {
     resetState();
     const { dossier, finding, deed } = await assembleFixture();
