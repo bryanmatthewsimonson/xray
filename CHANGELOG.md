@@ -88,6 +88,14 @@ and 9803, a retirement of kinds that were never emitted.
 
 ### Added
 
+- **Claim dependencies, adjudicated (D.4).** When a verdict on a
+  premise is established-false, every claim that rests on it shows
+  "premise adjudicated false by <author> under <standard>" — one chip
+  per verdict, never merged, with every other verdict on that premise
+  listed beside it by author and standard in the tooltip; a second
+  chip names an inconsistency when the dependent is itself adjudicated
+  true. No verdict is recomputed, no majority, no consensus (R-026).
+  Case dashboard claim rows and hypothesis-card edge rows.
 - **Claim dependencies, visible (D.3).** The reader's link picker
   offers **Depends on** (last, behind its authoring test: "could the
   source still be true if the target turned out false? then it is
