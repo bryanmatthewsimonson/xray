@@ -62,10 +62,16 @@ export const DEPENDENCY_AUTHORING_TEST =
     'Could the source still be true if the target turned out to be false? '
     + 'If yes, the link is `supports`, not `depends-on`.';
 
+// The same question in the picker's own words (the buttons read
+// "Supports" / "Depends on"; textContent would show backticks).
+export const DEPENDENCY_AUTHORING_HELP =
+    'Could the source still be true if the target turned out to be false? '
+    + 'If yes, pick Supports, not Depends on.';
+
 // Per-relationship help line shown under the picker; only the value
 // whose misuse has a structural cost carries one.
 export const RELATIONSHIP_HELP = Object.freeze({
-    'depends-on': DEPENDENCY_AUTHORING_TEST
+    'depends-on': DEPENDENCY_AUTHORING_HELP
 });
 
 // Every relationship the linker will STORE: the Phase-11 four, the

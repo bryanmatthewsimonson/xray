@@ -156,15 +156,19 @@ export function buildHypothesisBlockModel(map, { dependencies = [], claimsById =
     const sharedByHyp = new Map();
     for (const row of sharedPremises(dependencies, joinRows).derivation) {
         if (!sharedByHyp.has(row.hypothesis_id)) sharedByHyp.set(row.hypothesis_id, []);
-        const c = claimsById[row.premise_ref];
-        const premiseText = c && c.text ? truncate(c.text, 140) : row.premise_ref;
-        const n = new Set(row.edges.map((e) => e.edge_id)).size;
+        const nameOf = (ref) => { const c = claimsById[ref]; return c && c.text ? truncate(c.text, 80) : ref; };
+        const premiseText = nameOf(row.premise_ref);
+        const direct = row.edges.filter((e) => e.chain.length === 1).length;
+        const resting = row.edges.filter((e) => e.chain.length > 1).length;
+        const n = row.edges.length;
+        const restText = `${resting} ${direct ? 'other ' : ''}supporting attachment${resting === 1 ? '' : 's'} rest${resting === 1 ? 's' : ''} on it`;
         sharedByHyp.get(row.hypothesis_id).push({
             premiseRef: row.premise_ref,
             premiseText,
             edgeCount: n,
             chains: row.edges.map((e) => e.chain.join(' → ')),
-            line: `Shared premise (${n} supporting attachments rest on it): “${premiseText}”`
+            tooltip: row.edges.map((e) => e.chain.map(nameOf).join(' → ')).join('\n'),
+            line: `Shared premise: “${premiseText}” — ${direct ? `attached directly, and ${restText}` : restText}`
         });
     }
 
@@ -649,7 +653,7 @@ export function renderHypothesesBlock(host, { data, dossier, callbacks = {} }) {
                 sp.appendChild(el('div', 'xr-case__explainer', model.sharedPremiseExplainer));
                 for (const row of card.sharedPremises) {
                     const line = el('div', 'xr-hyp__edgeline', row.line);
-                    line.title = row.chains.join('\n');
+                    line.title = row.tooltip;
                     sp.appendChild(line);
                 }
                 cardEl.appendChild(sp);

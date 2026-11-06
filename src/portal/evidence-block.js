@@ -218,7 +218,8 @@ export function renderEvidenceBlock(host, dossierOrId, opts = {}) {
                     const cycle = cycleByRef.get(c.claim_id);
                     if (cycle) {
                         const chip = el('span', 'xr-badge xr-badge--warn', 'circular premise');
-                        chip.title = `These claims depend on each other: ${cycle.refs.join(', ')}`;
+                        chip.title = 'These claims depend on each other: '
+                            + cycle.refs.map((r) => { const cc = (data.claimsById || {})[r]; return cc && cc.text ? `“${truncate(cc.text, 80)}”` : r; }).join(' · ');
                         li.appendChild(chip);
                     }
                 }

@@ -349,8 +349,12 @@ Closed at D.3 (an interpretive step, maintainer may rename): the
 extract flag's ⭐ tooltip reads "Argument-critical (the model's
 reading of this article): <why>"; the corpus brief's list reads
 "Claims the brief turns on (N)"; the inspector's count reads "N
-brief-critical claim(s)". "Load-bearing" in the UI now names only the
-measured "Load-bearing (n dependents)" chip.
+brief-critical claim(s)". In the reader and on the case dashboard,
+"load-bearing" now names only the measured "Load-bearing (n
+dependents)" chip. Two vocabularies keep the word on purpose: the
+published brief's `## Load-bearing claims` heading (wire content —
+renaming it is a separate `Wire format:` decision) and the epistemic
+audit's `load_bearing` term flag (its own family's term, PHILOSOPHY).
 
 ## Related
 

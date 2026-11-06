@@ -168,22 +168,23 @@ export function buildCaseGraph(data, { includeClaims = false, maxEntities = 40, 
         return u && rows.some((r) => r.url === u) ? u : null;
     };
     const ghostSeen = new Set();
+    // One endpoint resolver for every claim-level edge family: a member
+    // article's node, or a ghost node minted once per off-corpus ref.
+    const endpointOf = (ref) => {
+        const u = urlOfRef(ref);
+        if (u) return `article:${u}`;
+        const gid = `ghost:${ref}`;
+        if (!ghostSeen.has(gid)) {
+            ghostSeen.add(gid);
+            nodes.push({ id: gid, type: 'ghost', label: 'off-corpus claim', ref });
+        }
+        return gid;
+    };
     const contraPairs = new Set();
     for (const knot of knots.contradictions || []) {
         for (const e of knot.edges || []) {
-            const su = urlOfRef(e.source_ref);
-            const tu = urlOfRef(e.target_ref);
-            const endpoint = (u, ref) => {
-                if (u) return `article:${u}`;
-                const gid = `ghost:${ref}`;
-                if (!ghostSeen.has(gid)) {
-                    ghostSeen.add(gid);
-                    nodes.push({ id: gid, type: 'ghost', label: 'off-corpus claim', ref });
-                }
-                return gid;
-            };
-            const from = endpoint(su, e.source_ref);
-            const to = endpoint(tu, e.target_ref);
+            const from = endpointOf(e.source_ref);
+            const to = endpointOf(e.target_ref);
             if (from === to) continue;
             const pk = [from, to].sort().join(' ');
             if (contraPairs.has(pk)) continue;
@@ -198,22 +199,15 @@ export function buildCaseGraph(data, { includeClaims = false, maxEntities = 40, 
     // the contradiction edges; a pair inside one article draws nothing;
     // one edge per ordered node pair. Visually distinct from support,
     // never recolored on a scale.
+    // `links.dependencies` is the collector's reachability fixpoint, so
+    // it can run off the case; only an edge touching a member article
+    // is drawn (a ghost→ghost web would flood the graph).
     const depPairs = new Set();
     for (const l of (data.links && data.links.dependencies) || []) {
         if (!l || l.relationship !== 'depends-on') continue;
-        const su = urlOfRef(l.source_ref);
-        const tu = urlOfRef(l.target_ref);
-        const endpoint = (u, ref) => {
-            if (u) return `article:${u}`;
-            const gid = `ghost:${ref}`;
-            if (!ghostSeen.has(gid)) {
-                ghostSeen.add(gid);
-                nodes.push({ id: gid, type: 'ghost', label: 'off-corpus claim', ref });
-            }
-            return gid;
-        };
-        const from = endpoint(su, l.source_ref);
-        const to = endpoint(tu, l.target_ref);
+        if (!urlOfRef(l.source_ref) && !urlOfRef(l.target_ref)) continue;
+        const from = endpointOf(l.source_ref);
+        const to = endpointOf(l.target_ref);
         if (from === to) continue;
         const pk = `${from} ${to}`;
         if (depPairs.has(pk)) continue;

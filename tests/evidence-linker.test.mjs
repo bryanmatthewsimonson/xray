@@ -30,7 +30,7 @@ globalThis.chrome = {
 const {
     EvidenceLinker, EVIDENCE_RELATIONSHIPS,
     EVIDENCE_RELATIONSHIP_LABELS, EVIDENCE_RELATIONSHIP_ICONS,
-    DEPENDENCY_AUTHORING_TEST, RELATIONSHIP_HELP,
+    DEPENDENCY_AUTHORING_TEST, DEPENDENCY_AUTHORING_HELP, RELATIONSHIP_HELP,
     generateEvidenceLinkId, parseRelationshipEvent
 } = await import('../src/shared/evidence-linker.js');
 const { buildClaimRelationshipEvent } = await import('../src/shared/metadata/builders.js');
@@ -373,7 +373,9 @@ test('evidence: relationship picker enum — the Phase-11 four plus depends-on (
 
 test('evidence: depends-on carries the authoring test as its help line; no other value has one', () => {
     assert.match(DEPENDENCY_AUTHORING_TEST, /Could the source still be true if the target turned out to be false\? If yes, the link is `supports`, not `depends-on`\./);
-    assert.equal(RELATIONSHIP_HELP['depends-on'], DEPENDENCY_AUTHORING_TEST);
+    assert.equal(RELATIONSHIP_HELP['depends-on'], DEPENDENCY_AUTHORING_HELP);
+    assert.equal(DEPENDENCY_AUTHORING_HELP, 'Could the source still be true if the target turned out to be false? If yes, pick Supports, not Depends on.');
+    assert.ok(!/`/.test(DEPENDENCY_AUTHORING_HELP), 'the UI line carries no backticks');
     for (const r of ['contradicts', 'supports', 'updates', 'duplicates']) assert.equal(RELATIONSHIP_HELP[r], undefined);
 });
 

@@ -74,7 +74,7 @@ function claimTitleByCoord(items) {
     return map;
 }
 
-// Non-contradiction relationship links (supports / updates / duplicates)
+// Non-contradiction relationship links (supports / updates / duplicates / depends-on)
 // touching each claim coordinate, both directions — the cross-article
 // links the dashboard never surfaced. Contradiction keeps its own ⚠
 // badge; the diachronic revision/* edges are a forensic surface,

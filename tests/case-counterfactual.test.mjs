@@ -286,6 +286,7 @@ test('case-counterfactual: §4 copy guard — no likelihood/strength/percent phr
     const banned = /more likely|less likely|stronger|weaker|% chance|\d+\s*%|probabilit|confidence|score\b|winner/i;
     for (const mode of COUNTERFACTUAL_MODES) {
         const data = makeData();
+        data.links.dependencies.push(link('link_00000000000000d3', C1, C5, 'depends-on'));   // a cycle, so its line is walked too
         for (const ref of [C1, C2, C4, 'claim_00000000000000ff']) {
             const lines = traceLines(
                 traceClaimDependencies(data, ref, { mode, hypothesisEdges: RICH_EDGES }),
@@ -397,9 +398,22 @@ test('traceLines: the cascade — undercut claims with chains, their hypothesis 
     assert.ok(texts.some((t) => /^1 hypothesis attachment rests on an undercut claim$/.test(t)));
     assert.ok(texts.includes(CASCADE_ASYMMETRY_LINE));
     assert.equal(CASCADE_ASYMMETRY_LINE, 'The truth of a premise establishes nothing about its dependents; only falsity propagates.');
-    assert.ok(texts.some((t) => /^With its dependents gone, /.test(t)), 'the set-wide knot line');
     const remove = traceLines(traceClaimDependencies(data, C1, { mode: 'remove' }), { claimsById: data.claimsById }).map((l) => l.text);
     assert.ok(remove.some((t) => /^Removing this claim leaves 2 claims without a necessary premise$/.test(t)));
+    assert.ok(!remove.some((t) => /hypothesis attachment/.test(t)), 'no attachment line without hypothesis edges');
+    assert.ok(texts.some((t) => /^With its dependents' edges also flipped to concordance, a contradiction knot of 3: it dissolves as a knot$/.test(t)), texts.join(' | '));
+    assert.ok(remove.some((t) => /^With its dependents gone too, a contradiction knot of 3: it dissolves$/.test(t)), remove.join(' | '));
+});
+
+test('traceLines: a knot the root sits in ALONE gets no cascade knot line — the one-hop section already said it', () => {
+    const data = makeData();
+    // c4 depends on c2; c2 is in the c1—c2—c3 knot, c4 is not.
+    data.links.dependencies.push(link('link_00000000000000d4', C4, C2, 'depends-on'));
+    for (const mode of COUNTERFACTUAL_MODES) {
+        const texts = traceLines(traceClaimDependencies(data, C2, { mode }), { claimsById: data.claimsById }).map((l) => l.text);
+        assert.ok(texts.some((t) => /contradiction knot of 3/.test(t)), 'the one-hop knot line is there');
+        assert.ok(!texts.some((t) => /^With its dependents/.test(t)), `no cascade knot line in ${mode}: ${texts.join(' | ')}`);
+    }
 });
 
 test('traceLines: a cycle through the claim renders as a circular premise', () => {

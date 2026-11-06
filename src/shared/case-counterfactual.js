@@ -52,7 +52,7 @@ export const COUNTERFACTUAL_MODES = Object.freeze(['remove', 'negate']);
 
 // Claim dependency D.3 (docs/CLAIM_DEPENDENCY_DESIGN.md §3.2) — the one
 // fixed sentence the cascade always carries: the asymmetry is stated,
-// never left to be inferred. Reused by the trace expander's explainer.
+// never left to be inferred.
 export const CASCADE_ASYMMETRY_LINE =
     'The truth of a premise establishes nothing about its dependents; only falsity propagates.';
 
@@ -409,13 +409,20 @@ export function traceLines(delta, { claimsById = {} } = {}) {
             push(`${plural(dep.hypothesis_edges.count, 'hypothesis attachment rests', 'hypothesis attachments rest')} on an undercut claim`,
                 dep.hypothesis_edges.derivation.map((e) => `“${e.label}” · ${e.role} · via ${chainOf(e.via)}`).join(' · '));
         }
+        // A knot only the ROOT sits in was already reported by the
+        // one-hop section above; the cascade line is for knots a
+        // dependent shares. Negate flips the dependents' edges too (the
+        // one-hop wording), remove takes the claims out.
         for (const k of dep.knots.derivation) {
+            if (!k.refs_removed.some((r) => r !== dep.root)) continue;
             const fragText = k.fragments_after.length === 0 ? 'it dissolves'
                 : k.fragments_after.length > 1
                     ? `it splits into fragments of ${k.fragments_after.map((f) => f.size).join(' + ')}`
                     : `it shrinks to ${k.fragments_after[0].size}`;
-            push(`With its dependents gone, a contradiction knot of ${k.size_before}: ${fragText}`,
-                `claims out: ${k.refs_removed.join(', ')} · edges: ${k.derivation.join(', ')}`);
+            push(negate
+                ? `With its dependents' edges also flipped to concordance, a contradiction knot of ${k.size_before}: ${fragText} as a knot`
+                : `With its dependents gone too, a contradiction knot of ${k.size_before}: ${fragText}`,
+                `claims: ${k.refs_removed.join(', ')} · edges: ${k.derivation.join(', ')}`);
         }
     }
     if (dep && dep.cycles && dep.cycles.count > 0) {

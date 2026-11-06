@@ -98,7 +98,10 @@ and 9803, a retirement of kinds that were never emitted.
   arguments share; the case graph draws dependency arrows; the case
   view's claim list shows "depends on" / "depended on by" chips. The
   model's article-extract flag is relabelled "Argument-critical (the
-  model's reading)" so "load-bearing" means the measured count only.
+  model's reading)" so that in the reader and on the case dashboard
+  "load-bearing" means the measured count only (the published brief's
+  `## Load-bearing claims` heading and the audit's term flag keep
+  their own vocabularies).
 - **Claim dependencies, computed (D.2).** The case dossier collects
   `depends-on` links, and a pure module walks them: what transitively
   depends on a claim (its load), what it rests on, circular premises,

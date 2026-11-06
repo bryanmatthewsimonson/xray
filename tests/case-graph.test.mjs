@@ -177,3 +177,17 @@ test('case-graph: depends-on links become directed article→article dependency 
     const pos = layoutCaseGraph(g);
     assert.ok(Object.keys(pos).some((k) => k.startsWith('ghost:')));
 });
+
+test('case-graph: a dependency chain running off the case draws only the edge that touches a member article', () => {
+    const data = dataWithDependencies();
+    data.links.dependencies = [
+        { id: 'd1', relationship: 'depends-on', source_claim_id: 'c1', target_claim_id: 'x1', source_ref: 'c1', target_ref: 'x1', note: '' },
+        { id: 'd2', relationship: 'depends-on', source_claim_id: 'x1', target_claim_id: 'x2', source_ref: 'x1', target_ref: 'x2', note: '' },
+        { id: 'd3', relationship: 'depends-on', source_claim_id: 'x2', target_claim_id: 'x3', source_ref: 'x2', target_ref: 'x3', note: '' }
+    ];
+    const g = buildCaseGraph(data);
+    const deps = g.edges.filter((e) => e.kind === 'dependency');
+    assert.equal(deps.length, 1, 'ghost→ghost edges are not drawn');
+    assert.equal(g.counts.dependencies, 1);
+    assert.equal(g.nodes.filter((n) => n.type === 'ghost').length, 1, 'one ghost premise, not a web');
+});

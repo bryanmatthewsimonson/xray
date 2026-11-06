@@ -74,7 +74,18 @@ export function renderCaseGraph(host, { data, callbacks = {} }) {
         const from = positions[edge.from];
         const to = positions[edge.to];
         if (!from || !to) continue;
-        const line = svgEl('line', { x1: from.x, y1: from.y, x2: to.x, y2: to.y, class: edgeClass(edge.kind) });
+        // A directed edge stops at the target's rim so the arrowhead is
+        // not drawn under the node circle.
+        let x2 = to.x, y2 = to.y;
+        if (edge.directed) {
+            const toNode = graph.nodes.find((n) => n.id === edge.to);
+            const r = (toNode && NODE_RADIUS[toNode.type]) || 7;
+            const dx = to.x - from.x, dy = to.y - from.y;
+            const len = Math.hypot(dx, dy) || 1;
+            x2 = to.x - (dx / len) * (r + 1);
+            y2 = to.y - (dy / len) * (r + 1);
+        }
+        const line = svgEl('line', { x1: from.x, y1: from.y, x2, y2, class: edgeClass(edge.kind) });
         if (edge.directed) line.setAttribute('marker-end', 'url(#xr-garrow)');
         if (edge.note || edge.kind === 'contradiction' || edge.kind === 'dependency') {
             const tip = svgEl('title', {});
