@@ -88,6 +88,14 @@ and 9803, a retirement of kinds that were never emitted.
 
 ### Added
 
+- **Claim dependencies, computed (D.2).** The case dossier collects
+  `depends-on` links, and a pure module walks them: what transitively
+  depends on a claim (its load), what it rests on, circular premises,
+  and the premise two of a hypothesis's supporting arguments share.
+  The counterfactual trace gains a `dependencies` section listing
+  what would lose a necessary premise if the claim were removed or
+  negated. Counts with derivations only; nothing rendered yet (D.3);
+  no wire change (`docs/CLAIM_DEPENDENCY_DESIGN.md` §3).
 - **A durable extraction layer.** The corpus map's per-article output
   is now a kept record instead of a disposable cache: paid for once
   per article, shared by every case and entity page, and reviewable on
