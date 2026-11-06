@@ -28,7 +28,7 @@ import {
 } from '../shared/claim-model.js';
 import {
     EvidenceLinker,
-    EVIDENCE_RELATIONSHIPS,
+    EVIDENCE_RELATIONSHIPS, RELATIONSHIP_HELP,
     EVIDENCE_RELATIONSHIP_LABELS,
     EVIDENCE_RELATIONSHIP_ICONS
 } from '../shared/evidence-linker.js';
@@ -521,9 +521,20 @@ export function openEvidenceLinkModal({ sourceClaim }) {
                 // Attestation metadata rides supports links only (15.2).
                 const attest = $('.xr-link-modal__attest');
                 if (attest) attest.hidden = rel !== 'supports';
+                showRelHelp();
             });
         });
         { const attest = $('.xr-link-modal__attest'); if (attest) attest.hidden = rel !== 'supports'; }
+        // Claim dependency D.3 — the authoring test, shown only while the
+        // picked relationship carries one (depends-on), before Save.
+        function showRelHelp() {
+            const help = $('.xr-link-modal__rel-help');
+            if (!help) return;
+            const text = RELATIONSHIP_HELP[rel] || '';
+            help.textContent = text;
+            help.hidden = !text;
+        }
+        showRelHelp();
 
         modal.querySelector('[data-action="save"]').addEventListener('click', async () => {
             if (!target) {
@@ -631,6 +642,7 @@ function buildLinkModalHtml(sourceClaim, candidates) {
           <div class="xr-claim-modal__field xr-link-modal__rel-row">
             <span class="xr-claim-modal__label">Relationship</span>
             <div class="xr-link-modal__rels">${relHtml}</div>
+            <div class="xr-link-modal__rel-help" hidden></div>
           </div>
 
           <div class="xr-claim-modal__field xr-link-modal__attest" hidden>

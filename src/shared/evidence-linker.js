@@ -48,17 +48,34 @@ import { EVIDENCE_TIERS, isValidEvidenceTier } from './truth-taxonomy.js';
 // Enums
 // ------------------------------------------------------------------
 
-export const EVIDENCE_RELATIONSHIPS = CLAIM_RELATIONSHIPS;
+// The reader's link picker. The Phase-11 four, then `depends-on` LAST
+// (claim dependency D.3 — docs/CLAIM_DEPENDENCY_DESIGN.md §2.1, §4):
+// the rare, strict choice, offered behind its authoring test below.
+export const EVIDENCE_RELATIONSHIPS = Object.freeze([
+    ...CLAIM_RELATIONSHIPS, ...DEPENDENCY_RELATIONSHIPS
+]);
+
+// The §2.1 authoring test, verbatim — the one question that keeps a
+// `supports` from being drawn as a `depends-on` (a dependency drawn
+// where support was meant makes the cascade lie).
+export const DEPENDENCY_AUTHORING_TEST =
+    'Could the source still be true if the target turned out to be false? '
+    + 'If yes, the link is `supports`, not `depends-on`.';
+
+// Per-relationship help line shown under the picker; only the value
+// whose misuse has a structural cost carries one.
+export const RELATIONSHIP_HELP = Object.freeze({
+    'depends-on': DEPENDENCY_AUTHORING_TEST
+});
 
 // Every relationship the linker will STORE: the Phase-11 four, the
 // Phase-14 diachronic `revision/*` values, and the claim-dependency
 // `depends-on` (docs/CLAIM_DEPENDENCY_DESIGN.md §2.1 — source depends
 // on target; directional, never sorted; a reverse edge is a second
 // record, so a cycle is stored and surfaced, never refused, §2.3).
-// `EVIDENCE_RELATIONSHIPS` (above) is deliberately the original four so
-// the Phase-11 link picker is unchanged — `depends-on` reaches the
-// picker only with slice D.3's authoring test; create() validates
-// against this wider union.
+// `EVIDENCE_RELATIONSHIPS` (above) is the picker's subset — the
+// `revision/*` values are drawn by the forensic flow, never here;
+// create() validates against this wider union.
 const ALL_LINK_RELATIONSHIPS = Object.freeze([
     ...CLAIM_RELATIONSHIPS, ...REVISION_RELATIONSHIPS, ...DEPENDENCY_RELATIONSHIPS
 ]);
