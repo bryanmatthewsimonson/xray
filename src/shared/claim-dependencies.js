@@ -142,3 +142,51 @@ export function findDependencyCycles(dependencies) {
         .sort((a, b) => (a.refs[0] < b.refs[0] ? -1 : a.refs[0] > b.refs[0] ? 1 : 0));
     return { count: derivation.length, derivation };
 }
+
+/**
+ * §3.3 — shared premises, the I-5 independence rule made structural:
+ * for each hypothesis, every claim that TWO OR MORE of its `supports`
+ * edges' claims transitively depend on. Two arguments resting on one
+ * premise are not independent; the surface names the premise, never
+ * discounts or re-sorts the edges. `undermines` edges are ignored (the
+ * rule is about correlated support), and a supporting claim is never
+ * its own premise. Rows sorted by hypothesis_id, then premise_ref.
+ *
+ * `hypothesisEdges`: [{ hypothesis_id, label, ref, role, edge_id }]
+ * as collectHypothesisEdgeJoins returns them.
+ */
+export function sharedPremises(dependencies, hypothesisEdges) {
+    const byHyp = new Map();
+    for (const e of hypothesisEdges || []) {
+        if (!e || e.role !== 'supports' || !e.ref || !e.hypothesis_id) continue;
+        if (!byHyp.has(e.hypothesis_id)) byHyp.set(e.hypothesis_id, { label: e.label || e.hypothesis_id, edges: [] });
+        byHyp.get(e.hypothesis_id).edges.push(e);
+    }
+    const rows = [];
+    for (const [hypothesisId, { label, edges }] of byHyp) {
+        if (edges.length < 2) continue;
+        const byPremise = new Map();          // premise_ref → [{ edge_id, claim_ref, chain, links }]
+        for (const e of edges.slice().sort((a, b) => (a.edge_id < b.edge_id ? -1 : a.edge_id > b.edge_id ? 1 : 0))) {
+            for (const p of premisesOf(dependencies, e.ref).derivation) {
+                if (!byPremise.has(p.ref)) byPremise.set(p.ref, []);
+                byPremise.get(p.ref).push({ edge_id: e.edge_id, claim_ref: e.ref, chain: p.chain, links: p.derivation });
+            }
+        }
+        for (const [premiseRef, hits] of byPremise) {
+            const distinct = new Set(hits.map((h) => h.edge_id));
+            if (distinct.size < 2) continue;
+            const derivation = [];
+            for (const h of hits) for (const id of h.links) if (!derivation.includes(id)) derivation.push(id);
+            rows.push({
+                hypothesis_id: hypothesisId,
+                label,
+                premise_ref: premiseRef,
+                edges: hits.map(({ edge_id, claim_ref, chain }) => ({ edge_id, claim_ref, chain })),
+                derivation
+            });
+        }
+    }
+    rows.sort((a, b) => (a.hypothesis_id < b.hypothesis_id ? -1 : a.hypothesis_id > b.hypothesis_id ? 1
+        : a.premise_ref < b.premise_ref ? -1 : a.premise_ref > b.premise_ref ? 1 : 0));
+    return { count: rows.length, derivation: rows };
+}
