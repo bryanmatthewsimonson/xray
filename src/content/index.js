@@ -10,7 +10,8 @@ import { Storage } from '../shared/storage.js';
 import { NSecBunkerClient } from '../shared/nsecbunker-client.js';
 import { Signer } from '../shared/signer.js';
 import { NIP07Client } from './nip07-client.js';
-import { UI } from './ui.js';
+import { recordSigningState } from './signing-state.js';
+import { bootOverlay, capturePage, overlayAddNote } from './overlay-boot.js';
 import { installBufferListener, configureInterceptor } from '../shared/api-hook-buffer.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 
@@ -150,6 +151,7 @@ async function init() {
         maybeAutomationCapture().catch((err) =>
             Utils.error('Automation capture marker failed:', err));
     });
+    await bootOverlay();   // inline overlay (flag-gated; never affects capture)
 }
 
 /**
@@ -172,7 +174,7 @@ async function maybeAutomationCapture() {
         // toolbar would naturally allow.
         setTimeout(() => {
             try {
-                UI.openReader();
+                capturePage();
                 document.documentElement.dataset.xrayCaptured = 'ok';
             } catch (err) {
                 document.documentElement.dataset.xrayCaptured = 'error';
@@ -204,31 +206,6 @@ function stripCaptureMarker() {
     }
 }
 
-/**
- * Persist the resolved signing state to chrome.storage.local so the
- * options Signing tab can show an honest status instead of always
- * falling through to "not detected" — the bug closed by issue #2.
- *
- * Writes the value JSON-stringified to match the convention of every
- * other key written through `Storage` (see `src/shared/storage.js` —
- * `set` always JSON.stringifies). The popup's `safeParse` handles
- * the round-trip.
- */
-function recordSigningState(method, pubkey = null) {
-    try {
-        const payload = JSON.stringify({
-            method,                       // 'local' | 'nip07' | 'nsecbunker' | 'unconfigured' | '<x>-missing'
-            pubkey,                       // hex pubkey when known, else null
-            detectedAt: Date.now()
-        });
-        chrome.storage.local.set({ xr_signing_state: payload });
-    } catch (err) {
-        // Best-effort — never let a popup-visibility nicety crash the
-        // content script's init.
-        Utils.log('Failed to persist signing state:', err && err.message);
-    }
-}
-
 // Wire message handler for background-service-worker commands.
 // The background worker dispatches:
 //   { type: 'xray:capture' }        — capture this page and open the reader
@@ -242,14 +219,14 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
         try {
             switch (msg && msg.type) {
                 case 'xray:capture':
-                    UI.openReader();
+                    capturePage();
                     sendResponse({ ok: true });
                     break;
                 case 'xray:capture:transcribe':
                     // "Capture & transcribe locally" (YouTube menu item).
                     // Same fire-and-forget ack as xray:capture — the ack
                     // means "content script alive", not "capture done".
-                    UI.openReader({ transcribe: true });
+                    capturePage({ transcribe: true });
                     sendResponse({ ok: true });
                     break;
                 case 'xray:getPubkey':
@@ -262,6 +239,10 @@ if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage)
                         .then((signed) => sendResponse({ ok: true, event: signed }))
                         .catch((err) => sendResponse({ ok: false, error: err && err.message }));
                     return true; // keep channel open for the async response
+                case 'xray:overlay:addNote':
+                    overlayAddNote();
+                    sendResponse({ ok: true });
+                    break;
                 default:
                     sendResponse({ ok: false, error: 'unknown message type' });
             }

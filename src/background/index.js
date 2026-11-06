@@ -38,6 +38,7 @@ import { crossrefRequestFor, mapCrossrefWork } from '../shared/crossref.js';
 import { lookupPodcastIdentity } from '../shared/podcast-identity.js';
 import { articleAnswersTo } from '../shared/url-identity.js';
 import { Signer } from '../shared/signer.js';
+import { handleOverlayMessage } from './overlay.js';
 import { loadFlags, isEnabled } from '../shared/metadata/feature-flags.js';
 import { publishConfirmed, IDENTITY_KINDS } from '../shared/confirmed-publish.js';
 import { gatePublish } from '../shared/publish-gate.js';
@@ -1157,6 +1158,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true; // async
     }
 
+    // Inline overlay (flag inlineOverlay): lookup for content scripts;
+    // card/note messages only from our own overlay iframe. The sender
+    // checks live in overlay.js.
+    if (message.type === 'xray:overlay:lookup' || message.type === 'xray:overlay:card'
+        || message.type === 'xray:overlay:note:save' || message.type === 'xray:overlay:note:delete'
+        || message.type === 'xray:overlay:openInSidePanel') {
+        handleOverlayMessage(message, sender)
+            .then((res) => sendResponse(res))
+            .catch(() => sendResponse({ ok: false, error: 'bad request' }));
+        return true; // async
+    }
+
     // Reader → worker: podcast identity discovery for the Media modal's
     // "Find identity" assist (Phase 22 tail). Fetches live here — house
     // rule, all network in the SW — and every URL is either built by the
@@ -1337,11 +1350,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // ------------------------------------------------------------------
 
 chrome.commands?.onCommand.addListener((command) => {
+    // Inline overlay: "Add X-Ray note to selection" (no default key —
+    // the user binds one). The content script captures the selection
+    // and opens the card iframe in editor mode; it ignores the message
+    // when the overlay is off.
+    if (command === 'xray:overlay:addNote') {
+        relayToActiveTab({ type: 'xray:overlay:addNote' });
+        return;
+    }
     // The manifest command id stays `xray:toggle` so existing user key
     // bindings survive; it now triggers a capture rather than a toggle.
     if (command !== 'xray:toggle') return;
     captureActiveTab();
 });
+
+/** Fire-and-forget a message to the active tab's content script. */
+function relayToActiveTab(message) {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const tab = tabs && tabs[0];
+        if (!tab || !tab.id) return;
+        chrome.tabs.sendMessage(tab.id, message).catch(() => { /* no content script here */ });
+    });
+}
 
 // ------------------------------------------------------------------
 // Reader → sign → publish orchestration

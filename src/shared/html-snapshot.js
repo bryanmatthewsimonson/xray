@@ -21,6 +21,8 @@
 //      sanitized prefix that fits, with a marker comment appended
 //      so it's clear the snapshot was truncated.
 
+import { stripOverlayNodes } from './overlay-strip.js';
+
 const MAX_SNAPSHOT_BYTES = 50 * 1024;
 const TRUNCATION_MARKER = '<!-- truncated by X-Ray html-snapshot -->';
 
@@ -50,6 +52,8 @@ export function snapshot(element, opts = {}) {
         : MAX_SNAPSHOT_BYTES;
 
     const cloned = element.cloneNode(true);
+    // Inline-overlay markers/frame are X-Ray's, not the page's: never evidence.
+    stripOverlayNodes(cloned);
     sanitize(cloned);
     const html = collapseWhitespace(cloned.outerHTML || '');
     return enforceByteCap(html, maxBytes);

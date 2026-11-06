@@ -562,6 +562,30 @@
       </p>
 
       <hr />
+      <h3 class="xr-opt__subhead">Inline overlay</h3>
+      <label class="xr-opt__field xr-opt__field--inline">
+        <input type="checkbox" id="pref-inline-overlay" />
+        <span>Highlight captured and annotated text on the pages you browse</span>
+      </label>
+      <p class="xr-opt__hint" style="margin-top:-8px">
+        Off by default. When on, X-Ray marks text on a page that matches
+        something you already hold locally for that URL (claims, extraction
+        quotes, forensic findings, your own notes) and, on YouTube, adds
+        ticks to the progress bar. Click a mark to see its card. Nothing
+        is sent anywhere and nothing is published; the marks are drawn
+        from your local archive only. Add a note with the
+        <em>Add X-Ray note</em> command (no default key; bind one at your
+        browser's keyboard-shortcuts page). Reload open tabs after
+        changing this.
+      </p>
+      <h4 class="xr-opt__subhead" style="font-size:13px">Hidden on these sites</h4>
+      <p class="xr-opt__hint" id="overlay-site-off-empty">
+        No sites are hidden. Use the overlay's own "Hide on this site"
+        menu entry to add one.
+      </p>
+      <ul id="overlay-site-off-list" class="xr-opt__hint" style="list-style:none;padding:0;margin:0 0 8px"></ul>
+
+      <hr />
       <h3 class="xr-opt__subhead">Capture automation</h3>
       <label class="xr-opt__field xr-opt__field--inline">
         <input type="checkbox" id="pref-capture-automation" />

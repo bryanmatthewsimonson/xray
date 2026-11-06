@@ -46,6 +46,7 @@ import { listArticles } from '../shared/archive-cache.js';
 import { listAddableArticles, addArticlesToCase } from '../shared/case-membership.js';
 import { getCaseBrief } from '../shared/audit/audit-cache.js';
 import { escapeHtml, fmtRelative, hostOf } from './format.js';
+import { wireOverlayFocus } from './overlay-focus.js';
 
 // Reserved key name in LocalKeyManager for the user's primary
 // identity. Used only by the sync flow — article publishing still
@@ -2189,6 +2190,8 @@ async function init() {
             if (syncSection.open) renderSyncBody();
         });
     }
+
+    wireOverlayFocus();   // inline-overlay CSP fallback (flag inlineOverlay)
 
     renderList();
     setView('list');

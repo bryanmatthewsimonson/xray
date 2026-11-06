@@ -1,6 +1,6 @@
 // X-Ray build pipeline.
 //
-// Produces ten bundles under `dist/`:
+// Produces eleven bundles under `dist/`:
 //
 //   dist/content.bundle.js          — content script (IIFE; runs in every tab)
 //   dist/background.bundle.js       — MV3 service worker (ESM per manifest)
@@ -9,6 +9,7 @@
 //   dist/reader.bundle.js           — extension-page reader view
 //   dist/portal.bundle.js           — "My Archive" data portal (Phase 12)
 //   dist/network.bundle.js          — the Network client (Phase 25)
+//   dist/overlay.bundle.js          — inline-overlay card iframe (web-accessible)
 //   dist/api-interceptor.bundle.js  — MAIN-world fetch/XHR hook (Phase 8a)
 //   dist/pdf-engine.bundle.js       — pdf.js extractor (ESM, lazily imported by the reader)
 //   dist/pdf.worker.bundle.js       — pdf.js worker (IIFE)
@@ -96,7 +97,7 @@ export const configs = [
     },
 
     // --- extension pages (each is its own IIFE bundle, loaded by its HTML shell) ---
-    ...['options', 'sidepanel', 'reader', 'portal', 'network'].map((name) => ({
+    ...['options', 'sidepanel', 'reader', 'portal', 'network', 'overlay'].map((name) => ({
         ...shared,
         entryPoints: [resolve(root, `src/${name}/index.js`)],
         outfile: resolve(root, `dist/${name}.bundle.js`),

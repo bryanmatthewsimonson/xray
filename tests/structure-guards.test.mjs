@@ -259,7 +259,7 @@ const DOM_ALLOW = {
     'src/shared/metadata/anchor-capture.js':     { maxCount: 2,  allowedBundles: ['sidepanel', 'reader'] }, // typeof-guarded (:199)
     'src/shared/quote-grounding.js':             { maxCount: 1,  allowedBundles: ['background', 'options', 'sidepanel', 'reader', 'portal'] }, // FALSE POSITIVE: local `const window` at :234 — rename it and drop this entry
     'src/shared/screenshot.js':                  { maxCount: 1,  allowedBundles: ['content', 'background'] }, // :63 devicePixelRatio, documented dual-context split
-    'src/shared/smoke-anchors.js':               { maxCount: 1,  allowedBundles: ['options', 'sidepanel', 'reader', 'portal', 'network'] }, // :29 try/catch no-op
+    'src/shared/smoke-anchors.js':               { maxCount: 1,  allowedBundles: ['options', 'sidepanel', 'reader', 'portal', 'network', 'overlay'] }, // :29 try/catch no-op
     'src/shared/utils.js':                       { maxCount: 2,  allowedBundles: SURFACES }              // :45 the `typeof document` worker guard + :53 escapeHtml's guarded createElement
 };
 
@@ -301,8 +301,10 @@ const HANDLERS_BACKGROUND = [
     'xray:scholar:fetch', 'xray:scholar:crossref', 'xray:media:lookup', 'xray:screenshot:capture',
     'xray:archive:reconstruct', 'xray:relay:query', 'xray:relay:publish', 'xray:notify',
     'xray:llm:job:start', 'xray:llm:job:status', 'xray:llm:job:find', 'xray:llm:job:ack',   // #374 LLM jobs (eight passes since 2026-09-25)
+    'xray:overlay:lookup', 'xray:overlay:card', 'xray:overlay:note:save', 'xray:overlay:note:delete',   // inline overlay (flag inlineOverlay), handlers in background/overlay.js
+    'xray:overlay:openInSidePanel',
 ];
-const HANDLERS_CONTENT = ['xray:capture', 'xray:capture:transcribe', 'xray:getPubkey', 'xray:sign'];
+const HANDLERS_CONTENT = ['xray:capture', 'xray:capture:transcribe', 'xray:getPubkey', 'xray:sign', 'xray:overlay:addNote'];
 const FORWARD_PREFIX = 'xray:forward:';   // background/index.js:479 wildcard; ROAD_TO_1_0 K4 open, single sender options/index.js:1863
 const ORPHAN_HANDLERS = ['xray:scholar:crossref'];   // background/index.js:1207 — no send site (crossref.js:10 says "see the wiring notes")
 // Trailing [.:-] trimmed, like the census. Non-message classes: storage keys/prefixes, menu ids, the KDF domain, the command id.

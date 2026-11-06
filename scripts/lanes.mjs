@@ -209,7 +209,13 @@ export const LANES = Object.freeze([
 // entity-profile.js the kind-0 `about`), so the `Wire format:` rule does
 // not fire on them — a finding for the §8 table, not a guess made here.
 export const UNASSIGNED = Object.freeze([
+    'src/background/overlay.js',
+    'src/overlay/index.css',
+    'src/overlay/index.js',
+    'src/overlay/overlay-card.html',
+    'src/overlay/render.js',
     'src/shared/adopt-entity.js',
+    'src/shared/anchor-resolve.js',
     'src/shared/api-hook-buffer.js',
     'src/shared/api-pattern.js',
     'src/shared/archive-draft.js',
@@ -243,7 +249,11 @@ export const UNASSIGNED = Object.freeze([
     'src/shared/metadata/anchor-resolver.js',
     'src/shared/metadata/trust-graph.js',
     'src/shared/metadata/url-normalizer.js',
+    'src/shared/overlay-model.js',
+    'src/shared/overlay-strip.js',
+    'src/shared/page-notes.js',
     'src/shared/podcast-identity.js',
+    'src/shared/quote-seconds.js',
     'src/shared/schema-walker.js',
     'src/shared/smoke-anchors.js',
     'src/shared/truth-adjudication-model.js',

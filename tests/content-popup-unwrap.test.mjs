@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ContentExtractor } from '../src/shared/content-extractor.js';
+import { stripOverlayNodes } from '../src/shared/overlay-strip.js';
 
 // Minimal stubs ----------------------------------------------------------
 
@@ -95,4 +96,42 @@ test('handles a mix of entity and footnote wrappers in one pass', () => {
 test('never throws on a malformed root', () => {
     assert.equal(ContentExtractor._unwrapInlinePopups(null), 0);
     assert.equal(ContentExtractor._unwrapInlinePopups({}), 0);
+});
+
+// Inline-overlay nodes are stripped from the capture clone ---------------
+
+test('stripOverlayNodes removes pins/chip/style/frame and unwraps marks', () => {
+    const log = [];
+    const mk = (name, kids = []) => {
+        const n = {
+            name, parentNode: null, childNodes: kids,
+            get firstChild() { return this.childNodes[0] || null; },
+            insertBefore(c, ref) {
+                if (c.parentNode) c.parentNode.childNodes.splice(c.parentNode.childNodes.indexOf(c), 1);
+                this.childNodes.splice(this.childNodes.indexOf(ref), 0, c); c.parentNode = this;
+            },
+            removeChild(c) { this.childNodes.splice(this.childNodes.indexOf(c), 1); c.parentNode = null; log.push(c.name); }
+        };
+        kids.forEach((k) => { k.parentNode = n; });
+        return n;
+    };
+    const text = mk('text');
+    const mark = mk('mark', [text]);
+    const pin = mk('pin');
+    const chip = mk('chip');
+    const para = mk('p', [mark, pin]);
+    const body = mk('body', [para, chip]);
+    const root = {
+        querySelectorAll(sel) {
+            if (sel.includes('.xr-ov-pin')) return [pin, chip];
+            if (sel === '.xr-ov-mark') return [mark];
+            return [];
+        }
+    };
+    stripOverlayNodes(root);
+    assert.deepEqual(para.childNodes.map((n) => n.name), ['text']);
+    assert.deepEqual(body.childNodes.map((n) => n.name), ['p']);
+    assert.ok(log.includes('pin') && log.includes('chip') && log.includes('mark'));
+    assert.doesNotThrow(() => stripOverlayNodes(null));
+    assert.doesNotThrow(() => stripOverlayNodes({}));
 });

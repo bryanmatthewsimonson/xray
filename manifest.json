@@ -106,6 +106,16 @@
       "matches": [
         "<all_urls>"
       ]
+    },
+    {
+      "resources": [
+        "src/overlay/overlay-card.html",
+        "dist/overlay.bundle.js",
+        "src/overlay/index.css"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ],
   "declarative_net_request": {
@@ -124,6 +134,9 @@
         "mac": "Command+Shift+X"
       },
       "description": "Capture the current page with X-Ray"
+    },
+    "xray:overlay:addNote": {
+      "description": "Add X-Ray note to selection"
     }
   },
   "browser_specific_settings": {

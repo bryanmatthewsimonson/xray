@@ -1662,6 +1662,34 @@ media modal) and one ordinary news article.
 
 ---
 
+## Inline overlay (flag `inlineOverlay`; spec 2026-11-02)
+
+Run on Edge/Chrome AND Firefox. Turn on **Options → Advanced → Inline
+overlay**, Save, reload test tabs. Needs captures of the pages below
+(Substack article with claims and an extraction; a generic news article; a
+YouTube video captured via captions; another via transcription).
+
+| # | Test | Pass criteria |
+|---|---|---|
+| OV.a | Reopen the captured Substack article with claims | ✅ claim quotes highlighted, pins appear, clicking a pin opens the card with the claim text; unlocated items are listed in the corner chip, never silently dropped |
+| OV.b | Add a note (select text, run the **Add X-Ray note to selection** command, bound at the browser's shortcuts page), then edit and delete it | ✅ note appears as a blue highlight + pin; edit and delete work from the card; the note survives reload and a backup export/import |
+| OV.c | On the same Substack page: open comments, press like buttons, navigate within the site | ✅ the page keeps working (React did not throw `NotFoundError` on marked text); no console errors from the page |
+| OV.d | Turn the overlay off for the site (**Hide on this site**) or flip the flag off | ✅ all marks, pins, chip and card gone; the page is intact and text nodes are the originals (no merged or split text) |
+| OV.e | Generic news article captured earlier | ✅ highlights and pins resolve; card opens; a lazy-loaded section resolves after scrolling |
+| OV.f | YouTube video captured via captions | ✅ ticks on the progress bar at claim times; clicking a tick seeks; playing across a tick auto-pops the card, which closes after 8 s; hovering the card keeps it open |
+| OV.g | YouTube video captured via transcription | ✅ same as OV.f |
+| OV.h | YouTube pre-roll ad | ✅ no ticks and no pops during the ad; ticks appear after it ends |
+| OV.i | YouTube theater, miniplayer, and fullscreen | ✅ ticks follow the bar in theater and miniplayer; in fullscreen an auto-popped card may be invisible (known gap, JOURNAL 2026-11-03) but nothing breaks |
+| OV.j | YouTube SPA navigation to another video | ✅ the previous video's ticks clear; the new video's ticks (if any) appear |
+| OV.k | Chrome/Edge: a normal page | ✅ the card iframe loads (ready handshake completes; card shows text, not a blank frame) |
+| OV.l | A strict-CSP site that blocks the iframe | ✅ falls back to a toast / side panel; no blank frame, no page breakage |
+| OV.m | An item whose quote cannot be found in the page | ✅ chip reads "X-Ray: N notes · M not located"; the item is listed and marked unlocated |
+| OV.n | Chip menu: **Hide on this site**, then Options → Hidden on these sites | ✅ overlay stops on that host; the host is listed; **Remove** re-enables it after reload |
+| OV.o | Flag off (default) | ✅ no change at all: no marks, no chip, no iframe, no extra requests on any page |
+| OV.p | With the overlay on, capture an annotated page | ✅ captured Markdown has no "X-Ray" pin text or marks, and its content hash equals the overlay-off capture |
+
+---
+
 ## Reporting
 
 For each defect found:

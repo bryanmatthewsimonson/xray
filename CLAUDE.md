@@ -49,19 +49,21 @@ npm run clean          # rm -rf dist
 
 ## Build model (esbuild → dist/)
 
-`esbuild.config.mjs` produces ten bundles from entry points. The manifest
+`esbuild.config.mjs` produces eleven bundles from entry points. The manifest
 and HTML shells reference `dist/*.bundle.js`; **`src/` is never loaded
-directly except the two MAIN-world page scripts.** Entry points:
+directly except the two MAIN-world page scripts** (and the HTML/CSS
+shells, including the web-accessible `src/overlay/overlay-card.html`). Entry points:
 
 - `src/content/index.js` → `content.bundle.js` (IIFE, isolated world, every tab)
 - `src/background/index.js` → `background.bundle.js` (**ESM** service worker, `conditions: ['worker','browser']`)
-- `src/options|sidepanel|reader|portal|network/index.js` → matching IIFE bundles (loaded by their HTML shells)
+- `src/options|sidepanel|reader|portal|network|overlay/index.js` → matching IIFE bundles (loaded by their HTML shells; `overlay` is the inline-overlay card iframe, `src/overlay/overlay-card.html`, a web-accessible resource)
 - `src/page/api-interceptor.js` → `api-interceptor.bundle.js` (IIFE; runs in the page MAIN world — **no shared imports allowed**, the file's IIFE is the whole module)
 - `src/reader/pdf-engine.js` → `pdf-engine.bundle.js` (ESM) and `src/reader/pdf-worker-entry.js` → `pdf.worker.bundle.js` (IIFE) — the pdf.js text/figure extractor and its worker; the build also copies pdf.js runtime assets (cmaps / standard fonts / wasm) into `dist/`
 
 `src/page/nip07-bridge.js` is loaded **unbundled** straight from `src/` as a
 MAIN-world content script (and is a `web_accessible_resource`). There is no
-popup surface and no in-page FAB/panel — the toolbar click (and the
+popup surface and no in-page FAB/panel — the one exception is the
+flag-gated inline overlay (below). The toolbar click (and the
 `Ctrl/Cmd+Shift+X` command and the right-click menu) **captures the page and
 opens it in the reader** via the `xray:capture` message.
 
@@ -74,7 +76,11 @@ the single most important thing here.
 1. **Content script** (`src/content/`, isolated world) — bootstraps on
    every tab and owns the capture pipeline (`ui.js` → `openReader`),
    triggered by the `xray:capture` message. Runs the platform handlers and
-   DOM extraction. Injects no in-page chrome except a transient error toast.
+   DOM extraction. Injects no in-page chrome except a transient error toast
+   and, behind the `inlineOverlay` flag (default off), the inline overlay's
+   `<mark>` highlights, pins, corner chip and YouTube progress-bar ticks
+   (`src/content/overlay*.js`; text lives only in the extension-origin card
+   iframe).
    Cannot open WebSockets to relays on CSP-strict sites, so it delegates
    publish.
 2. **Background service worker** (`src/background/index.js`, ESM; the
@@ -92,7 +98,11 @@ the single most important thing here.
    dossier; portal is the full-tab "My Archive" page (Phase 12) — a
    read-mostly view of everything published, reconciled against relays,
    with per-case dashboards; network is the flag-gated "truth-seeker"
-   client (Phase 25) — Feed / Queue / Follows over the people you follow.
+   client (Phase 25) — Feed / Queue / Follows over the people you follow;
+   `src/overlay/` is the inline-overlay card (an extension-origin iframe
+   embedded in web pages by the content script, top-level frames only;
+   background handlers in `src/background/overlay.js`, spec
+   `docs/superpowers/specs/2026-11-02-inline-overlay-design.md`).
 4. **MAIN world page scripts** (`src/page/`) — `nip07-bridge.js` exposes
    `window.nostr` to the extension via tagged `postMessage` envelopes;
    `api-interceptor.js` hooks `fetch`/XHR on FB/IG/YouTube to capture
@@ -250,6 +260,11 @@ namespace object (`export const Storage = …`, `export const Signer = …`).
   in `FLAGS_DEFAULTS`, overridable via `chrome.storage.local` key
   `xray:flags`. The service worker always *accepts* incoming events of
   every kind; only publish paths and panel tabs are flag-gated.
+- **Inline overlay** — flag `inlineOverlay` (default off; Options → Advanced,
+  hidden hosts in `overlay_site_off`). Local-only, no wire kind: `anchor-resolve.js`
+  + `overlay-model.js` + `page-notes.js` (personal notes, `xray:overlay:*`
+  messages) draw `<mark>`/pin/chip markers from the local archive; the card
+  text renders in an extension-origin iframe, never in the page DOM.
 - **`identity/`** (Phase 9) — cross-platform identity layer: captured
   commenters/authors become dedup-able identities, and cross-platform
   accounts can be collapsed into one person.

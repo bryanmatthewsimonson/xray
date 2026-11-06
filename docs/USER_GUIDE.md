@@ -200,6 +200,7 @@ gate your **publish** paths and some panel tabs, not what you can read.
 | `reviewCoordination` | off | The portal "Request review" label + the Network "re-broadcast follows" button |
 | `followListPublishing` | off | Publishing a NIP-02 kind-3 mirror of who you follow (global scope only; consent dialog on first enable) |
 | `captureAutomation` | off | The `#xray:capture` URL marker a driving agent can navigate to (capture only) |
+| `inlineOverlay` | off | The inline overlay on pages you browse: highlights, pins and a card for what you already hold locally for that URL, plus YouTube progress-bar ticks (see 3.8). Local only; publishes nothing |
 | `localTranscription` | off | The "Transcribe" surfaces: a "Capture & transcribe" right-click item on https pages, the reader's 🎙 button on captures with media, and the portal's "Transcribe a URL" panel. All of them talk to the loopback companion service (`companion/transcriber/`), which downloads audio with yt-dlp and transcribes it locally (WhisperX) or — only if you pick a cloud engine and save its key — by uploading the audio to AssemblyAI or Deepgram. |
 | `transcriptClaimDrafts` | off | The optional LM Studio pass over a finished transcript: drafts claim candidates through a loopback endpoint (localhost:1234). Local-only and free; every suggestion still needs your Accept. |
 
@@ -421,6 +422,47 @@ external link — so the link graph is queryable from both sides
 (what this article links to, and which articles link to it). This is
 **linkage only**: a `link` tag says "this article contains a link
 there", not "this article endorses it".
+
+### 3.8 The inline overlay (optional)
+
+When you revisit a page you have already captured, X-Ray can mark it up
+in place. This is **off by default**: turn on **Settings → Advanced →
+Inline overlay**, Save, and reload open tabs.
+
+With it on, text on the page that matches something you hold locally for
+that URL is highlighted: claims, extraction quotes, forensic findings and
+your own notes. Each highlight has a small pin; click it to open a card
+with the details. Pins on extraction quotes say their review state in
+words ("unreviewed model proposal" or "accepted"), and pins on claims you
+have judged say so ("assessed", "verdict"). Rejected extraction rows are
+not highlighted; the chip counts them, and its list keeps them behind
+**Show rejected**. Anything X-Ray could not find on the page is counted in
+a corner chip ("N notes · M not located") and listed there, never
+dropped. On YouTube, items with a time get ticks on the progress bar;
+clicking a tick seeks, and playing across one briefly pops its card.
+
+The overlay reads only your local archive. It sends nothing anywhere and
+publishes nothing; the card text is shown in an extension frame the page
+cannot read. A page can still see *which* spans are highlighted, since the
+highlights live in its DOM (docs/THREAT_MODEL.md, G11).
+
+**Notes.** Select text on any page, captured or not, and run the **Add
+X-Ray note to selection** command. A note on a page you have not captured
+still shows on that page; X-Ray needs a capture only for claims,
+extraction and findings. It has **no default key**: bind one at your
+browser's shortcuts page (`chrome://extensions/shortcuts` in Chrome and
+Edge; Add-ons Manager, gear menu, **Manage Extension Shortcuts** in
+Firefox). Notes are local, survive reloads and are included in backups.
+
+**Turning it off for one site.** Use the chip's **Hide on this site**.
+Hidden hosts are listed under **Settings → Advanced → Hidden on these
+sites**, each with a **Remove** button.
+
+**Captures.** The overlay is removed from the page while a capture runs
+and put back when the capture finishes or fails, so captures are not
+affected by it: the captured text and hash are the same with it on or
+off. This is verified by unit tests; the live browser walk is still
+pending.
 
 ---
 

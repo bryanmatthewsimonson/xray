@@ -22,6 +22,7 @@ import {
     LLM_SUGGEST_KINDS_STORAGE, SUGGEST_KIND_LABELS, normalizeSuggestKinds
 } from '../shared/llm-prompts.js';
 import { setupModelPicker, refreshModelPicker } from './llm-models.js';
+import { loadAdvancedToggles, saveAdvancedToggles } from './advanced-toggles.js';
 import { importAuditJson } from '../shared/audit/import.js';
 import { articleHash as canonicalArticleHash } from '../shared/audit/article-hash.js';
 import { listRuns, listPredictions, listResolutions } from '../shared/audit/audit-cache.js';
@@ -1341,7 +1342,7 @@ async function loadAdvanced() {
     document.getElementById('pref-case-synthesis').checked = isEnabled('caseSynthesis');
     // (autoPreAnalyze retired in UA.3 — every Suggest click IS the one
     // cache-first map call now, so there is nothing left to prepay.)
-    document.getElementById('pref-capture-automation').checked = isEnabled('captureAutomation');
+    await loadAdvancedToggles();   // capture automation + inline overlay
 
     // Local transcription (companion service) + the LM Studio post-pass.
     // Port / URL / model live under their own storage keys (the LLM-key
@@ -1487,9 +1488,8 @@ async function saveAdvanced() {
     const synthOn = document.getElementById('pref-case-synthesis').checked;
     await setOverride('caseSynthesis', synthOn ? true : null);
 
-    // Capture automation (Phase 27 K.4).
-    const captureAutoOn = document.getElementById('pref-capture-automation').checked;
-    await setOverride('captureAutomation', captureAutoOn ? true : null);
+    // Capture automation (Phase 27 K.4) + inline overlay: advanced-toggles.js.
+    await saveAdvancedToggles();
 
     // Local transcription + LM Studio claim drafts. The client pins both
     // services to loopback; a non-loopback LM Studio URL is refused here

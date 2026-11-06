@@ -244,6 +244,14 @@ async function contentTemplates() {
         },
         published_mentions: {
             [`${orgId}|${flushedArticleAddress}`]: { id: `${orgId}|${flushedArticleAddress}`, entity_id: orgId, address: flushedArticleAddress, at: T }
+        },
+        page_notes: {
+            pn_0123456789abcdef: {
+                id: 'pn_0123456789abcdef', url: A_URL,
+                anchor: [{ type: 'TextQuoteSelector', exact: 'approved the relay budget', prefix: 'The fixture council ', suffix: ' on 14 November' }],
+                quote: 'approved the relay budget', seconds: null,
+                text: 'A personal note on the budget sentence.', created: T * 1000, updated: T * 1000
+            }
         }
     };
 }

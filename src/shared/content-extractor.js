@@ -7,6 +7,7 @@ import {
   wrapIsland, islandPattern
 } from './content-islands.js';
 import { normalize } from './metadata/url-normalizer.js';
+import { stripOverlayNodes } from './overlay-strip.js';
 
 // Scheme + quote guard for markdownToHtml's emitted src/href values.
 // Returns the attribute-safe value, or '' when the target is rejected.
@@ -149,6 +150,10 @@ export const ContentExtractor = {
       // punctuation ("organized a council in , Illinois"). See JOURNAL
       // 2026-06-06.
       ContentExtractor._unwrapInlinePopups(documentClone);
+
+      // The inline overlay's markers must never reach the capture (they
+      // would add "X-Ray" pin text and change the canonical article hash).
+      stripOverlayNodes(documentClone);
 
       // Readability is now bundled via npm import
       {
