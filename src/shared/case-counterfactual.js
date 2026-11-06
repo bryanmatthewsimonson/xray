@@ -50,6 +50,12 @@ import { dependentsOf, findDependencyCycles } from './case-dependencies.js';
 
 export const COUNTERFACTUAL_MODES = Object.freeze(['remove', 'negate']);
 
+// Claim dependency D.3 (docs/CLAIM_DEPENDENCY_DESIGN.md §3.2) — the one
+// fixed sentence the cascade always carries: the asymmetry is stated,
+// never left to be inferred. Reused by the trace expander's explainer.
+export const CASCADE_ASYMMETRY_LINE =
+    'The truth of a premise establishes nothing about its dependents; only falsity propagates.';
+
 const touches = (link, ref) => link.source_ref === ref || link.target_ref === ref;
 const touchesAny = (link, refs) => refs.has(link.source_ref) || refs.has(link.target_ref);
 
@@ -383,8 +389,46 @@ export function traceLines(delta, { claimsById = {} } = {}) {
             : `Hypothesis “${h.label}”: loses ${h.supports_affected} supporting and ${h.undermines_affected} undermining ${h.supports_affected + h.undermines_affected === 1 ? 'attachment' : 'attachments'}`,
             `edges: ${h.derivation.join(', ')}`);
     }
+    // Claim dependency D.3 — the cascade (§3.2), after the one-hop
+    // sections: what loses a necessary premise, the hypothesis
+    // attachments those claims carry, the set-wide knot diff, any
+    // circular premise, then the fixed asymmetry sentence.
+    const dep = delta.dependencies;
+    const nameOf = (ref) => {
+        const c = claimsById[ref];
+        return c && c.text ? `${ref} — “${c.text.slice(0, 80)}”` : ref;
+    };
+    const chainOf = (chain) => chain.join(' → ');
+    if (dep && dep.undercut && dep.undercut.count > 0) {
+        const n = dep.undercut.count;
+        push(negate
+            ? `If this claim were false, ${plural(n, 'claim', 'claims')} would lose a necessary premise`
+            : `Removing this claim leaves ${plural(n, 'claim', 'claims')} without a necessary premise`,
+            dep.undercut.derivation.map((u) => `${nameOf(u.ref)} (via ${chainOf(u.chain)})`).join(' · '));
+        if (dep.hypothesis_edges.count > 0) {
+            push(`${plural(dep.hypothesis_edges.count, 'hypothesis attachment rests', 'hypothesis attachments rest')} on an undercut claim`,
+                dep.hypothesis_edges.derivation.map((e) => `“${e.label}” · ${e.role} · via ${chainOf(e.via)}`).join(' · '));
+        }
+        for (const k of dep.knots.derivation) {
+            const fragText = k.fragments_after.length === 0 ? 'it dissolves'
+                : k.fragments_after.length > 1
+                    ? `it splits into fragments of ${k.fragments_after.map((f) => f.size).join(' + ')}`
+                    : `it shrinks to ${k.fragments_after[0].size}`;
+            push(`With its dependents gone, a contradiction knot of ${k.size_before}: ${fragText}`,
+                `claims out: ${k.refs_removed.join(', ')} · edges: ${k.derivation.join(', ')}`);
+        }
+    }
+    if (dep && dep.cycles && dep.cycles.count > 0) {
+        for (const c of dep.cycles.derivation) {
+            push(`Circular premise: ${plural(c.refs.length, 'claim depends', 'claims depend')} on each other`,
+                `claims: ${c.refs.join(', ')} · edges: ${c.derivation.join(', ')}`);
+        }
+    }
+    if (dep && dep.undercut && dep.undercut.count > 0) {
+        push(CASCADE_ASYMMETRY_LINE, null);
+    }
     if (lines.length === 0) {
-        push('No structural dependencies found — nothing else in the case graph rests on this claim.', null);
+        push('No structural dependencies found — nothing else in the case graph rests on this claim, and nothing depends on it.', null);
     }
     return lines;
 }
