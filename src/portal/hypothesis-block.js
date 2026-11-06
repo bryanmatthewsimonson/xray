@@ -28,7 +28,9 @@ import {
     runLlmJob, ackLlmJob, llmJobScopeKey, llmJobRequestHash, jobElapsedSeconds, jobFailureNote
 } from '../shared/llm-jobs.js';
 import { Utils } from '../shared/utils.js';
-import { sharedPremises } from '../shared/case-dependencies.js';
+import {
+    sharedPremises, premiseVerdictMarkers, premiseMarkerLabel, premiseMarkerTooltip, PREMISE_INCONSISTENCY_LABEL
+} from '../shared/case-dependencies.js';
 
 function sendMessage(msg) {
     return new Promise((resolve) => {
@@ -126,7 +128,18 @@ function provenanceBadge(suggestedBy) {
  * derived from a built hypothesis map. Exported so the no-scoreboard
  * guard test can walk the strings without a DOM.
  */
-export function buildHypothesisBlockModel(map, { dependencies = [], claimsById = {} } = {}) {
+export function buildHypothesisBlockModel(map, { dependencies = [], claimsById = {}, verdicts = null, wire = null, propositions = null } = {}) {
+    // D.4 — the premise-verdict markers read the same collector
+    // envelope shape the evidence block holds (links, propositions,
+    // verdicts, wire); an empty envelope yields no markers.
+    const markerData = { links: { dependencies }, claimsById, propositions: propositions || { all: {} }, verdicts: verdicts || { byProposition: {} }, wire: wire || { verdicts: [] } };
+    const markersFor = (ref) => {
+        const m = premiseVerdictMarkers(markerData, ref);
+        return {
+            premiseMarkers: m.derivation.map((row) => ({ label: premiseMarkerLabel(row), tooltip: premiseMarkerTooltip(row, claimsById) })),
+            inconsistency: m.inconsistency ? PREMISE_INCONSISTENCY_LABEL : null
+        };
+    };
     const empty = map.hypotheses.length === 0 && map.dangling.edges.length === 0;
     const c = map.coverage;
     const model = {
@@ -208,7 +221,8 @@ export function buildHypothesisBlockModel(map, { dependencies = [], claimsById =
                     verdictChips: e.verdicts
                         .filter((v) => v.state !== null)
                         .map((v) => `${PROPOSITION_CLASS_LABELS[v.proposition_class] || v.proposition_class}: `
-                            + `${VERDICT_STATE_LABELS[v.state] || v.state}`)
+                            + `${VERDICT_STATE_LABELS[v.state] || v.state}`),
+                    ...markersFor(e.ref)
                 })),
                 overflow: edges.length > MAX_EDGES_PER_SECTION
                     ? `… +${edges.length - MAX_EDGES_PER_SECTION} more` : null
@@ -497,7 +511,10 @@ export function renderHypothesesBlock(host, { data, dossier, callbacks = {} }) {
         const map = buildHypothesisMap(input, null);
         const model = buildHypothesisBlockModel(map, {
             dependencies: (data.links && data.links.dependencies) || [],
-            claimsById: data.claimsById || {}
+            claimsById: data.claimsById || {},
+            verdicts: data.verdicts || null,
+            wire: data.wire || null,
+            propositions: data.propositions || null
         });
         const orbitClaims = (data.orbit && data.orbit.claims) || [];
         // An empty map on a claimless case renders nothing; with claims
@@ -636,6 +653,13 @@ export function renderHypothesesBlock(host, { data, dossier, callbacks = {} }) {
                         v.title = VERDICT_CHIP_TITLE;
                         line.appendChild(v);
                     }
+                    // D.4 — premise-verdict markers, one per adjudication.
+                    for (const m of edge.premiseMarkers || []) {
+                        const b = el('span', 'xr-badge xr-badge--warn xr-badge--premise', m.label);
+                        b.title = m.tooltip;
+                        line.appendChild(b);
+                    }
+                    if (edge.inconsistency) line.appendChild(el('span', 'xr-badge xr-badge--warn', edge.inconsistency));
                     row.appendChild(line);
                     if (edge.quote) row.appendChild(el('blockquote', 'xr-finding-row__quote', edge.quote));
                     if (edge.note) row.appendChild(el('div', 'xr-inspector__mono', edge.note));
