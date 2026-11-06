@@ -478,3 +478,14 @@ test('linker: depends-on rejects a self-loop and is NOT in the picker vocabulary
     assert.equal(EVIDENCE_RELATIONSHIP_LABELS['depends-on'], 'Depends on');
     assert.equal(typeof EVIDENCE_RELATIONSHIP_ICONS['depends-on'], 'string');
 });
+
+test('parse: a foreign depends-on event round-trips with source/target in tag order', async () => {
+    const A = '30040:' + 'a'.repeat(64) + ':claim-a';
+    const B = '30040:' + 'b'.repeat(64) + ':claim-b';
+    const { event } = await buildClaimRelationshipEvent({ sourceCoord: B, targetCoord: A, relationship: 'depends-on', note: 'B presupposes A' });
+    const p = parseRelationshipEvent({ ...event, id: 'f'.repeat(64), pubkey: 'c'.repeat(64) });
+    assert.equal(p.relationship, 'depends-on');
+    assert.equal(p.source.coord, B);
+    assert.equal(p.target.coord, A);
+    assert.equal(p.note, 'B presupposes A');
+});
