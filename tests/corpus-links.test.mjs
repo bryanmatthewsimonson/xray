@@ -101,29 +101,36 @@ test('prepareLinkProposals: unknown ids, self-links, bad enums are rejected with
 });
 
 test('prepareLinkProposals: an already-existing pair+relationship is rejected, not dropped', () => {
-    const existingKeys = new Set([linkRecordKey({ source_claim_id: C2, target_claim_id: C1, relationship: 'supports' })]);
+    const existingKeys = new Set([
+        linkRecordKey({ source_claim_id: C2, target_claim_id: C1, relationship: 'contradicts' }),
+        linkRecordKey({ source_claim_id: C2, target_claim_id: C1, relationship: 'supports' })
+    ]);
     const { acceptable, rejected } = prepareLinkProposals({
         proposals: [
-            // Same pair the OTHER direction — the sorted-pair key catches it.
+            // Symmetric pair the OTHER direction — the sorted-pair key catches it.
+            { source_claim_id: C1, target_claim_id: C2, relationship: 'contradicts' },
+            // Directional pair the OTHER direction — a DIFFERENT claim about the world (D.5).
             { source_claim_id: C1, target_claim_id: C2, relationship: 'supports' },
             // Same pair, DIFFERENT relationship — allowed to coexist.
             { source_claim_id: C1, target_claim_id: C2, relationship: 'updates' }
         ]
     }, { claimsById: CLAIMS_BY_ID, existingKeys });
-    assert.equal(acceptable.length, 1);
-    assert.equal(acceptable[0].relationship, 'updates');
+    assert.deepEqual(acceptable.map((p) => p.relationship), ['supports', 'updates']);
     assert.equal(rejected.length, 1);
+    assert.equal(rejected[0].relationship, 'contradicts');
     assert.match(rejected[0].reason, /already exists/);
 });
 
 test('prepareLinkProposals: duplicates in one run dedupe silently; malformed input is empty', () => {
     const { acceptable } = prepareLinkProposals({
         proposals: [
+            { source_claim_id: C1, target_claim_id: C2, relationship: 'contradicts' },
+            { source_claim_id: C2, target_claim_id: C1, relationship: 'contradicts' },
             { source_claim_id: C1, target_claim_id: C2, relationship: 'supports' },
             { source_claim_id: C2, target_claim_id: C1, relationship: 'supports' }
         ]
     }, { claimsById: CLAIMS_BY_ID });
-    assert.equal(acceptable.length, 1, 'reversed repeat dedupes to one');
+    assert.equal(acceptable.length, 3, 'a reversed symmetric repeat dedupes to one; a reversed directional pair is two');
     assert.deepEqual(prepareLinkProposals(null, { claimsById: CLAIMS_BY_ID }),
         { acceptable: [], rejected: [] });
 });

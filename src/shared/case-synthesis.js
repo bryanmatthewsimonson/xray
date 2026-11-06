@@ -14,7 +14,7 @@ import { Crypto } from './crypto.js';
 import { Utils } from './utils.js';
 import { EventBuilder } from './event-builder.js';
 import { createGroundingIndex } from './quote-grounding.js';
-import { CLAIM_RELATIONSHIPS } from './assessment-taxonomy.js';
+import { CLAIM_RELATIONSHIPS, isSymmetricRelationship } from './assessment-taxonomy.js';
 import { walk, obj, str, nullableStr, arr, en, bool } from './schema-walker.js';
 import { deriveArticleRows } from './case-dossier.js';
 import { canonicalIdOf } from './entity-model.js';
@@ -697,8 +697,20 @@ export function groundCaseBrief(brief, indexByMember) {
  * (`record.triage[key] = 'accepted' | 'dismissed'`) is stored under,
  * so a reopened brief doesn't resurrect already-triaged rows.
  */
+/**
+ * Endpoint pair identity: sorted for a SYMMETRIC relationship (one
+ * proposal whichever way it was written), kept in order for a
+ * directional one (the reverse is a different proposal — a dismissed
+ * "A supports B" must never hide "B supports A"; claim dependency D.5
+ * made this load-bearing for depends-on).
+ */
+function pairKey(a, b, relationship) {
+    const pair = isSymmetricRelationship(relationship) ? [a, b].sort() : [a, b];
+    return `rel:${pair.join('|')}:${relationship}`;
+}
+
 export function proposalKey(p) {
-    if (p.kind === 'relationship') return `rel:${[p.source_claim_id, p.target_claim_id].sort().join('|')}:${p.relationship}`;
+    if (p.kind === 'relationship') return pairKey(p.source_claim_id, p.target_claim_id, p.relationship);
     if (p.kind === 'is_key') return `key:${p.claim_id}`;
     if (p.kind === 'claim') return `claim:${p.article_hash}|${p.text}`;
     return `other:${JSON.stringify(p)}`;
@@ -773,5 +785,5 @@ export function prepareLinkProposals(linksInput, { claimsById = {}, existingKeys
 
 /** proposalKey-shaped identity for an EXISTING EvidenceLinker record. */
 export function linkRecordKey(link) {
-    return `rel:${[link.source_claim_id, link.target_claim_id].sort().join('|')}:${link.relationship}`;
+    return pairKey(link.source_claim_id, link.target_claim_id, link.relationship);
 }

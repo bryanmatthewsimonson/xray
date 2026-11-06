@@ -35,14 +35,19 @@ test('synthesis-review: partition routes by triage status; missing/unknown statu
     assert.equal(open[1].key, key(d), 'open rows carry the key the triage write will use');
 });
 
-test('synthesis-review: a re-proposed relationship with flipped endpoints keeps its triage status', () => {
-    // The reduce may emit the same logical pair in either direction on
-    // a re-run; the endpoint-order-insensitive key means a dismissal
-    // survives the flip.
-    const triage = { [key(rel('c1', 'c2'))]: 'dismissed' };
-    const { open, dismissed } = partitionProposals([rel('c2', 'c1')], triage);
-    assert.equal(open.length, 0);
-    assert.equal(dismissed.length, 1);
+test('synthesis-review: a flipped SYMMETRIC proposal keeps its triage status; a flipped DIRECTIONAL one is a new open row (D.5)', () => {
+    // The reduce may emit a symmetric pair in either direction on a
+    // re-run; the order-insensitive key means a dismissal survives the
+    // flip. A directional pair reversed is a different claim about the
+    // world, so it opens fresh.
+    const sym = (s, t) => ({ kind: 'relationship', source_claim_id: s, target_claim_id: t, relationship: 'contradicts' });
+    const triage = { [key(sym('c1', 'c2'))]: 'dismissed', [key(rel('c1', 'c2'))]: 'dismissed' };
+    const flippedSym = partitionProposals([sym('c2', 'c1')], triage);
+    assert.equal(flippedSym.open.length, 0);
+    assert.equal(flippedSym.dismissed.length, 1);
+    const flippedDir = partitionProposals([rel('c2', 'c1')], triage);
+    assert.equal(flippedDir.open.length, 1, 'B supports A is not the dismissed A supports B');
+    assert.equal(flippedDir.dismissed.length, 0);
 });
 
 test('synthesis-review: empty inputs partition to empty — the zero-proposals message is reachable', () => {

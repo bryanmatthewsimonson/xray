@@ -314,15 +314,20 @@ test('case-synthesis: linkAssertionsToClaims — largest overlap wins, ties brea
     assert.equal(tied.key_assertions[0].claim_ref, 'c_a');
 });
 
-test('case-synthesis: proposalKey is stable and direction-insensitive for relationships (27 S.3)', () => {
-    // The triage record persists under these keys — a key change would
-    // silently resurrect every dismissed proposal.
-    assert.equal(
-        CS.proposalKey({ kind: 'relationship', source_claim_id: 'c1', target_claim_id: 'c2', relationship: 'supports' }),
-        'rel:c1|c2:supports');
-    assert.equal(
-        CS.proposalKey({ kind: 'relationship', source_claim_id: 'c2', target_claim_id: 'c1', relationship: 'supports' }),
-        'rel:c1|c2:supports', 'endpoint order does not fork the key');
+test('case-synthesis: proposalKey sorts endpoints for symmetric relationships only — a directional pair is two proposals (D.5)', () => {
+    // The triage record persists under these keys. A symmetric pair
+    // (contradicts / duplicates) is one proposal whichever way the
+    // model wrote it; a directional one (supports / updates /
+    // depends-on) is a DIFFERENT proposal reversed — a dismissed
+    // "A supports B" must not hide "B supports A".
+    const k = (s, t, r) => CS.proposalKey({ kind: 'relationship', source_claim_id: s, target_claim_id: t, relationship: r });
+    assert.equal(k('c2', 'c1', 'contradicts'), 'rel:c1|c2:contradicts', 'symmetric: order does not fork the key');
+    assert.equal(k('c1', 'c2', 'supports'), 'rel:c1|c2:supports');
+    assert.equal(k('c2', 'c1', 'supports'), 'rel:c2|c1:supports', 'directional: the reverse is a different proposal');
+    assert.notEqual(k('c1', 'c2', 'depends-on'), k('c2', 'c1', 'depends-on'));
+    assert.notEqual(k('c1', 'c2', 'depends-on'), k('c1', 'c2', 'supports'), 'the relationship is in the key');
+    assert.equal(CS.linkRecordKey({ source_claim_id: 'c2', target_claim_id: 'c1', relationship: 'depends-on' }), 'rel:c2|c1:depends-on');
+    assert.equal(CS.linkRecordKey({ source_claim_id: 'c2', target_claim_id: 'c1', relationship: 'duplicates' }), 'rel:c1|c2:duplicates');
     assert.equal(CS.proposalKey({ kind: 'is_key', claim_id: 'c1' }), 'key:c1');
     assert.equal(CS.proposalKey({ kind: 'claim', article_hash: 'A', text: 't' }), 'claim:A|t');
 });
