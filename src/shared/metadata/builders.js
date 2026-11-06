@@ -27,7 +27,7 @@ import { normalize } from './url-normalizer.js';
 import {
   ASSESSMENT_LABEL_NAMESPACE, isValidLabel, isValidStance,
   isValidSuggestedBy, CLAIM_RELATIONSHIPS, REVISION_RELATIONSHIPS,
-  isSymmetricRelationship
+  DEPENDENCY_RELATIONSHIPS, isSymmetricRelationship
 } from '../assessment-taxonomy.js';
 import {
   FORENSIC_MANEUVER_NAMESPACE, isValidManeuver, isValidRole, isValidBasis
@@ -257,7 +257,9 @@ export async function buildAssessmentEvent({
  *   - symmetric relationships (`contradicts`, `duplicates`) sort the
  *     two coordinates lexically before hashing AND in tag order, so
  *     A↔B and B↔A republish the same `d` and replace; the markers
- *     carry no meaning for them. `supports`/`updates` are directional.
+ *     carry no meaning for them. `supports`/`updates` are directional,
+ *     and so is `depends-on` (source depends on target — the
+ *     necessary-condition edge, docs/CLAIM_DEPENDENCY_DESIGN.md §2.1).
  *   - `d` = rel:<sha16(coordA|coordB|relationship)> MUST be
  *     recomputable from the `a` tags + `relationship`.
  *   - per endpoint: `r` verbatim + `i` normalized (deduped when the
@@ -265,7 +267,7 @@ export async function buildAssessmentEvent({
  *
  * @param {object} args
  * @param {string} args.sourceCoord / args.targetCoord — `30040:…` (required)
- * @param {string} args.relationship — contradicts|supports|updates|duplicates
+ * @param {string} args.relationship — contradicts|supports|updates|duplicates|depends-on|revision/*
  * @param {string} [args.sourceUrl] / [args.targetUrl] — claim `r` values, verbatim
  * @param {string} [args.sourceEventId] / [args.targetEventId]
  * @param {string} [args.sourceRelayHint] / [args.targetRelayHint]
@@ -293,7 +295,9 @@ export async function buildClaimRelationshipEvent({
   // Phase 14.3: the directional `revision/*` story-change values join the
   // Phase-11 four on this kind. They are never symmetric, so the
   // endpoint sort below correctly leaves source = earlier, target = later.
-  const ALL_RELATIONSHIPS = [...CLAIM_RELATIONSHIPS, ...REVISION_RELATIONSHIPS];
+  // Claim dependency D.1: `depends-on` joins the same way — directional,
+  // source depends on target, hashed in semantic order.
+  const ALL_RELATIONSHIPS = [...CLAIM_RELATIONSHIPS, ...REVISION_RELATIONSHIPS, ...DEPENDENCY_RELATIONSHIPS];
   if (!ALL_RELATIONSHIPS.includes(relationship)) {
     throw new Error(`buildClaimRelationshipEvent: relationship must be one of ${ALL_RELATIONSHIPS.join(', ')} (got ${relationship})`);
   }

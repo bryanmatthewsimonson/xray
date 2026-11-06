@@ -427,3 +427,28 @@ test('evidence: parseRelationshipEvent rejects non-30055 events, tolerates missi
     assert.equal(parsed.target.coord, `30040:${PUBKEY_B}:claim_bbbbbbbbbbbbbbbb`);
     assert.equal(parsed.suggestedBy, 'user', 'defaults when absent');
 });
+
+test('builder: depends-on is directional — endpoints stay in semantic order and the d is deterministic', async () => {
+    const A = '30040:' + 'a'.repeat(64) + ':claim-a';
+    const B = '30040:' + 'b'.repeat(64) + ':claim-b';
+    const { event, dTag } = await buildClaimRelationshipEvent({ sourceCoord: B, targetCoord: A, relationship: 'depends-on' });
+    const aTags = event.tags.filter((t) => t[0] === 'a');
+    assert.deepEqual(aTags.map((t) => [t[1], t[3]]), [[B, 'source'], [A, 'target']], 'B depends on A: not sorted');
+    assert.deepEqual(event.tags.find((t) => t[0] === 'relationship'), ['relationship', 'depends-on']);
+    assert.match(dTag, /^rel:[0-9a-f]{16}$/);
+    assert.equal(event.tags.find((t) => t[0] === 'd')[1], dTag);
+    const same = await buildClaimRelationshipEvent({ sourceCoord: B, targetCoord: A, relationship: 'depends-on' });
+    assert.equal(same.dTag, dTag, 'recomputable from (source, target, relationship)');
+    const reversed = await buildClaimRelationshipEvent({ sourceCoord: A, targetCoord: B, relationship: 'depends-on' });
+    assert.notEqual(reversed.dTag, dTag, 'A→B and B→A are two edges');
+    const sup = await buildClaimRelationshipEvent({ sourceCoord: B, targetCoord: A, relationship: 'supports' });
+    assert.notEqual(sup.dTag, dTag, 'coexists with supports on the same ordered pair');
+});
+
+test('builder: depends-on rejects a self-loop like every other relationship', async () => {
+    const A = '30040:' + 'a'.repeat(64) + ':claim-a';
+    await assert.rejects(
+        buildClaimRelationshipEvent({ sourceCoord: A, targetCoord: A, relationship: 'depends-on' }),
+        /cannot link a claim to itself/
+    );
+});
