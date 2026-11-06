@@ -28,9 +28,13 @@ and 9803, a retirement of kinds that were never emitted.
   dependency edge (source depends on target: the source claim cannot
   be true unless the target claim is true), directional and hashed in
   semantic order like `supports`. Accepted by the builder, the local
-  linker, the parser and the ordinary 30055 publish path; not yet
-  offered in the reader's link picker and not yet rendered (slices
-  D.2–D.3 of `docs/CLAIM_DEPENDENCY_DESIGN.md`). Spec:
+  linker, the parser and the ordinary 30055 publish path. Not yet
+  offered in the reader's link picker; a stored or relay-fetched
+  `depends-on` link shows only generically (the reader claim card's
+  "Depends on" row, the portal library and entity graph, the network
+  and sidepanel feeds). The cascade, the load-bearing count and the
+  dependency badge are slices D.2–D.4 of
+  `docs/CLAIM_DEPENDENCY_DESIGN.md` (PR #432). Spec:
   `docs/NIP_DRAFT.md` §Kind 30055.
 - **New kind 30070, ExtractionAnalysis** — one addressable event per
   author per article (`d` = `xray-extraction:<article hash>`) that
