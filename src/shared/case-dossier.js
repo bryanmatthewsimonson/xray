@@ -143,6 +143,7 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
     const contradicts = [];
     const attestations = [];
     const related = [];
+    const dependencies = [];
     const orbitClaimIdForProposition = new Set(orbitPropositions.map((p) => p.claim_id));
     for (const link of Object.values(allLinks)) {
         const sourceRef = canon(link.source_claim_id);
@@ -164,6 +165,15 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
                 && (orbitClaimIds.has(sourceRef) || orbitClaimIds.has(targetRef))) {
             related.push(withRefs);
         }
+        // Claim dependency D.2 (docs/CLAIM_DEPENDENCY_DESIGN.md §3) — the
+        // necessary-condition family the dependency walks run over:
+        // every depends-on link with an orbit endpoint (source depends
+        // on target). Kept OUT of `related`: the support-loss diff is
+        // supports-specific and a dependency is not evidential support.
+        if (link.relationship === 'depends-on'
+                && (orbitClaimIds.has(sourceRef) || orbitClaimIds.has(targetRef))) {
+            dependencies.push(withRefs);
+        }
     }
     // Contradicts in id order (deterministic knot node ordering).
     // Attestations in AUTHORING order (created, then id) — the
@@ -174,6 +184,7 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
     contradicts.sort(byIdAsc);
     attestations.sort((a, b) => (a.created || 0) - (b.created || 0) || byIdAsc(a, b));
     related.sort(byIdAsc);
+    dependencies.sort(byIdAsc);
 
     return {
         case: {
@@ -202,7 +213,7 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
         integrity:     integrityHeads,
         integrityAll:  allIntegrity,
         forensic,
-        links:         { contradicts, attestations, related },
+        links:         { contradicts, attestations, related, dependencies },
         articles,
         predictions,
         resolutions,

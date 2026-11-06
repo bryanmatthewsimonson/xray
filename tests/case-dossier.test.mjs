@@ -349,6 +349,20 @@ test('case-dossier: links.related carries every orbit supports/updates/duplicate
     assert.deepEqual(ids, [...ids].sort());
 });
 
+test('case-dossier: links.dependencies carries every orbit depends-on link, id-sorted, noise excluded (claim dependency D.2)', async () => {
+    resetState();
+    const { kase, a1, b1 } = await seedOrbit();
+    await EvidenceLinker.create({ source_claim_id: b1.id, target_claim_id: a1.id, relationship: 'depends-on' });
+    // Noise: a depends-on link between two out-of-orbit ids never enters the family.
+    await EvidenceLinker.create({ source_claim_id: 'claim_1111111111111111', target_claim_id: 'claim_2222222222222222', relationship: 'depends-on' });
+    const data = await collectCaseDossierData(kase.id, injected());
+    assert.equal(data.links.dependencies.length, 1);
+    assert.equal(data.links.dependencies[0].relationship, 'depends-on');
+    assert.equal(data.links.dependencies[0].source_ref, b1.id, 'source depends on target: b1 depends on a1');
+    assert.equal(data.links.dependencies[0].target_ref, a1.id);
+    assert.ok(!data.links.related.some((l) => l.relationship === 'depends-on'), 'related stays supports/updates/duplicates');
+});
+
 test('case-dossier: integrity heads join by orbit entity; forensic bridge stamps matched_via', async () => {
     resetState();
     const { dossier, finding, deed } = await assembleFixture();
