@@ -197,18 +197,41 @@ merely numerous") computed from structure instead of asserted per
 verdict. It is a count with a derivation; it never discounts, weights
 or re-sorts the edges.
 
-### §3.4 The live badge (verdict-driven)
+### §3.4 The live badge (verdict-driven, per adjudicator)
 
-When the latest verdict on a claim's proposition is
-`established-false` (`VERDICT_STATES`, `src/shared/truth-taxonomy.js`),
-every transitive dependent renders a **"premise adjudicated false"**
-badge wherever claims render, linking to the verdict — the same
-surfacing idiom as the `contradicts` ⚠ (NIP_DRAFT §30055 "SHOULD
-surface a warning indicator on both claims"). The dependent's own
-verdict is **not** recomputed, not hidden, not restyled. If B is
-`established-true` while its premise A is `established-false`, both
-chips show side by side and a third marker names the inconsistency.
-That tension is a finding; the surface shows it and resolves nothing.
+When a verdict on a claim's proposition is `established-false`
+(`VERDICT_STATES`, `src/shared/truth-taxonomy.js`), every transitive
+dependent renders a **"premise adjudicated false"** badge wherever
+claims render, linking to the verdict — the same surfacing idiom as
+the `contradicts` ⚠ (NIP_DRAFT §30055 "SHOULD surface a warning
+indicator on both claims"). The dependent's own verdict is **not**
+recomputed, not hidden, not restyled. If B is `established-true` while
+its premise A is `established-false`, both chips show side by side and
+a third marker names the inconsistency. That tension is a finding; the
+surface shows it and resolves nothing.
+
+**The badge is one adjudicator's verdict, never "the" verdict (R-026).**
+A verdict is signed by its author and carries its `standard_of_proof`
+and `adjudicator` fields (`VerdictModel`,
+`src/shared/truth-adjudication-model.js`); the badge carries all three
+and reads "premise adjudicated false by <author> under <standard>",
+never "premise is false". Two consequences:
+
+- **Many adjudicators, many badges.** When more than one verdict on the
+  same premise is in view — the user's own, and any pulled from relays
+  by the Network client — the badge shows the **distribution** the
+  existing `verdictVariance` computes (counts by state and by standard,
+  each with its author list), side by side. One `established-false`
+  among three `established-true` renders as exactly that: one marker
+  naming its author, beside the three naming theirs. There is no
+  majority rule, no "consensus" headline, no threshold at which the
+  marker changes shape, and no hiding of a minority verdict. Consensus,
+  where it emerges, is visible as a distribution that happens to agree;
+  the surface never declares it.
+- **Nothing is lost on the way to the badge.** Author, standard of
+  proof, the verdict's evidence entries and its supersession chain stay
+  one link away from every marker. A marker that could not say *who*
+  adjudicated and *by what standard* is a bug.
 
 [INTERPRETATION: reading a kind-30063 state to place a structural
 marker on a claim in the case view is a derived view over one family's
@@ -216,9 +239,8 @@ published record, not a fusion across families (Art. 6): no number is
 produced, no family's output is combined with another's, and the
 verdict stays independently retrievable beside the marker. The
 hypothesis map's verdict chip (HYPOTHESIS_MAP_DESIGN §8, "show as
-context") is the precedent. Whether this reading holds is for the
-maintainer to confirm at D.4; §7 sequences the live badge last so the
-rest of the design does not wait on it.]
+context") is the precedent. The maintainer confirmed this reading
+2026-11-06 (R-026) with the per-adjudicator condition above.]
 
 ## §4. Populating the edges
 
@@ -276,6 +298,10 @@ Three producers, in order of trust, all landing through
    verdict state (TRUTH_ADJUDICATION_DESIGN §3.3). A dependent of a
    false premise keeps whatever verdict it has; the badge is a
    marker, not a state.
+3a. **Declaring a consensus.** No badge, count or copy ever presents
+   several adjudicators' verdicts as one verdict, drops an author or a
+   standard of proof, or lets a majority change what a minority marker
+   looks like (R-026).
 4. **A numeric anywhere without a derivation.** Guard-tested, as CF.1.
 5. **Refusing cycles silently.** A cycle is shown, not swallowed.
 
@@ -287,7 +313,7 @@ Three producers, in order of trust, all landing through
 | D.1 | `depends-on` in `CLAIM_RELATIONSHIPS` (`src/shared/assessment-taxonomy.js`), builder + parser (`metadata/builders.js`, `evidence-linker.js`), label/icon, NIP_DRAFT §30055 text, wire fixture; tests for id determinism, direction, coexistence with `supports` | **additive** |
 | D.2 | Pure cascade + load + shared-premise walks in `case-counterfactual.js` (or a sibling `claim-dependencies.js` if the file would cross its ceiling); cycle detection; derivation guard extended | — |
 | D.3 | Render: link-modal picker + authoring test; trace-expander lines; case-list "Load-bearing (n)"; graph arrows; the ⭐ relabel | — |
-| D.4 | The live "premise adjudicated false" badge + inconsistency marker (after the maintainer confirms the §3.4 reading) | — |
+| D.4 | The live per-adjudicator "premise adjudicated false" badge, the multi-verdict distribution render, the inconsistency marker (R-026) | — |
 | D.5 | LLM `rests_on` suggestion through the reduce firewall; both-sides / drop-count disclosure | — |
 | — (refused) | Any upward propagation; any hypothesis-level state; any weight on an edge | — |
 
@@ -312,13 +338,16 @@ store boundary and renders nothing wrong; D.1's tests pin that.
   edge rides every existing path — link modal, dossier collector,
   backup, sync, counterfactual — and a dependency is as publishable as
   `supports`. Flag-gated for publish like the rest.
+- **The live badge stays (D.4), as one adjudicator's verdict, never a
+  consensus** — R-026 (`docs/RULINGS.md`), quoting the maintainer:
+  the badge "is helpful, but it is not definitive"; "the goal is to
+  know who by what standard a person has adjudicated something and not
+  lose that detail"; consensus "is not a foregone conclusion or clean
+  and easy process". §3.4 carries the consequences.
 
-Open, for the maintainer at merge or at D.4:
+Open, for the maintainer at D.3:
 
-- Whether §3.4's reading of the live badge as a derived view (not an
-  Art. 6 fusion) holds. If not, D.4 is dropped and the cascade stays
-  hypothetical-only; nothing else in the ladder changes.
-- The exact replacement copy for the extract flag's ⭐ (D.3).
+- The exact replacement copy for the extract flag's ⭐.
 
 ## Related
 
