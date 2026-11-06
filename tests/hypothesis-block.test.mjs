@@ -15,7 +15,7 @@ globalThis.chrome = globalThis.chrome || {
 };
 
 const {
-    buildHypothesisBlockModel, AUTHORING_STRINGS, suggestStatusLine, suggestProgressLine, suggestFailureLine
+    buildHypothesisBlockModel, AUTHORING_STRINGS, SHARED_PREMISE_EXPLAINER, suggestStatusLine, suggestProgressLine, suggestFailureLine
 } = await import('../src/portal/hypothesis-block.js');
 const { buildHypothesisMap } = await import('../src/shared/hypothesis-map.js');
 const { LLM_JOB_LOST_ERROR } = await import('../src/shared/llm-jobs.js');
@@ -121,6 +121,43 @@ function bigModel() {
 }
 
 // Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
+// Claim dependency D.3 (§3.3): c1 and c2 both support Zoonotic, and
+// both depend on c3 — the premise they share.
+function sharedPremiseModel() {
+    const h1 = hyp('hyp_00000000000000ab', 'Zoonotic');
+    const data = makeData();
+    data.claimsById.claim_00000000000000c3 = makeClaim('claim_00000000000000c3', { text: 'Premise claim.' });
+    data.orbit.claims.push(data.claimsById.claim_00000000000000c3);
+    const dependencies = [
+        { id: 'link_00000000000000d1', source_ref: 'claim_00000000000000c1', target_ref: 'claim_00000000000000c3', relationship: 'depends-on' },
+        { id: 'link_00000000000000d2', source_ref: 'claim_00000000000000c2', target_ref: 'claim_00000000000000c3', relationship: 'depends-on' }
+    ];
+    const map = buildHypothesisMap({
+        data, brief: null, hypotheses: [h1],
+        edges: [
+            edge('hedge_1', h1.id, 'claim_00000000000000c1', 'supports'),
+            edge('hedge_3', h1.id, 'claim_00000000000000c2', 'supports')
+        ]
+    }, null);
+    return buildHypothesisBlockModel(map, { dependencies, claimsById: data.claimsById });
+}
+
+test('hypothesis-block: a premise two supporting attachments rest on is named on the card, with the fixed explainer', () => {
+    const model = sharedPremiseModel();
+    const card = model.cards.find((c) => c.title === 'Zoonotic');
+    assert.equal(card.sharedPremises.length, 1);
+    const row = card.sharedPremises[0];
+    assert.equal(row.edgeCount, 2);
+    assert.equal(row.premiseRef, 'claim_00000000000000c3');
+    assert.match(row.premiseText, /Premise claim\./);
+    assert.match(row.line, /^Shared premise \(2 supporting attachments rest on it\): “Premise claim\.”$/);
+    assert.equal(model.sharedPremiseExplainer, SHARED_PREMISE_EXPLAINER);
+    assert.equal(SHARED_PREMISE_EXPLAINER, 'Two arguments that rest on one premise are not independent. Named, never weighed.');
+    assert.deepEqual(richModel().cards.map((c) => c.sharedPremises.length), [0, 0], 'no dependencies → no rows');
+    const banned = /\d+\s*%|more likely|less likely|stronger|weaker|winner|score|probabilit|confidence|likelihood/i;
+    for (const s of allStrings(model)) assert.doesNotMatch(s, banned, `forbidden phrasing in: "${s}"`);
+});
+
 test('hypothesis-block: no-scoreboard guard — no comparison phrasing or judgment number in ANY rendered string', () => {
     // The model's strings (rich AND truncated shapes), the H.3
     // authoring copy, and the H.4 status-line composers (the pass runs
@@ -129,6 +166,7 @@ test('hypothesis-block: no-scoreboard guard — no comparison phrasing or judgme
     const strings = [
         ...allStrings(richModel()),
         ...allStrings(bigModel()),
+        ...allStrings(sharedPremiseModel()),
         ...AUTHORING_STRINGS,
         suggestStatusLine({ checked: 12, dropped: 3, rejected: 2, proposals: 7 }),
         suggestStatusLine({ checked: 1, dropped: 0, rejected: 0, proposals: 1 }),

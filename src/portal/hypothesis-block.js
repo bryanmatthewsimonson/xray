@@ -28,6 +28,7 @@ import {
     runLlmJob, ackLlmJob, llmJobScopeKey, llmJobRequestHash, jobElapsedSeconds, jobFailureNote
 } from '../shared/llm-jobs.js';
 import { Utils } from '../shared/utils.js';
+import { sharedPremises } from '../shared/case-dependencies.js';
 
 function sendMessage(msg) {
     return new Promise((resolve) => {
@@ -54,6 +55,11 @@ export const CRUX_BADGE_TITLE =
     'This claim is attached to more than one hypothesis — the disagreement, made legible.';
 export const VERDICT_CHIP_TITLE =
     'Verdict context for this claim — it does not weight the edge.';
+// Claim dependency D.3 (docs/CLAIM_DEPENDENCY_DESIGN.md §3.3): the
+// fixed explainer over a card's shared-premise rows — the I-5
+// independence rule made structural, named and never weighed.
+export const SHARED_PREMISE_EXPLAINER =
+    'Two arguments that rest on one premise are not independent. Named, never weighed.';
 export const SUGGEST_STATUS_PROPOSING = 'Proposing edges…';
 export const SUGGEST_STATUS_MALFORMED = 'The model returned malformed edge proposals.';
 export const SUGGEST_STATUS_FAILED = 'Edge suggestion failed';
@@ -120,7 +126,7 @@ function provenanceBadge(suggestedBy) {
  * derived from a built hypothesis map. Exported so the no-scoreboard
  * guard test can walk the strings without a DOM.
  */
-export function buildHypothesisBlockModel(map) {
+export function buildHypothesisBlockModel(map, { dependencies = [], claimsById = {} } = {}) {
     const empty = map.hypotheses.length === 0 && map.dangling.edges.length === 0;
     const c = map.coverage;
     const model = {
@@ -135,9 +141,32 @@ export function buildHypothesisBlockModel(map) {
         cards: [],
         danglingLine: null,
         dangling: [],
-        unlabeledLine: null
+        unlabeledLine: null,
+        sharedPremiseExplainer: SHARED_PREMISE_EXPLAINER
     };
     if (empty) return model;
+
+    // D.3 §3.3 — shared premises per hypothesis, from the map's own
+    // supporting edges and the dossier's dependency links. A count here
+    // is one card's attachment count, never compared across cards.
+    const joinRows = [];
+    for (const h of map.hypotheses) {
+        for (const e of h.edges.supports) joinRows.push({ hypothesis_id: h.id, label: h.label, ref: e.ref, role: 'supports', edge_id: e.edge_id });
+    }
+    const sharedByHyp = new Map();
+    for (const row of sharedPremises(dependencies, joinRows).derivation) {
+        if (!sharedByHyp.has(row.hypothesis_id)) sharedByHyp.set(row.hypothesis_id, []);
+        const c = claimsById[row.premise_ref];
+        const premiseText = c && c.text ? truncate(c.text, 140) : row.premise_ref;
+        const n = new Set(row.edges.map((e) => e.edge_id)).size;
+        sharedByHyp.get(row.hypothesis_id).push({
+            premiseRef: row.premise_ref,
+            premiseText,
+            edgeCount: n,
+            chains: row.edges.map((e) => e.chain.join(' → ')),
+            line: `Shared premise (${n} supporting attachments rest on it): “${premiseText}”`
+        });
+    }
 
     const cruxRefs = new Set(map.shared_claims.map((s) => s.ref));
     for (const h of map.hypotheses) {
@@ -155,7 +184,8 @@ export function buildHypothesisBlockModel(map) {
                 label: hold.title || hold.url || `${hold.article_hash.slice(0, 12)}… (not in local archive)`,
                 url:   hold.url
             })),
-            sections: []
+            sections: [],
+            sharedPremises: sharedByHyp.get(h.id) || []
         };
         for (const role of ['supports', 'undermines']) {
             const edges = h.edges[role];
@@ -461,7 +491,10 @@ export function renderHypothesesBlock(host, { data, dossier, callbacks = {} }) {
     (async () => {
         const input = await collectHypothesisMapData(data.case.id, { data });
         const map = buildHypothesisMap(input, null);
-        const model = buildHypothesisBlockModel(map);
+        const model = buildHypothesisBlockModel(map, {
+            dependencies: (data.links && data.links.dependencies) || [],
+            claimsById: data.claimsById || {}
+        });
         const orbitClaims = (data.orbit && data.orbit.claims) || [];
         // An empty map on a claimless case renders nothing; with claims
         // present, the compact authoring block keeps the map startable.
@@ -609,6 +642,17 @@ export function renderHypothesesBlock(host, { data, dossier, callbacks = {} }) {
                 }
                 if (section.overflow) sec.appendChild(el('div', 'xr-inspector__mono', section.overflow));
                 cardEl.appendChild(sec);
+            }
+            // D.3 §3.3 — shared premises, under the sections.
+            if (card.sharedPremises.length > 0) {
+                const sp = el('div', 'xr-hyp__shared');
+                sp.appendChild(el('div', 'xr-case__explainer', model.sharedPremiseExplainer));
+                for (const row of card.sharedPremises) {
+                    const line = el('div', 'xr-hyp__edgeline', row.line);
+                    line.title = row.chains.join('\n');
+                    sp.appendChild(line);
+                }
+                cardEl.appendChild(sp);
             }
             grid.appendChild(cardEl);
         }
