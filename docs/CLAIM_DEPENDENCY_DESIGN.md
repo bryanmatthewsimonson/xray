@@ -312,7 +312,7 @@ Three producers, in order of trust, all landing through
 | D.0 | This doc, approved + a ROADMAP Phase-26 addendum | — |
 | D.1 | **Shipped (PR #433).** `depends-on` as its own `DEPENDENCY_RELATIONSHIPS` constant beside `CLAIM_RELATIONSHIPS` (`src/shared/assessment-taxonomy.js` — kept out of the picker vocabulary until D.3), builder + parser (`metadata/builders.js`, `evidence-linker.js`), label/icon, NIP_DRAFT §30055 text, the `30055-dependency` wire fixture; tests for id determinism, direction, coexistence with `supports` | **additive** |
 | D.2 | **Shipped.** `links.dependencies` in the dossier collector; the pure walks in the sibling `src/shared/case-dependencies.js` (dependents / premises / load, cycles, shared premises); the cascade joined into `traceClaimDependencies` as its `dependencies` section in BOTH modes (stamped `premise-removed` / `premise-negated`); the CF.1 derivation guard covers it. No copy yet — `traceLines` is untouched until D.3 | — |
-| D.3 | Render: link-modal picker + authoring test; trace-expander lines; case-list "Load-bearing (n)"; graph arrows; the ⭐ relabel | — |
+| D.3 | **Shipped.** The picker offers `depends-on` last, behind the §2.1 authoring test (`RELATIONSHIP_HELP`); `traceLines` renders the cascade (undercut chains, attachments, the set-wide knot diff, circular premises, the fixed asymmetry line); "Load-bearing (n dependents)" and "circular premise" chips on claim rows (`loadLabel` / `loadTooltip`); shared-premise rows on hypothesis cards under a fixed explainer; directed dependency arrows in the case graph; `depends on` / `depended on by` chips on the case view; the extract flag relabelled "Argument-critical (the model's reading of this article)", the brief list "Claims the brief turns on" | — |
 | D.4 | The live per-adjudicator "premise adjudicated false" badge, the multi-verdict distribution render, the inconsistency marker (R-026) | — |
 | D.5 | LLM `rests_on` suggestion through the reduce firewall; both-sides / drop-count disclosure | — |
 | — (refused) | Any upward propagation; any hypothesis-level state; any weight on an edge | — |
@@ -345,9 +345,16 @@ store boundary and renders nothing wrong; D.1's tests pin that.
   lose that detail"; consensus "is not a foregone conclusion or clean
   and easy process". §3.4 carries the consequences.
 
-Open, for the maintainer at D.3:
-
-- The exact replacement copy for the extract flag's ⭐.
+Closed at D.3 (an interpretive step, maintainer may rename): the
+extract flag's ⭐ tooltip reads "Argument-critical (the model's
+reading of this article): <why>"; the corpus brief's list reads
+"Claims the brief turns on (N)"; the inspector's count reads "N
+brief-critical claim(s)". In the reader and on the case dashboard,
+"load-bearing" now names only the measured "Load-bearing (n
+dependents)" chip. Two vocabularies keep the word on purpose: the
+published brief's `## Load-bearing claims` heading (wire content —
+renaming it is a separate `Wire format:` decision) and the epistemic
+audit's `load_bearing` term flag (its own family's term, PHILOSOPHY).
 
 ## Related
 

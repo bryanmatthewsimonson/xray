@@ -88,6 +88,20 @@ and 9803, a retirement of kinds that were never emitted.
 
 ### Added
 
+- **Claim dependencies, visible (D.3).** The reader's link picker
+  offers **Depends on** (last, behind its authoring test: "could the
+  source still be true if the target turned out false? then it is
+  supports"); a claim's measured load shows as "Load-bearing (n
+  dependents)" with its dependents and chains in the tooltip; Trace
+  dependencies renders the cascade and always states "only falsity
+  propagates"; hypothesis cards name a premise two supporting
+  arguments share; the case graph draws dependency arrows; the case
+  view's claim list shows "depends on" / "depended on by" chips. The
+  model's article-extract flag is relabelled "Argument-critical (the
+  model's reading)" so that in the reader and on the case dashboard
+  "load-bearing" means the measured count only (the published brief's
+  `## Load-bearing claims` heading and the audit's term flag keep
+  their own vocabularies).
 - **Claim dependencies, computed (D.2).** The case dossier collects
   `depends-on` links, and a pure module walks them: what transitively
   depends on a claim (its load), what it rests on, circular premises,

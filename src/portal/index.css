@@ -625,6 +625,9 @@ body.xr-portal {
 .xr-gedge--mention { stroke: var(--xr-accent); stroke-opacity: 0.35; }
 .xr-gedge--rel { stroke: var(--xr-text-dim); stroke-width: 1.5; }
 .xr-gedge--warn { stroke: var(--xr-danger); stroke-width: 2; stroke-dasharray: 5 3; }
+/* Claim dependency D.3 — directed dependent → premise edges. */
+.xr-gedge--dependency { stroke: var(--xr-accent); stroke-width: 2; }
+.xr-garrow { fill: var(--xr-accent); }
 .xr-gedge__warnmark { fill: var(--xr-danger); font-size: 13px; }
 
 /* Local case graph (20.3) */

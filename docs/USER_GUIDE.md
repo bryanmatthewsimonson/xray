@@ -1033,7 +1033,7 @@ offers two LLM passes:
 
 - **Analyze corpus…** runs a map/reduce over **every** member article and
   produces a **grounded brief** — a summary, the positions in play, the
-  cruxes, the load-bearing claims, and coverage gaps — where every quote
+  cruxes, the claims the brief turns on, and coverage gaps — where every quote
   is checked verbatim against its source. It also proposes claims and
   relationships to accept or reject one at a time.
 - **Suggest links** is a lighter, standalone pass over just the case's
