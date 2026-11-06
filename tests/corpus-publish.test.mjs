@@ -367,3 +367,15 @@ test('buildCaseBriefArticle: the published article carries the partial-run discl
     assert.ok(ev.content.includes('8 were analyzed for this synthesis; 1 could not be processed'),
         'publish path is honest about coverage, not just the local export');
 });
+
+test('buildCaseBriefEvent: a brief\'s rests_on premises are proposals, not publication — stripped from the 30068 and the markdown (claim dependency D.5)', () => {
+    const record = { ...RECORD, brief: { ...RECORD.brief, load_bearing: [
+        { claim_ref: 'claim_000000000000aaaa', article_hash: HASH_A, quote: 'A quote.', why: 'rests on the log', rests_on: ['claim_000000000000bbbb'] }
+    ] } };
+    const ev = buildCaseBriefEvent({ record, caseName: 'COVID origins', scopeQuestion: 'Origin?', memberIndex: MEMBER_INDEX, userPubkey: PUB, createdAt: 1000 });
+    assert.ok(!ev.content.includes('rests_on'), 'unaccepted dependency proposals never reach the wire');
+    const payload = JSON.parse(ev.content);
+    assert.deepEqual(Object.keys(payload.load_bearing[0]).sort(), ['article_hash', 'claim_ref', 'quote', 'why']);
+    const md = renderCaseBriefMarkdown(record.brief, { caseName: 'c', scopeQuestion: 'q', memberCount: 2, memberIndex: MEMBER_INDEX });
+    assert.ok(!md.includes('rests_on'));
+});

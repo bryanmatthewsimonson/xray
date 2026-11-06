@@ -32,7 +32,11 @@ function publishableBrief(brief) {
         summary: String(b.summary || ''),
         positions: Array.isArray(b.positions) ? b.positions : [],
         cruxes: Array.isArray(b.cruxes) ? b.cruxes : [],
-        load_bearing: Array.isArray(b.load_bearing) ? b.load_bearing : [],
+        // Claim dependency D.5: `rests_on` is a PROPOSAL channel (model
+        // judgments a human has not accepted) — never published.
+        load_bearing: Array.isArray(b.load_bearing)
+            ? b.load_bearing.map((lb) => { const { rests_on: _dropped, ...rest } = lb || {}; return rest; })
+            : [],
         coverage_gaps: Array.isArray(b.coverage_gaps) ? b.coverage_gaps : []
     };
 }

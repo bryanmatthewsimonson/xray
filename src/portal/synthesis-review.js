@@ -11,14 +11,23 @@ import { el, truncate } from './dom.js';
 import { Utils } from '../shared/utils.js';
 import { ClaimModel } from '../shared/claim-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
-import { proposalKey } from '../shared/case-synthesis.js';
+import { proposalKey, dependencyProposalSummary } from '../shared/case-synthesis.js';
+import { DEPENDENCY_AUTHORING_TEST } from '../shared/assessment-taxonomy.js';
 
-function describe(p, claimsById) {
+/** The one-line description of a proposal row. Exported so the D.5 copy is testable. */
+export function describeProposal(p, claimsById) {
     if (p.kind === 'relationship') {
         const s = claimsById[p.source_claim_id];
         const t = claimsById[p.target_claim_id];
-        return `Link: "${truncate((s && s.text) || p.source_claim_id, 50)}" ${p.relationship} `
+        if (p.from_rests_on && !p.source_claim_id) {
+            return `Dependency proposal with no source claim (the brief quoted “${truncate(p.quote || '', 60)}” but named no claim): `
+                + `rests on "${truncate((t && t.text) || p.target_claim_id, 50)}"`;
+        }
+        const line = `Link: "${truncate((s && s.text) || p.source_claim_id, 50)}" ${p.relationship} `
             + `"${truncate((t && t.text) || p.target_claim_id, 50)}"`;
+        // Claim dependency D.5: the authoring test travels with every
+        // depends-on proposal, so the human applies it before Accept.
+        return p.relationship === 'depends-on' ? `${line} — ${DEPENDENCY_AUTHORING_TEST}` : line;
     }
     if (p.kind === 'is_key') {
         const c = claimsById[p.claim_id];
@@ -29,6 +38,7 @@ function describe(p, claimsById) {
     }
     return p.kind;
 }
+const describe = describeProposal;
 
 /**
  * Pure triage partition (27 S.3) — the seam the render projects.
@@ -105,6 +115,9 @@ export function renderProposals(host, { acceptable, rejected, claimsById, member
     const heading = el('h4', 'xr-case__heading',
         `Proposals — review and accept (${open.length})`);
     host.appendChild(heading);
+    // D.5 — dependency proposals disclosed, survivors and drops alike.
+    const depLine = dependencyProposalSummary(open, rejected);   // open rows only: "to review" means untriaged
+    if (depLine) host.appendChild(el('div', 'xr-inspector__mono', depLine));
     if (open.length === 0 && accepted.length === 0 && dismissed.length === 0
             && (!rejected || rejected.length === 0)) {
         host.appendChild(el('div', 'xr-inspector__mono',
