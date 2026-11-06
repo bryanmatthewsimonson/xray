@@ -142,6 +142,43 @@ function sharedPremiseModel() {
 }
 
 // Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
+test('hypothesis-block: an edge whose claim rests on a premise adjudicated false carries the marker, by author and standard (D.4)', () => {
+    const h1 = hyp('hyp_00000000000000ab', 'Zoonotic');
+    const data = makeData();
+    data.claimsById.claim_00000000000000c3 = makeClaim('claim_00000000000000c3', { text: 'Premise claim.' });
+    data.orbit.claims.push(data.claimsById.claim_00000000000000c3);
+    data.propositions.all.p3 = { id: 'p3', claim_id: 'claim_00000000000000c3', proposition_class: 'event-fact' };
+    data.verdicts.byProposition.p3 = [{ id: 'v3', proposition_id: 'p3', verdict: 'established-false', standard_of_proof: 'preponderance', adjudicator: { label: 'Dr Ferran', pubkey: null }, superseded_by: null }];
+    const dependencies = [
+        { id: 'link_00000000000000d1', source_ref: 'claim_00000000000000c1', target_ref: 'claim_00000000000000c3', relationship: 'depends-on' }
+    ];
+    const map = buildHypothesisMap({ data, brief: null, hypotheses: [h1], edges: [
+        edge('hedge_1', h1.id, 'claim_00000000000000c1', 'supports'),
+        edge('hedge_3', h1.id, 'claim_00000000000000c2', 'supports')
+    ] }, null);
+    const model = buildHypothesisBlockModel(map, { dependencies, claimsById: data.claimsById, verdicts: data.verdicts, wire: data.wire, propositions: data.propositions });
+    const sec = model.cards[0].sections.find((x) => x.role === 'supports');
+    const e1 = sec.edges.find((e) => e.id === 'hedge_1');
+    const e3 = sec.edges.find((e) => e.id === 'hedge_3');
+    assert.equal(e1.premiseMarkers.length, 1);
+    assert.equal(e1.premiseMarkers[0].label, 'premise adjudicated false by Dr Ferran under Preponderance of the evidence');
+    assert.match(e1.premiseMarkers[0].tooltip, /Premise: “Premise claim\.”/);
+    assert.deepEqual(e1.inconsistencies, [], 'c1\'s own head is contested, not established-true');
+    assert.equal(e1.premiseOverflow, null);
+    assert.deepEqual(e3.premiseMarkers, []);
+    // A positive inconsistency: give c1 an established-true head too.
+    data.propositions.all.p1 = { id: 'p1', claim_id: 'claim_00000000000000c1', proposition_class: 'state-fact' };
+    data.verdicts.byProposition.p1 = [{ id: 'v1x', proposition_id: 'p1', verdict: 'established-true', standard_of_proof: 'preponderance', adjudicator: { label: 'Dr Ferran', pubkey: null }, superseded_by: null }];
+    const model2 = buildHypothesisBlockModel(buildHypothesisMap({ data, brief: null, hypotheses: [h1], edges: [edge('hedge_1', h1.id, 'claim_00000000000000c1', 'supports')] }, null),
+        { dependencies, claimsById: data.claimsById, verdicts: data.verdicts, wire: data.wire, propositions: data.propositions });
+    const e1b = model2.cards[0].sections.find((x) => x.role === 'supports').edges[0];
+    assert.equal(e1b.inconsistencies.length, 1);
+    assert.match(e1b.inconsistencies[0].label, /^claim adjudicated true by Dr Ferran under Preponderance of the evidence; premise adjudicated false by Dr Ferran under Preponderance of the evidence — an inconsistency, not a correction$/);
+    assert.ok(e1b.inconsistencies[0].tooltip.length > 20);
+    const banned = /consensus|majority|most adjudicators|\bagree|outvoted|\bwins?\b|more likely|less likely|probab|confidence|score/i;
+    for (const s of allStrings(model)) assert.doesNotMatch(s, banned, `forbidden phrasing in: "${s}"`);
+});
+
 test('hypothesis-block: a premise that is itself attached says so instead of counting itself as resting on itself', () => {
     const h1 = hyp('hyp_00000000000000ab', 'Zoonotic');
     const data = makeData();

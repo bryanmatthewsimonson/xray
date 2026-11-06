@@ -242,6 +242,13 @@ hypothesis map's verdict chip (HYPOTHESIS_MAP_DESIGN §8, "show as
 context") is the precedent. The maintainer confirmed this reading
 2026-11-06 (R-026) with the per-adjudicator condition above.]
 
+Relay verdicts reach the markers only as `collectCaseDossierData`'s
+existing `wire` option supplies them (`data.wire.verdicts`, rows with
+the local `proposition_id`); the case dashboard does not hand it any
+yet, so today the markers show the local adjudicator's verdicts, and
+the tooltip's distribution grows the day a caller passes relay rows.
+No slice of this design fetches relays.
+
 ## §4. Populating the edges
 
 Three producers, in order of trust, all landing through
@@ -313,7 +320,7 @@ Three producers, in order of trust, all landing through
 | D.1 | **Shipped (PR #433).** `depends-on` as its own `DEPENDENCY_RELATIONSHIPS` constant beside `CLAIM_RELATIONSHIPS` (`src/shared/assessment-taxonomy.js` — kept out of the picker vocabulary until D.3), builder + parser (`metadata/builders.js`, `evidence-linker.js`), label/icon, NIP_DRAFT §30055 text, the `30055-dependency` wire fixture; tests for id determinism, direction, coexistence with `supports` | **additive** |
 | D.2 | **Shipped.** `links.dependencies` in the dossier collector; the pure walks in the sibling `src/shared/case-dependencies.js` (dependents / premises / load, cycles, shared premises); the cascade joined into `traceClaimDependencies` as its `dependencies` section in BOTH modes (stamped `premise-removed` / `premise-negated`); the CF.1 derivation guard covers it. No copy yet — `traceLines` is untouched until D.3 | — |
 | D.3 | **Shipped.** The picker offers `depends-on` last, behind the §2.1 authoring test (`RELATIONSHIP_HELP`); `traceLines` renders the cascade (undercut chains, attachments, the set-wide knot diff, circular premises, the fixed asymmetry line); "Load-bearing (n dependents)" and "circular premise" chips on claim rows (`loadLabel` / `loadTooltip`); shared-premise rows on hypothesis cards under a fixed explainer; directed dependency arrows in the case graph; `depends on` / `depended on by` chips on the case view; the extract flag relabelled "Argument-critical (the model's reading of this article)", the brief list "Claims the brief turns on" | — |
-| D.4 | The live per-adjudicator "premise adjudicated false" badge, the multi-verdict distribution render, the inconsistency marker (R-026) | — |
+| D.4 | **Shipped, one gap named.** `premiseVerdictMarkers` / `premiseMarkerLabel` / `premiseMarkerTooltip` / `inconsistencyLabel` / `ownVerdictLabel` (`src/shared/case-dependencies.js`): one marker per `established-false` verdict in view on a transitive premise — every un-superseded local record and every live wire row, keyed by event id — reading "premise adjudicated false by <author> under <standard>", with the premise's whole distribution (every state, its authors and standards) in the tooltip and the fixed closing line; the dependent's own verdicts listed beside, unchanged; an inconsistency row per (own established-true × false premise), "an inconsistency, not a correction" for one adjudicator and "two adjudicators disagree; neither corrects the other" for two; capped at four chips with a disclosed overflow; on the case dashboard's claim rows and hypothesis-card edge rows (R-026). **Gap:** the chips are tooltips, not links — §3.4's "linking to the verdict" waits for a surface that can navigate to a verdict (the adjudicate modal opens from the reader, not from a dashboard row); a local record with no adjudicator reads "this X-Ray's record (no adjudicator named)" because the adjudicate modal has no adjudicator field yet | — |
 | D.5 | LLM `rests_on` suggestion through the reduce firewall; both-sides / drop-count disclosure | — |
 | — (refused) | Any upward propagation; any hypothesis-level state; any weight on an edge | — |
 
