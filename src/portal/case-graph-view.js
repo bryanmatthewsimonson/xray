@@ -39,12 +39,23 @@ export function renderCaseGraph(host, { data, callbacks = {} }) {
     const c = graph.counts;
     block.appendChild(el('div', 'xr-view__dossier-line',
         `${c.articles} article${c.articles === 1 ? '' : 's'} · ${c.entities} entit${c.entities === 1 ? 'y' : 'ies'} · `
-        + `${c.cotag_edges} co-tag link${c.cotag_edges === 1 ? '' : 's'} · ${c.contradictions} contradiction${c.contradictions === 1 ? '' : 's'}`));
+        + `${c.cotag_edges} co-tag link${c.cotag_edges === 1 ? '' : 's'} · ${c.contradictions} contradiction${c.contradictions === 1 ? '' : 's'}`
+        + (c.dependencies ? ` · ${c.dependencies} dependency arrow${c.dependencies === 1 ? '' : 's'}` : '')));
 
     const view = { x: 0, y: 0, w: SIZE, h: SIZE };
     const svg = svgEl('svg', { class: 'xr-view__svg xr-cgraph__svg', viewBox: `0 0 ${SIZE} ${SIZE}` });
     const applyView = () => svg.setAttribute('viewBox', `${view.x} ${view.y} ${view.w} ${view.h}`);
 
+    // Claim dependency D.3 — one arrowhead marker per SVG for the
+    // directed dependency edges (dependent → premise).
+    const defs = svgEl('defs', {});
+    const marker = svgEl('marker', {
+        id: 'xr-garrow', viewBox: '0 0 10 10', refX: '10', refY: '5',
+        markerWidth: '8', markerHeight: '8', orient: 'auto-start-reverse'
+    });
+    marker.appendChild(svgEl('path', { d: 'M 0 0 L 10 5 L 0 10 z', class: 'xr-garrow' }));
+    defs.appendChild(marker);
+    svg.appendChild(defs);
     const edgeLayer = svgEl('g', {});
     const nodeLayer = svgEl('g', {});
     svg.appendChild(edgeLayer);
@@ -52,6 +63,7 @@ export function renderCaseGraph(host, { data, callbacks = {} }) {
 
     const edgeClass = (kind) => {
         if (kind === 'contradiction') return 'xr-gedge xr-gedge--warn';
+        if (kind === 'dependency') return 'xr-gedge xr-gedge--dependency';
         if (kind === 'cotag') return 'xr-gedge xr-cgedge--cotag';
         if (kind === 'member') return 'xr-gedge xr-cgedge--member';
         if (kind === 'about' || kind === 'both') return 'xr-gedge xr-cgedge--about';
@@ -63,9 +75,12 @@ export function renderCaseGraph(host, { data, callbacks = {} }) {
         const to = positions[edge.to];
         if (!from || !to) continue;
         const line = svgEl('line', { x1: from.x, y1: from.y, x2: to.x, y2: to.y, class: edgeClass(edge.kind) });
-        if (edge.note || edge.kind === 'contradiction') {
+        if (edge.directed) line.setAttribute('marker-end', 'url(#xr-garrow)');
+        if (edge.note || edge.kind === 'contradiction' || edge.kind === 'dependency') {
             const tip = svgEl('title', {});
-            tip.textContent = edge.note || 'contradiction';
+            tip.textContent = edge.kind === 'dependency'
+                ? `depends on${edge.note ? ` — ${edge.note}` : ''} (the arrow points at the premise)`
+                : (edge.note || 'contradiction');
             line.appendChild(tip);
         }
         edgeLayer.appendChild(line);

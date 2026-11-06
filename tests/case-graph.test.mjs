@@ -136,3 +136,44 @@ test('case-graph: includeClaims adds claim nodes + edges', () => {
     assert.ok(g.nodes.some((n) => n.type === 'claim' && n.claimId === 'c1'));
     assert.ok(g.edges.some((e) => e.kind === 'claim' && e.to === 'claim:c1'));
 });
+
+// Claim dependency D.3 (docs/CLAIM_DEPENDENCY_DESIGN.md §5): directed
+// dependency arrows, from the dependent's article to the premise's.
+function dataWithDependencies() {
+    return makeData({
+        orbit: { claims: [
+            { id: 'c1', source_url: 'https://x/a', about: ['case1'], source: null },
+            { id: 'c1b', source_url: 'https://x/a', about: ['case1'], source: null },
+            { id: 'c2', source_url: 'https://x/b', about: ['case1'], source: null }
+        ], entities: [], dangling_entity_ids: [] },
+        claimsById: {
+            c1:  { id: 'c1', source_url: 'https://x/a', text: 'A says' },
+            c1b: { id: 'c1b', source_url: 'https://x/a', text: 'A also says' },
+            c2:  { id: 'c2', source_url: 'https://x/b', text: 'B says' }
+        },
+        links: { contradicts: [], attestations: [], related: [], dependencies: [
+            // c2 (article b) depends on c1 (article a)
+            { id: 'd1', relationship: 'depends-on', source_claim_id: 'c2', target_claim_id: 'c1', source_ref: 'c2', target_ref: 'c1', note: 'rests on the lab log' },
+            // c1 depends on an off-corpus premise
+            { id: 'd2', relationship: 'depends-on', source_claim_id: 'c1', target_claim_id: 'claim_off', source_ref: 'c1', target_ref: 'claim_off', note: '' },
+            // two claims of the SAME article: no self-edge
+            { id: 'd3', relationship: 'depends-on', source_claim_id: 'c1b', target_claim_id: 'c1', source_ref: 'c1b', target_ref: 'c1', note: '' }
+        ] }
+    });
+}
+
+test('case-graph: depends-on links become directed article→article dependency edges; ghost for an off-corpus premise; same-article pairs skipped', () => {
+    const g = buildCaseGraph(dataWithDependencies());
+    const deps = g.edges.filter((e) => e.kind === 'dependency');
+    assert.equal(deps.length, 2);
+    assert.ok(deps.every((e) => e.directed === true));
+    assert.ok(deps.some((e) => e.from === 'article:https://x/b' && e.to === 'article:https://x/a'), 'from the dependent to the premise');
+    assert.ok(deps.some((e) => e.from === 'article:https://x/a' && e.to.startsWith('ghost:')), 'off-corpus premise is a ghost node');
+    assert.equal(deps.find((e) => e.to === 'article:https://x/a').note, 'rests on the lab log');
+    assert.equal(g.counts.dependencies, 2);
+    assert.ok(!g.edges.some((e) => e.kind === 'dependency' && e.from === e.to), 'no self-edge');
+    // Deterministic, and the layout places the ghost.
+    assert.deepEqual(buildCaseGraph(dataWithDependencies()), g);
+    const pos = layoutCaseGraph(g);
+    assert.ok(Object.keys(pos).some((k) => k.startsWith('ghost:')));
+});

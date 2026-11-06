@@ -192,6 +192,35 @@ export function buildCaseGraph(data, { includeClaims = false, maxEntities = 40, 
         }
     }
 
+    // Claim dependency D.3 (docs/CLAIM_DEPENDENCY_DESIGN.md §5):
+    // `depends-on` links as DIRECTED edges from the dependent's article
+    // to the premise's — the same article mapping and ghost endpoints as
+    // the contradiction edges; a pair inside one article draws nothing;
+    // one edge per ordered node pair. Visually distinct from support,
+    // never recolored on a scale.
+    const depPairs = new Set();
+    for (const l of (data.links && data.links.dependencies) || []) {
+        if (!l || l.relationship !== 'depends-on') continue;
+        const su = urlOfRef(l.source_ref);
+        const tu = urlOfRef(l.target_ref);
+        const endpoint = (u, ref) => {
+            if (u) return `article:${u}`;
+            const gid = `ghost:${ref}`;
+            if (!ghostSeen.has(gid)) {
+                ghostSeen.add(gid);
+                nodes.push({ id: gid, type: 'ghost', label: 'off-corpus claim', ref });
+            }
+            return gid;
+        };
+        const from = endpoint(su, l.source_ref);
+        const to = endpoint(tu, l.target_ref);
+        if (from === to) continue;
+        const pk = `${from} ${to}`;
+        if (depPairs.has(pk)) continue;
+        depPairs.add(pk);
+        edges.push({ id: `dep:${pk}`, from, to, kind: 'dependency', directed: true, note: l.note || '' });
+    }
+
     // Optional per-claim nodes (off by default; a denser view).
     if (includeClaims) {
         for (const row of rows) {
@@ -213,7 +242,8 @@ export function buildCaseGraph(data, { includeClaims = false, maxEntities = 40, 
             entities_dropped: droppedEntities,
             tag_edges:      edges.filter((e) => e.kind === 'tag' || e.kind === 'both').length,
             cotag_edges:    cotagRanked.length,
-            contradictions: contraPairs.size
+            contradictions: contraPairs.size,
+            dependencies:   depPairs.size
         }
     };
 }
