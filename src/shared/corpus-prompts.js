@@ -27,7 +27,7 @@
 // Pure: no chrome, no network, no DOM, no clock. audit-prompt.js /
 // lens-prompt.js are the pattern.
 
-import { CLAIM_RELATIONSHIPS, PROPOSABLE_RELATIONSHIPS, DEPENDENCY_AUTHORING_TEST } from './assessment-taxonomy.js';
+import { PROPOSABLE_RELATIONSHIPS, DEPENDENCY_AUTHORING_TEST } from './assessment-taxonomy.js';
 
 // The entity types the MAP may propose (corpus-v9): everything but
 // `case` — the researcher's workspace is never named inside an article
