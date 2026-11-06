@@ -12,7 +12,10 @@ import { el, truncate } from './dom.js';
 import { assembleCaseDossier } from '../shared/case-dossier.js';
 import { auditCardChipData } from '../shared/audit/display.js';
 import { mountTraceExpander } from './trace-block.js';
-import { claimLoad, findDependencyCycles, loadLabel, loadTooltip } from '../shared/case-dependencies.js';
+import {
+    claimLoad, findDependencyCycles, loadLabel, loadTooltip,
+    premiseVerdictMarkers, premiseMarkerLabel, premiseMarkerTooltip, PREMISE_INCONSISTENCY_LABEL
+} from '../shared/case-dependencies.js';
 import { Utils } from '../shared/utils.js';
 import { EventBuilder } from '../shared/event-builder.js';
 import { linkRunFindingsToClaims } from '../shared/audit/findings-claims.js';
@@ -220,6 +223,22 @@ export function renderEvidenceBlock(host, dossierOrId, opts = {}) {
                         const chip = el('span', 'xr-badge xr-badge--warn', 'circular premise');
                         chip.title = 'These claims depend on each other: '
                             + cycle.refs.map((r) => { const cc = (data.claimsById || {})[r]; return cc && cc.text ? `“${truncate(cc.text, 80)}”` : r; }).join(' · ');
+                        li.appendChild(chip);
+                    }
+                    // D.4 (§3.4, R-026) — one marker per established-false
+                    // verdict on a premise, naming who and by what standard,
+                    // the distribution in the tooltip; an inconsistency
+                    // marker when this claim's own head is established-true.
+                    // Nothing here changes any verdict.
+                    const markers = premiseVerdictMarkers(data, c.claim_id);
+                    for (const row of markers.derivation) {
+                        const chip = el('span', 'xr-badge xr-badge--warn xr-badge--premise', premiseMarkerLabel(row));
+                        chip.title = premiseMarkerTooltip(row, data.claimsById || {});
+                        li.appendChild(chip);
+                    }
+                    if (markers.inconsistency) {
+                        const chip = el('span', 'xr-badge xr-badge--warn', PREMISE_INCONSISTENCY_LABEL);
+                        chip.title = 'This claim\'s own verdict is shown unchanged; the premise\'s verdict is another adjudication. Both stand until someone supersedes one.';
                         li.appendChild(chip);
                     }
                 }
