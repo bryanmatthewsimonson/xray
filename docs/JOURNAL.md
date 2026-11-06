@@ -36,6 +36,7 @@ the entry's heading anchor in its monthly file.
 
 ## 2026-11
 
+- **2026-11-06** — [Proposal and link keys keep endpoint order for directional relationships](journal/2026-11.md#2026-11-06--proposal-and-link-keys-keep-endpoint-order-for-directional-relationships) · design, synthesis
 - **2026-11-06** — [`depends-on` joins the kind-30055 vocabulary (claim dependency D.1)](journal/2026-11.md#2026-11-06--depends-on-joins-the-kind-30055-vocabulary-claim-dependency-d1) · wire, design, one-way-door
 
 ## 2026-09

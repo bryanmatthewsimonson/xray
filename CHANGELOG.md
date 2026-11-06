@@ -88,6 +88,17 @@ and 9803, a retirement of kinds that were never emitted.
 
 ### Added
 
+- **Claim dependencies, proposed (D.5).** Analyze corpus and Suggest
+  links may now propose `depends-on` edges — the brief's claims-the-
+  case-turns-on carry `rests_on` premises, and both relationship tools
+  offer the value — through the same validate-then-Accept path as
+  every other proposal, with the authoring test ("could the source
+  still be true if the target turned out false? then it is supports")
+  in the prompts and on every review row, and a line disclosing how
+  many dependency proposals survived and how many dropped, with
+  reasons. Proposal keys now keep endpoint order for directional
+  relationships, so a dismissed "A supports B" no longer hides "B
+  supports A" (a dismissed directional proposal reappears once).
 - **Claim dependencies, adjudicated (D.4).** When a verdict on a
   premise is established-false, every claim that rests on it shows
   "premise adjudicated false by <author> under <standard>" — one chip

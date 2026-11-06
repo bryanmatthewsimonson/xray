@@ -259,17 +259,19 @@ Three producers, in order of trust, all landing through
    offer the Phase-11 four. The modal adds `depends-on` to the picker
    with the §2.1 authoring test as its helper text. `suggested_by:
    'user'`.
-2. **LLM-suggested at corpus level.** The reduce tool schema in
-   `src/shared/corpus-prompts.js` today emits `load_bearing: [{claim_ref,
-   article_hash, quote, why}]`. It gains, per entry, `rests_on:
-   [claim_ref…]` — the existing claims the model judges that claim
-   presupposes — and the `why` becomes the reason for the dependency.
-   Every ref must resolve to a captured claim (the `filterProposals`
-   pattern), every quote grounds verbatim, ungrounded entries drop with
-   the drop count disclosed, and each surviving edge lands only on a
-   human Accept, stamped `suggested_by: 'llm:<model>'`. The prompt
-   carries the §2.1 test verbatim and the standing hard rule (no
-   verdict, score, or "who is right").
+2. **LLM-suggested at corpus level** (shipped as D.5). The reduce
+   tool's `load_bearing` entries carry `rests_on: [claim_id…]` — the
+   existing claims the model judges that claim cannot be true without
+   — and both relationship-proposal tools (the brief's `proposals` and
+   the standalone links pass) may propose `depends-on` directly. Each
+   lands as an ordinary relationship proposal through `filterProposals`:
+   every ref must resolve to a captured claim, a null source, a
+   self-link or an unknown target is rejected with a reason, the
+   disclosure line counts survivors and drops, and each surviving edge
+   lands only on a human Accept, stamped `suggested_by: 'llm:<model>'`.
+   The prompts carry the §2.1 test verbatim, the both-sides rule, and
+   the standing hard rule (no verdict, score, or "who is right"); the
+   review row repeats the test under every `depends-on` proposal.
 3. **Not at the per-article pass.** Adding premise output to the
    article extract would bump corpus-v9, invalidate every cached
    extract and re-bill every article. Intra-article dependencies are a
@@ -321,7 +323,7 @@ Three producers, in order of trust, all landing through
 | D.2 | **Shipped.** `links.dependencies` in the dossier collector; the pure walks in the sibling `src/shared/case-dependencies.js` (dependents / premises / load, cycles, shared premises); the cascade joined into `traceClaimDependencies` as its `dependencies` section in BOTH modes (stamped `premise-removed` / `premise-negated`); the CF.1 derivation guard covers it. No copy yet — `traceLines` is untouched until D.3 | — |
 | D.3 | **Shipped.** The picker offers `depends-on` last, behind the §2.1 authoring test (`RELATIONSHIP_HELP`); `traceLines` renders the cascade (undercut chains, attachments, the set-wide knot diff, circular premises, the fixed asymmetry line); "Load-bearing (n dependents)" and "circular premise" chips on claim rows (`loadLabel` / `loadTooltip`); shared-premise rows on hypothesis cards under a fixed explainer; directed dependency arrows in the case graph; `depends on` / `depended on by` chips on the case view; the extract flag relabelled "Argument-critical (the model's reading of this article)", the brief list "Claims the brief turns on" | — |
 | D.4 | **Shipped, one gap named.** `premiseVerdictMarkers` / `premiseMarkerLabel` / `premiseMarkerTooltip` / `inconsistencyLabel` / `ownVerdictLabel` (`src/shared/case-dependencies.js`): one marker per `established-false` verdict in view on a transitive premise — every un-superseded local record and every live wire row, keyed by event id — reading "premise adjudicated false by <author> under <standard>", with the premise's whole distribution (every state, its authors and standards) in the tooltip and the fixed closing line; the dependent's own verdicts listed beside, unchanged; an inconsistency row per (own established-true × false premise), "an inconsistency, not a correction" for one adjudicator and "two adjudicators disagree; neither corrects the other" for two; capped at four chips with a disclosed overflow; on the case dashboard's claim rows and hypothesis-card edge rows (R-026). **Gap:** the chips are tooltips, not links — §3.4's "linking to the verdict" waits for a surface that can navigate to a verdict (the adjudicate modal opens from the reader, not from a dashboard row); a local record with no adjudicator reads "this X-Ray's record (no adjudicator named)" because the adjudicate modal has no adjudicator field yet | — |
-| D.5 | LLM `rests_on` suggestion through the reduce firewall; both-sides / drop-count disclosure | — |
+| D.5 | **Shipped.** The reduce's `load_bearing` entries carry `rests_on` (existing claim ids the claim cannot be true without); `filterProposals` turns each into a `depends-on` relationship proposal on the SAME validate → human-accept path, rejecting a null source, a self-link or an unknown target with a reason; both relationship tools' enums are `PROPOSABLE_RELATIONSHIPS` (the picker set); both prompts carry the §2.1 authoring test verbatim and the both-sides rule; every `depends-on` review row shows the authoring test; a one-line disclosure counts survivors and drops with reasons; proposal and link keys keep endpoint order for directional relationships (JOURNAL 2026-11-06). `CORPUS_PROMPT_VERSION` corpus-v10, `CLAIM_LINKS_PROMPT_VERSION` claim-links-v2; the map cache key is untouched | — |
 | — (refused) | Any upward propagation; any hypothesis-level state; any weight on an edge | — |
 
 D.1 is the only slice that touches the wire lane and carries the

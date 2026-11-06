@@ -36,7 +36,7 @@ import { ENTITY_TYPES, canonicalIdOf } from './entity-model.js';
 import { SUGGESTABLE_ENTITY_TYPES } from './llm-prompts.js';
 import {
     isValidLabel, isValidStance, isValidSuggestedBy,
-    CLAIM_RELATIONSHIPS, PROPOSABLE_RELATIONSHIPS, REVISION_RELATIONSHIPS
+    PROPOSABLE_RELATIONSHIPS, REVISION_RELATIONSHIPS
 } from './assessment-taxonomy.js';
 import {
     isValidManeuver, isValidRole, isValidBasis, BASIS_VALUES, ROLES
