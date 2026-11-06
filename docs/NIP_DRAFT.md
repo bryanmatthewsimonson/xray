@@ -425,11 +425,12 @@ Addressable. A typed link between two claims — the cross-source contradiction 
 }
 ```
 
-- `relationship` MUST be one of: `contradicts`, `supports`, `updates`, `duplicates`, or the directional **`revision/*` story-change values** `narrative-patch`, `recharacterizes`, `walks-back` (Phase 14 / kind 30062). The latter three express how the *same subject's* account changed over time — `source` = the earlier statement, `target` = the later — and MAY be characterized by a kind-30062 finding (which references this link by `a` coordinate). They are never symmetric.
-- **`contradicts` and `duplicates` are symmetric**: the two coordinates MUST be sorted lexically — both in the `d` hash and in `a`-tag order — so the same logical link republishes the same `d` regardless of creation direction, and the `source`/`target` markers carry no meaning. **`supports` and `updates` are directional** (source → target) and hash in semantic order.
+- `relationship` MUST be one of: `contradicts`, `supports`, `updates`, `duplicates`, `depends-on`, or the directional **`revision/*` story-change values** `narrative-patch`, `recharacterizes`, `walks-back` (Phase 14 / kind 30062). **`depends-on`** (claim dependency, `CLAIM_DEPENDENCY_DESIGN.md`) is directional — `source` depends on `target`: the source claim cannot be true unless the target claim is true. It is a necessary-condition edge, distinct from `supports`, which is evidential; several `depends-on` edges on one claim behave like AND, several `supports` edges like OR. The latter three express how the *same subject's* account changed over time — `source` = the earlier statement, `target` = the later — and MAY be characterized by a kind-30062 finding (which references this link by `a` coordinate). They are never symmetric.
+- **`contradicts` and `duplicates` are symmetric**: the two coordinates MUST be sorted lexically — both in the `d` hash and in `a`-tag order — so the same logical link republishes the same `d` regardless of creation direction, and the `source`/`target` markers carry no meaning. **`supports`, `updates` and `depends-on` are directional** (source → target) and hash in semantic order.
 - The `d` MUST be recomputable from the two `a` tags + `relationship`. The 4th-position markers on `a`/`e` follow the same role-marker idiom as `p` tags elsewhere in this NIP.
 - `r` tags carry each claim's `r` verbatim, `i` tags the normalized forms (values deduplicated when both claims share a URL); one `k` = `web` accompanies them. Relationship events anchor to the claims (via `a`), not to pages — the URL tags exist for `#r`-join convenience and MAY be omitted when an endpoint's URL is unknown.
 - Surfacing rule: a `contradicts` link SHOULD surface a warning indicator on **both** claims wherever they render.
+- Consumers ignore a relationship event whose `relationship` value they do not recognize.
 
 ## Kind 30056 — AuditModuleResult
 

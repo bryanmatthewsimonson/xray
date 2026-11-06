@@ -49,6 +49,17 @@ function articleCommon(f, ev) {
     ] };
 }
 
+// Both kind-30055 shapes (the Phase-11 `supports` edge and the
+// claim-dependency `depends-on` edge) re-parse through the same checks.
+const relationshipChecks = (f, ev) => {
+    const p = parseRelationshipEvent(ev);
+    return { parsed: p, checks: [nonNull('parseRelationshipEvent', p),
+        ['relationship', p.relationship, f.inputs.relationship], ['source (directional — not sorted)', p.source, { coord: f.inputs.sourceCoord, eventId: f.inputs.sourceEventId }],
+        ['target', p.target, { coord: f.inputs.targetCoord, eventId: f.inputs.targetEventId }], ['note', p.note, f.inputs.note],
+        ['urls', p.urls, [f.inputs.sourceUrl, f.inputs.targetUrl]]
+    ] };
+};
+
 export const PARSERS = {
     '30023-capture-article': async (f, ev) => {
         const { article, checks } = articleCommon(f, ev);
@@ -172,14 +183,8 @@ export const PARSERS = {
     },
     '1985-forensic-mirror': (f, ev) => labelRow(f, ev, 'xray/forensic', [f.inputs.maneuver], f.inputs.sourceUrl, true),
     '1985-verdict-mirror': (f, ev) => labelRow(f, ev, ADJUDICATION_NAMESPACE, [f.inputs.verdict], f.inputs.claimCoord, false),
-    '30055-relationship': (f, ev) => {
-        const p = parseRelationshipEvent(ev);
-        return { parsed: p, checks: [nonNull('parseRelationshipEvent', p),
-            ['relationship', p.relationship, f.inputs.relationship], ['source (directional — not sorted)', p.source, { coord: f.inputs.sourceCoord, eventId: f.inputs.sourceEventId }],
-            ['target', p.target, { coord: f.inputs.targetCoord, eventId: f.inputs.targetEventId }], ['note', p.note, f.inputs.note],
-            ['urls', p.urls, [f.inputs.sourceUrl, f.inputs.targetUrl]]
-        ] };
-    },
+    '30055-relationship': relationshipChecks,
+    '30055-dependency': relationshipChecks,
     '30062-forensic-finding': (f, ev) => {
         const p = parseBehavioralFindingEvent(ev);
         return { parsed: p, checks: [nonNull('parseBehavioralFindingEvent', p),
