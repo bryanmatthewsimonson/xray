@@ -53,32 +53,35 @@ function adjacency(dependencies, direction) {
 
 /**
  * Breadth-first closure from `ref`. Each reached claim gets ONE chain
- * (the first found in sorted order) and a derivation listing every
- * link that reached it — so a diamond shows one path but names both
- * meeting edges. `ref` itself is never listed.
+ * (the first found in sorted order), `derivation` = the link ids
+ * along THAT chain, and `meeting_links` = every other link that also
+ * reached it (a diamond shows one path and still names both edges).
+ * The chain's links are copied per row, never shared, so a meeting
+ * link on one node never leaks into the rows below it. `ref` itself
+ * is never listed.
  */
 function closure(dependencies, ref, direction) {
     const start = String(ref || '').trim();
     if (!start) return { count: 0, derivation: [] };
     const adj = adjacency(dependencies, direction);
     const next = direction === 'dependents' ? 'source_ref' : 'target_ref';
-    const reached = new Map();          // ref → { ref, chain, derivation }
-    const queue = [{ ref: start, chain: [start], links: [] }];
+    const reached = new Map();          // ref → { ref, chain, derivation, meeting_links }
+    const queue = [{ ref: start, chain: [start], path: [] }];
     const visited = new Set([start]);
-    while (queue.length) {
-        const cur = queue.shift();
+    for (let i = 0; i < queue.length; i += 1) {
+        const cur = queue[i];
         for (const l of adj.get(cur.ref) || []) {
             const to = l[next];
             if (reached.has(to)) {
                 const row = reached.get(to);
-                if (!row.derivation.includes(l.id)) row.derivation.push(l.id);
+                if (!row.derivation.includes(l.id) && !row.meeting_links.includes(l.id)) row.meeting_links.push(l.id);
                 continue;
             }
             if (visited.has(to)) continue;   // the start node, on a cycle back to it
             visited.add(to);
-            const row = { ref: to, chain: [...cur.chain, to], derivation: [...cur.links, l.id] };
-            reached.set(to, row);
-            queue.push({ ref: to, chain: row.chain, links: row.derivation });
+            const path = [...cur.path, l.id];
+            reached.set(to, { ref: to, chain: [...cur.chain, to], derivation: path, meeting_links: [] });
+            queue.push({ ref: to, chain: [...cur.chain, to], path });
         }
     }
     const derivation = [...reached.values()].sort(byRef);
@@ -102,7 +105,7 @@ export function claimLoad(dependencies, ref) {
 
 /**
  * Strongly connected components of size >= 2 over the dependency
- * graph — circular reasoning. Tarjan, iterative over sorted refs.
+ * graph — circular reasoning. Tarjan (recursive) over sorted refs.
  * Each component: { refs (sorted), derivation: the link ids inside it }.
  */
 export function findDependencyCycles(dependencies) {
@@ -145,12 +148,16 @@ export function findDependencyCycles(dependencies) {
 
 /**
  * §3.3 — shared premises, the I-5 independence rule made structural:
- * for each hypothesis, every claim that TWO OR MORE of its `supports`
- * edges' claims transitively depend on. Two arguments resting on one
- * premise are not independent; the surface names the premise, never
- * discounts or re-sorts the edges. `undermines` edges are ignored (the
- * rule is about correlated support), and a supporting claim is never
- * its own premise. Rows sorted by hypothesis_id, then premise_ref.
+ * for each hypothesis, every claim that TWO OR MORE of its supporting
+ * ARGUMENTS rest on — where an argument is a distinct supporting
+ * CLAIM (two edges from one claim, e.g. an alias and its canonical
+ * ref, are one argument), and a claim counts as resting on itself
+ * (chain `[claim]`, no links): a supporting claim that another
+ * supporting claim depends on is itself the premise they share. Two
+ * arguments resting on one premise are not independent; the surface
+ * names the premise, never discounts or re-sorts the edges.
+ * `undermines` edges are ignored (the rule is about correlated
+ * support). Rows sorted by hypothesis_id, then premise_ref.
  *
  * `hypothesisEdges`: [{ hypothesis_id, label, ref, role, edge_id }]
  * as collectHypothesisEdgeJoins returns them.
@@ -162,19 +169,23 @@ export function sharedPremises(dependencies, hypothesisEdges) {
         if (!byHyp.has(e.hypothesis_id)) byHyp.set(e.hypothesis_id, { label: e.label || e.hypothesis_id, edges: [] });
         byHyp.get(e.hypothesis_id).edges.push(e);
     }
+    const byEdgeId = (a, b) => (a.edge_id < b.edge_id ? -1 : a.edge_id > b.edge_id ? 1 : 0);
     const rows = [];
     for (const [hypothesisId, { label, edges }] of byHyp) {
-        if (edges.length < 2) continue;
+        if (new Set(edges.map((e) => e.ref)).size < 2) continue;
         const byPremise = new Map();          // premise_ref → [{ edge_id, claim_ref, chain, links }]
-        for (const e of edges.slice().sort((a, b) => (a.edge_id < b.edge_id ? -1 : a.edge_id > b.edge_id ? 1 : 0))) {
+        const hit = (premiseRef, row) => {
+            if (!byPremise.has(premiseRef)) byPremise.set(premiseRef, []);
+            byPremise.get(premiseRef).push(row);
+        };
+        for (const e of edges.slice().sort(byEdgeId)) {
+            hit(e.ref, { edge_id: e.edge_id, claim_ref: e.ref, chain: [e.ref], links: [] });
             for (const p of premisesOf(dependencies, e.ref).derivation) {
-                if (!byPremise.has(p.ref)) byPremise.set(p.ref, []);
-                byPremise.get(p.ref).push({ edge_id: e.edge_id, claim_ref: e.ref, chain: p.chain, links: p.derivation });
+                hit(p.ref, { edge_id: e.edge_id, claim_ref: e.ref, chain: p.chain, links: p.derivation });
             }
         }
         for (const [premiseRef, hits] of byPremise) {
-            const distinct = new Set(hits.map((h) => h.edge_id));
-            if (distinct.size < 2) continue;
+            if (new Set(hits.map((h) => h.claim_ref)).size < 2) continue;
             const derivation = [];
             for (const h of hits) for (const id of h.links) if (!derivation.includes(id)) derivation.push(id);
             rows.push({

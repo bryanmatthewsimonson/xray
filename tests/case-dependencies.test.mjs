@@ -64,8 +64,21 @@ test('dependentsOf: a diamond lists the dependent once, with one chain and both 
     assert.equal(c.chain.length, 3, 'one chain, not two');
     assert.equal(c.chain[0], R);
     assert.equal(c.chain[2], C);
-    assert.ok(c.derivation.includes('link_ca') && c.derivation.includes('link_cb'),
-        'both links into C are named even though only one chain is shown');
+    assert.deepEqual(c.derivation, ['link_ar', 'link_ca'], 'the links along the one shown chain');
+    assert.deepEqual(c.meeting_links, ['link_cb'], 'the other link into C is named even though only one chain is shown');
+});
+
+test('dependentsOf: a claim BELOW a diamond carries only its own chain links; meeting links stay on the diamond node', () => {
+    // A and X both depend on R; C depends on A and on X; D depends on C.
+    const links = [link('link_ar', A, R), link('link_xr', X, R), link('link_ca', C, A), link('link_cx', C, X), link('link_dc', D, C)];
+    const r = dependentsOf(links, R);
+    const c = r.derivation.find((d) => d.ref === C);
+    const d = r.derivation.find((d) => d.ref === D);
+    assert.deepEqual(c.derivation, ['link_ar', 'link_ca'], 'the links along the one shown chain');
+    assert.deepEqual(c.meeting_links, ['link_cx'], 'the other link into C, named separately');
+    assert.deepEqual(d.chain, [R, A, C, D]);
+    assert.deepEqual(d.derivation, ['link_ar', 'link_ca', 'link_dc'], 'nothing from the other side of the diamond leaks into D');
+    assert.deepEqual(d.meeting_links, []);
 });
 
 test('dependentsOf: a cycle terminates and lists each member once', () => {
@@ -143,20 +156,24 @@ function edges() {
 
 test('sharedPremises: two supporting edges that both rest on a premise report it once, with both edges and their chains', () => {
     const r = sharedPremises(deps2(), edges());
-    // A is shared by e_b (B→A) and e_d (D→C→B→A); B is shared by e_d only
-    // through D's chain and by e_b as ITS OWN claim — a supporting claim
-    // is never its own premise, so B is not a shared premise.
-    assert.equal(r.count, 1);
-    const row = r.derivation[0];
-    assert.equal(row.hypothesis_id, 'H1');
-    assert.equal(row.label, 'Lab');
-    assert.equal(row.premise_ref, A);
-    assert.deepEqual(row.edges.map((e) => e.edge_id).sort(), ['e_b', 'e_d']);
-    for (const e of row.edges) {
+    // A is shared by e_b (B→A) and e_d (D→C→B→A). B is shared too: e_b
+    // IS the claim B, and e_d's claim D rests on B — two arguments that
+    // are not independent (I-5). Rows sort by premise_ref: A then B.
+    assert.equal(r.count, 2);
+    const [rowA, rowB] = r.derivation;
+    assert.equal(rowA.hypothesis_id, 'H1');
+    assert.equal(rowA.label, 'Lab');
+    assert.equal(rowA.premise_ref, A);
+    assert.deepEqual(rowA.edges.map((e) => e.edge_id).sort(), ['e_b', 'e_d']);
+    for (const e of rowA.edges) {
         assert.equal(e.chain[0], e.claim_ref);
         assert.equal(e.chain[e.chain.length - 1], A);
     }
-    assert.ok(row.derivation.includes('link_ba') && row.derivation.includes('link_dc'), 'link ids of every chain');
+    assert.ok(rowA.derivation.includes('link_ba') && rowA.derivation.includes('link_dc'), 'link ids of every chain');
+    assert.equal(rowB.premise_ref, B);
+    assert.deepEqual(rowB.edges.map((e) => e.edge_id).sort(), ['e_b', 'e_d']);
+    assert.deepEqual(rowB.edges.find((e) => e.edge_id === 'e_b').chain, [B], 'the supporting claim itself');
+    assert.deepEqual(rowB.edges.find((e) => e.edge_id === 'e_d').chain, [D, C, B]);
 });
 
 test('sharedPremises: undermines edges and single-edge hypotheses contribute nothing', () => {
@@ -165,14 +182,42 @@ test('sharedPremises: undermines edges and single-edge hypotheses contribute not
     assert.ok(!r.derivation.some((row) => row.edges.some((e) => e.edge_id === 'e_c')));
 });
 
-test('sharedPremises: a claim attached twice is never its own shared premise; no edges → count 0', () => {
+test('sharedPremises: one claim attached twice is ONE argument — its premises are not shared (finding: alias edges)', () => {
     const twice = [
         { hypothesis_id: 'H1', label: 'Lab', ref: B, role: 'supports', edge_id: 'e_b' },
         { hypothesis_id: 'H1', label: 'Lab', ref: B, role: 'supports', edge_id: 'e_b2' }
     ];
-    const r = sharedPremises(deps2(), twice);
-    assert.equal(r.count, 1, 'they share A (B→A), not B');
-    assert.equal(r.derivation[0].premise_ref, A);
+    assert.equal(sharedPremises(deps2(), twice).count, 0, 'distinct supporting CLAIMS, not distinct edge ids');
     assert.equal(sharedPremises(deps2(), []).count, 0);
     assert.equal(sharedPremises([], edges()).count, 0);
+});
+
+test('sharedPremises: a supporting claim that another supporting claim rests on IS a shared premise (I-5)', () => {
+    // A supports H directly; B supports H and B depends on A: the two
+    // arguments are not independent, and A is the premise they share.
+    const es = [
+        { hypothesis_id: 'H1', label: 'Lab', ref: A, role: 'supports', edge_id: 'e_a' },
+        { hypothesis_id: 'H1', label: 'Lab', ref: B, role: 'supports', edge_id: 'e_b' }
+    ];
+    const r = sharedPremises([link('link_ba', B, A)], es);
+    assert.equal(r.count, 1);
+    assert.equal(r.derivation[0].premise_ref, A);
+    assert.deepEqual(r.derivation[0].edges.map((e) => e.edge_id).sort(), ['e_a', 'e_b']);
+    assert.deepEqual(r.derivation[0].edges.find((e) => e.edge_id === 'e_a').chain, [A], 'the claim itself, zero links');
+    assert.deepEqual(r.derivation[0].derivation, ['link_ba']);
+});
+
+test('sharedPremises: output passes the banned-key / numeric-beside-derivation walk', () => {
+    const banned = /^(probability|likelihood|confidence|score|weight|strength)$/i;
+    const walk = (v, path) => {
+        if (Array.isArray(v)) { v.forEach((x, i) => walk(x, `${path}[${i}]`)); return; }
+        if (v && typeof v === 'object') {
+            for (const [k, x] of Object.entries(v)) {
+                assert.ok(!banned.test(k), `${path}.${k} is a banned key`);
+                if (typeof x === 'number') assert.ok(Array.isArray(v.derivation), `${path}.${k} is a numeric with no derivation beside it`);
+                walk(x, `${path}.${k}`);
+            }
+        }
+    };
+    walk(sharedPremises(deps2(), edges()), 'shared');
 });
