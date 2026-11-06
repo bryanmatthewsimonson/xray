@@ -26,6 +26,17 @@
 // removal), and any claim→hypothesis edges swap supports↔undermines.
 // No verdict is recomputed — truth stays with the verdict layer (§5).
 //
+// Claim dependency D.2 (docs/CLAIM_DEPENDENCY_DESIGN.md §3.2): the
+// `dependencies` section is the cascade over `links.dependencies` —
+// every claim that transitively DEPENDS ON this one (source depends on
+// target), the hypothesis-map edges those claims carry, and any cycle
+// through them. It reports in BOTH modes, stamped `premise-removed` or
+// `premise-negated`: a removed premise leaves a dependent equally
+// without its necessary condition. ONLY FALSITY PROPAGATES — nothing
+// here says a dependent is more likely true because its premise holds.
+// No state is written onto a hypothesis; its edges are listed as
+// neutral rows with the chain that reached them.
+//
 // `claimRef` must arrive CANONICAL (the collector pre-canonicalizes
 // every stored endpoint into source_ref/target_ref; CF.2 canonicalizes
 // the query side). `options.hypothesisEdges` is the optional
@@ -35,6 +46,7 @@ import {
     buildKnots, buildTimelineEvents, buildEntitiesInvolved
 } from './case-dossier.js';
 import { attestationConvergence } from './truth-attestation.js';
+import { dependentsOf, findDependencyCycles } from './claim-dependencies.js';
 
 export const COUNTERFACTUAL_MODES = Object.freeze(['remove', 'negate']);
 
@@ -61,7 +73,8 @@ function dataWithout(data, ref) {
             ...(data.links || {}),
             contradicts: ((data.links && data.links.contradicts) || []).filter((l) => !touches(l, ref)),
             attestations: ((data.links && data.links.attestations) || []).filter((l) => !touches(l, ref)),
-            related: ((data.links && data.links.related) || []).filter((l) => !touches(l, ref))
+            related: ((data.links && data.links.related) || []).filter((l) => !touches(l, ref)),
+            dependencies: ((data.links && data.links.dependencies) || []).filter((l) => !touches(l, ref))
         }
     };
 }
@@ -229,6 +242,38 @@ function diffHypotheses(hypothesisEdges, ref, mode) {
 }
 
 /**
+ * D.2 — the dependency cascade (§3.2). Undercut = transitive
+ * dependents of `ref`; hypothesis_edges = the join rows whose claim is
+ * undercut, each with the chain (`via`) that reached it; cycles = the
+ * strongly connected components containing `ref` or an undercut claim.
+ */
+function diffDependencies(data, ref, mode, hypothesisEdges) {
+    const deps = (data.links && data.links.dependencies) || [];
+    const undercut = dependentsOf(deps, ref);
+    const chainOf = new Map(undercut.derivation.map((u) => [u.ref, u.chain]));
+    const edges = (hypothesisEdges || [])
+        .filter((e) => e && chainOf.has(e.ref))
+        .map((e) => ({
+            hypothesis_id: e.hypothesis_id,
+            label: e.label || e.hypothesis_id,
+            claim_ref: e.ref,
+            role: e.role,
+            edge_id: e.edge_id,
+            via: chainOf.get(e.ref)
+        }))
+        .sort((a, b) => (a.claim_ref < b.claim_ref ? -1 : a.claim_ref > b.claim_ref ? 1
+            : a.edge_id < b.edge_id ? -1 : a.edge_id > b.edge_id ? 1 : 0));
+    const involved = new Set([ref, ...chainOf.keys()]);
+    const cycles = findDependencyCycles(deps).derivation.filter((c) => c.refs.some((r) => involved.has(r)));
+    return {
+        treatment: mode === 'negate' ? 'premise-negated' : 'premise-removed',
+        undercut,
+        hypothesis_edges: { count: edges.length, derivation: edges },
+        cycles: { count: cycles.length, derivation: cycles }
+    };
+}
+
+/**
  * CF.2 — the plain-list rendering of a delta, as pure strings (the
  * portal DOM layer projects them 1:1, and the copy-review guard test
  * walks them: no "more/less likely", "stronger/weaker", "% chance" —
@@ -333,6 +378,7 @@ export function traceClaimDependencies(data, claimRef, options = {}) {
         // untouched, and a zero here is the TRUE measurement.
         entities: mode === 'remove' ? diffEntities(data, ref) : { losing_only_claim: zero },
         timeline: mode === 'remove' ? diffTimeline(data, ref) : { events_removed: zero, axes_emptied: zero },
-        hypotheses: diffHypotheses(options.hypothesisEdges, ref, mode)
+        hypotheses: diffHypotheses(options.hypothesisEdges, ref, mode),
+        dependencies: diffDependencies(data, ref, mode, options.hypothesisEdges)
     };
 }
