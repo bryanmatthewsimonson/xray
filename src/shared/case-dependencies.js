@@ -31,6 +31,9 @@
 // sorted link-id order so the one chain shown per claim is
 // deterministic whatever order the links arrived in.
 
+import { verdictVariance } from './truth-adjudication-model.js';
+import { STANDARD_OF_PROOF_LABELS, VERDICT_STATE_LABELS, VERDICT_STATES } from './truth-taxonomy.js';
+
 const byRef = (a, b) => (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0);
 const byId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 const isDependency = (l) => l && l.relationship === 'depends-on' && l.source_ref && l.target_ref;
@@ -224,4 +227,120 @@ export function loadTooltip(load, claimsById = {}) {
         return `${name} (via ${d.chain.join(' → ')})`;
     });
     return ['Claims that cannot be true unless this one is:', ...rows].join('\n');
+}
+
+// ------------------------------------------------------------------
+// D.4 — the live per-adjudicator badge (§3.4; R-026). A derived view
+// over ONE family's published record (kind 30063): no number is
+// produced, no state is written onto any claim, and every marker names
+// WHO adjudicated and BY WHAT STANDARD, beside the full distribution of
+// the other verdicts on that premise. One marker per established-false
+// verdict — never merged, no majority, no consensus, no threshold. The
+// dependent's own verdict is read only to name an inconsistency; it is
+// never recomputed (§6 red lines 3 and 3a).
+// ------------------------------------------------------------------
+
+export const PREMISE_INCONSISTENCY_LABEL =
+    'claim adjudicated true, premise adjudicated false — an inconsistency, not a correction';
+const PREMISE_MARKER_CLOSING =
+    'One adjudicator\'s verdict, shown beside the others. No verdict on this claim is recomputed.';
+
+const shortPubkey = (pk) => (pk ? `${String(pk).slice(0, 12)}…` : null);
+
+/** Local chain head: adjudicator label, else its pubkey, else this X-Ray. */
+function localAuthor(v) {
+    const a = v && v.adjudicator;
+    if (a && a.label) return a.label;
+    if (a && a.pubkey) return shortPubkey(a.pubkey);
+    return 'you (this X-Ray)';
+}
+
+/** Every verdict in view on one proposition: local chain head + wire rows, one shape. */
+function verdictsInView(data, propositionId) {
+    const chain = ((data.verdicts && data.verdicts.byProposition) || {})[propositionId] || [];
+    const head = chain.find((v) => !v.superseded_by) || null;
+    const rows = [];
+    if (head) {
+        rows.push({ id: head.id, verdict: head.verdict, standard: head.standard_of_proof || null,
+            author: localAuthor(head), author_pubkey: (head.adjudicator && head.adjudicator.pubkey) || null, source: 'local' });
+    }
+    for (const w of ((data.wire && data.wire.verdicts) || []).filter((x) => x && x.proposition_id === propositionId)) {
+        rows.push({ id: w.id || w.eventId || '', verdict: w.verdict, standard: w.standardOfProof || w.standard_of_proof || null,
+            author: shortPubkey(w.pubkey) || 'unknown author', author_pubkey: w.pubkey || null, source: 'wire' });
+    }
+    return rows;
+}
+
+function distributionOf(rows) {
+    const variance = verdictVariance(rows.map((r) => ({ verdict: r.verdict, standard_of_proof: r.standard })));
+    const authorsByState = {};
+    for (const r of rows) {
+        (authorsByState[r.verdict] ||= []).push({ author: r.author, standard: r.standard, source: r.source, id: r.id });
+    }
+    return { ...variance, authors_by_state: authorsByState };
+}
+
+/** The dependent's own chain-head state (first proposition by id), or null. */
+function ownState(data, ref) {
+    const all = (data.propositions && data.propositions.all) || {};
+    const props = Object.values(all).filter((p) => p.claim_id === ref).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    for (const p of props) {
+        const head = verdictsInView(data, p.id).find((r) => r.source === 'local');
+        if (head) return head.verdict;
+    }
+    return null;
+}
+
+/**
+ * One row per established-false verdict on any transitive premise of
+ * `ref`, each carrying the premise's whole distribution. `inconsistency`
+ * when the dependent's own head is established-true (its state is
+ * reported, never changed).
+ */
+export function premiseVerdictMarkers(data, ref) {
+    const deps = (data && data.links && data.links.dependencies) || [];
+    const premises = premisesOf(deps, ref).derivation;
+    const all = (data && data.propositions && data.propositions.all) || {};
+    const rows = [];
+    for (const p of premises) {
+        const props = Object.values(all).filter((x) => x.claim_id === p.ref).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+        for (const prop of props) {
+            const inView = verdictsInView(data, prop.id);
+            const distribution = distributionOf(inView);
+            for (const v of inView) {
+                if (v.verdict !== 'established-false') continue;
+                rows.push({
+                    premise_ref: p.ref, chain: p.chain, proposition_id: prop.id, proposition_class: prop.proposition_class,
+                    verdict_id: v.id, source: v.source, author: v.author, author_pubkey: v.author_pubkey, standard: v.standard,
+                    distribution, derivation: p.derivation
+                });
+            }
+        }
+    }
+    rows.sort((a, b) => (a.premise_ref < b.premise_ref ? -1 : a.premise_ref > b.premise_ref ? 1
+        : a.verdict_id < b.verdict_id ? -1 : a.verdict_id > b.verdict_id ? 1 : 0));
+    const own = data ? ownState(data, ref) : null;
+    return { count: rows.length, derivation: rows, own_state: own, inconsistency: own === 'established-true' && rows.length > 0 };
+}
+
+const standardLabel = (s) => STANDARD_OF_PROOF_LABELS[s] || s || 'no standard stated';
+
+/** `premise adjudicated false by <author> under <standard>` — never "is false". */
+export function premiseMarkerLabel(row) {
+    return `premise adjudicated false by ${row.author} under ${standardLabel(row.standard)}`;
+}
+
+/** The premise, every state in view with its authors and standards, and the fixed closing line. */
+export function premiseMarkerTooltip(row, claimsById = {}) {
+    const c = claimsById[row.premise_ref];
+    const name = c && c.text ? `“${String(c.text).slice(0, 120)}”` : row.premise_ref;
+    const lines = [`Premise: ${name} (via ${row.chain.join(' → ')})`];
+    for (const state of VERDICT_STATES) {
+        const authors = row.distribution.authors_by_state[state];
+        if (!authors || authors.length === 0) continue;
+        lines.push(`${VERDICT_STATE_LABELS[state] || state} ×${authors.length} — `
+            + authors.map((a) => `${a.author} (${standardLabel(a.standard)})`).join(', '));
+    }
+    lines.push(PREMISE_MARKER_CLOSING);
+    return lines.join('\n');
 }
