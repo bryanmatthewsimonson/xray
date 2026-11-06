@@ -26,6 +26,17 @@
 // removal), and any claim→hypothesis edges swap supports↔undermines.
 // No verdict is recomputed — truth stays with the verdict layer (§5).
 //
+// Claim dependency D.2 (docs/CLAIM_DEPENDENCY_DESIGN.md §3.2): the
+// `dependencies` section is the cascade over `links.dependencies` —
+// every claim that transitively DEPENDS ON this one (source depends on
+// target), the hypothesis-map edges those claims carry, and any cycle
+// through them. It reports in BOTH modes, stamped `premise-removed` or
+// `premise-negated`: a removed premise leaves a dependent equally
+// without its necessary condition. ONLY FALSITY PROPAGATES — nothing
+// here says a dependent is more likely true because its premise holds.
+// No state is written onto a hypothesis; its edges are listed as
+// neutral rows with the chain that reached them.
+//
 // `claimRef` must arrive CANONICAL (the collector pre-canonicalizes
 // every stored endpoint into source_ref/target_ref; CF.2 canonicalizes
 // the query side). `options.hypothesisEdges` is the optional
@@ -35,33 +46,42 @@ import {
     buildKnots, buildTimelineEvents, buildEntitiesInvolved
 } from './case-dossier.js';
 import { attestationConvergence } from './truth-attestation.js';
+import { dependentsOf, findDependencyCycles } from './case-dependencies.js';
 
 export const COUNTERFACTUAL_MODES = Object.freeze(['remove', 'negate']);
 
 const touches = (link, ref) => link.source_ref === ref || link.target_ref === ref;
+const touchesAny = (link, refs) => refs.has(link.source_ref) || refs.has(link.target_ref);
 
-/** `data` with the claim (and, for remove, its propositions) taken out. */
+/**
+ * `data` with the claim (and, for remove, its propositions) taken
+ * out. `ref` may be one canonical ref or a Set of them — the D.2
+ * cascade removes a claim together with everything that rests on it.
+ */
 function dataWithout(data, ref) {
-    const claims = ((data.orbit && data.orbit.claims) || []).filter((c) => c.id !== ref);
+    const refs = ref instanceof Set ? ref : new Set([ref]);
+    const claims = ((data.orbit && data.orbit.claims) || []).filter((c) => !refs.has(c.id));
     const claimsById = { ...(data.claimsById || {}) };
-    delete claimsById[ref];
+    for (const r of refs) delete claimsById[r];
     const allProps = {};
     for (const [id, p] of Object.entries((data.propositions && data.propositions.all) || {})) {
-        if (p.claim_id !== ref) allProps[id] = p;
+        if (!refs.has(p.claim_id)) allProps[id] = p;
     }
+    const keep = (l) => !touchesAny(l, refs);
     return {
         ...data,
         orbit: { ...(data.orbit || {}), claims },
         claimsById,
         propositions: {
             all: allProps,
-            orbit: ((data.propositions && data.propositions.orbit) || []).filter((p) => p.claim_id !== ref)
+            orbit: ((data.propositions && data.propositions.orbit) || []).filter((p) => !refs.has(p.claim_id))
         },
         links: {
             ...(data.links || {}),
-            contradicts: ((data.links && data.links.contradicts) || []).filter((l) => !touches(l, ref)),
-            attestations: ((data.links && data.links.attestations) || []).filter((l) => !touches(l, ref)),
-            related: ((data.links && data.links.related) || []).filter((l) => !touches(l, ref))
+            contradicts: ((data.links && data.links.contradicts) || []).filter(keep),
+            attestations: ((data.links && data.links.attestations) || []).filter(keep),
+            related: ((data.links && data.links.related) || []).filter(keep),
+            dependencies: ((data.links && data.links.dependencies) || []).filter(keep)
         }
     };
 }
@@ -229,6 +249,70 @@ function diffHypotheses(hypothesisEdges, ref, mode) {
 }
 
 /**
+ * D.2 — the dependency cascade (§3.2). Undercut = transitive
+ * dependents of `ref`; hypothesis_edges = the join rows whose claim is
+ * undercut, each with the chain (`via`) that reached it; cycles = the
+ * strongly connected components containing `ref` or an undercut claim.
+ */
+function diffDependencies(data, ref, mode, hypothesisEdges) {
+    const deps = (data.links && data.links.dependencies) || [];
+    const undercut = dependentsOf(deps, ref);
+    const chainOf = new Map(undercut.derivation.map((u) => [u.ref, u.chain]));
+    const edges = (hypothesisEdges || [])
+        .filter((e) => e && chainOf.has(e.ref))
+        .map((e) => ({
+            hypothesis_id: e.hypothesis_id,
+            label: e.label || e.hypothesis_id,
+            ref: e.ref,
+            role: e.role,
+            edge_id: e.edge_id,
+            via: chainOf.get(e.ref)
+        }))
+        .sort((a, b) => (a.ref < b.ref ? -1 : a.ref > b.ref ? 1
+            : a.edge_id < b.edge_id ? -1 : a.edge_id > b.edge_id ? 1 : 0));
+    const involved = new Set([ref, ...chainOf.keys()]);
+    const cycles = findDependencyCycles(deps).derivation.filter((c) => c.refs.some((r) => involved.has(r)));
+    return {
+        root: ref,
+        treatment: mode === 'negate' ? 'premise-negated' : 'premise-removed',
+        undercut,
+        hypothesis_edges: { count: edges.length, derivation: edges },
+        knots: diffKnotsForSet(data, involved, mode),
+        cycles: { count: cycles.length, derivation: cycles }
+    };
+}
+
+/**
+ * The §3.2 knot diff run over the WHOLE undercut set: the root and
+ * every claim that rests on it leave the contradiction graph together,
+ * and each knot any of them sat in reports what survives.
+ */
+function diffKnotsForSet(data, refs, mode) {
+    const before = buildKnots(data).contradictions || [];
+    const after = buildKnots(dataWithout(data, refs)).contradictions || [];
+    const affected = [];
+    for (const k of before) {
+        const kRefs = knotRefs(k);
+        const removed = kRefs.filter((r) => refs.has(r));
+        if (removed.length === 0) continue;
+        const refSet = new Set(kRefs);
+        const fragments = after
+            .filter((a) => knotRefs(a).every((r) => refSet.has(r)))
+            .map((a) => ({ size: a.size, refs: knotRefs(a), derivation: (a.edges || []).map((e) => e.link_id) }));
+        affected.push({
+            size_before: k.size,
+            refs_before: kRefs,
+            refs_removed: removed,
+            fragments_after: fragments,
+            change: fragments.length === 0 ? 'dissolved' : fragments.length > 1 ? 'split' : 'shrunk',
+            edge_treatment: mode === 'negate' ? 'flipped-to-concordance' : 'removed',
+            derivation: (k.edges || []).filter((e) => refs.has(e.source_ref) || refs.has(e.target_ref)).map((e) => e.link_id)
+        });
+    }
+    return { count: affected.length, derivation: affected };
+}
+
+/**
  * CF.2 — the plain-list rendering of a delta, as pure strings (the
  * portal DOM layer projects them 1:1, and the copy-review guard test
  * walks them: no "more/less likely", "stronger/weaker", "% chance" —
@@ -333,6 +417,7 @@ export function traceClaimDependencies(data, claimRef, options = {}) {
         // untouched, and a zero here is the TRUE measurement.
         entities: mode === 'remove' ? diffEntities(data, ref) : { losing_only_claim: zero },
         timeline: mode === 'remove' ? diffTimeline(data, ref) : { events_removed: zero, axes_emptied: zero },
-        hypotheses: diffHypotheses(options.hypothesisEdges, ref, mode)
+        hypotheses: diffHypotheses(options.hypothesisEdges, ref, mode),
+        dependencies: diffDependencies(data, ref, mode, options.hypothesisEdges)
     };
 }

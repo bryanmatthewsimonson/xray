@@ -310,8 +310,8 @@ Three producers, in order of trust, all landing through
 | Slice | Content | Wire |
 |---|---|---|
 | D.0 | This doc, approved + a ROADMAP Phase-26 addendum | — |
-| D.1 | `depends-on` in `CLAIM_RELATIONSHIPS` (`src/shared/assessment-taxonomy.js`), builder + parser (`metadata/builders.js`, `evidence-linker.js`), label/icon, NIP_DRAFT §30055 text, wire fixture; tests for id determinism, direction, coexistence with `supports` | **additive** |
-| D.2 | Pure cascade + load + shared-premise walks in `case-counterfactual.js` (or a sibling `claim-dependencies.js` if the file would cross its ceiling); cycle detection; derivation guard extended | — |
+| D.1 | **Shipped (PR #433).** `depends-on` as its own `DEPENDENCY_RELATIONSHIPS` constant beside `CLAIM_RELATIONSHIPS` (`src/shared/assessment-taxonomy.js` — kept out of the picker vocabulary until D.3), builder + parser (`metadata/builders.js`, `evidence-linker.js`), label/icon, NIP_DRAFT §30055 text, the `30055-dependency` wire fixture; tests for id determinism, direction, coexistence with `supports` | **additive** |
+| D.2 | **Shipped.** `links.dependencies` in the dossier collector; the pure walks in the sibling `src/shared/case-dependencies.js` (dependents / premises / load, cycles, shared premises); the cascade joined into `traceClaimDependencies` as its `dependencies` section in BOTH modes (stamped `premise-removed` / `premise-negated`); the CF.1 derivation guard covers it. No copy yet — `traceLines` is untouched until D.3 | — |
 | D.3 | Render: link-modal picker + authoring test; trace-expander lines; case-list "Load-bearing (n)"; graph arrows; the ⭐ relabel | — |
 | D.4 | The live per-adjudicator "premise adjudicated false" badge, the multi-verdict distribution render, the inconsistency marker (R-026) | — |
 | D.5 | LLM `rests_on` suggestion through the reduce firewall; both-sides / drop-count disclosure | — |
