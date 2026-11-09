@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let the corpus passes PROPOSE `depends-on` edges — in the brief's `load_bearing` entries as `rests_on` premises and in both relationship-proposal tools — through the existing validate → ground → human-accept path, with the authoring test in the prompts and on the review rows, every drop disclosed, and nothing applied without a click.
+**Goal:** Let the corpus passes PROPOSE `depends-on` edges — in the brief's `load_bearing` entries as `depends_on` premises and in both relationship-proposal tools — through the existing validate → ground → human-accept path, with the authoring test in the prompts and on the review rows, every drop disclosed, and nothing applied without a click.
 
-**Architecture:** No new accept path. A `rests_on` list on each `load_bearing` brief entry is converted into `relationship: 'depends-on'` proposals by the same `filterProposals` that already validates relationship proposals; the two LLM tools' `relationship` enums widen to `PROPOSABLE_RELATIONSHIPS` (the Phase-11 four plus `depends-on`); the prompts carry the §2.1 authoring test verbatim; the review rows show it under every `depends-on` proposal; a one-line pure summary discloses how many dependency proposals survived and how many dropped, with reasons. Proposal and link keys become direction-aware for directional relationships, since `A depends-on B` and `B depends-on A` are two proposals.
+**Architecture:** No new accept path. A `depends_on` list on each `load_bearing` brief entry is converted into `relationship: 'depends-on'` proposals by the same `filterProposals` that already validates relationship proposals; the two LLM tools' `relationship` enums widen to `PROPOSABLE_RELATIONSHIPS` (the Phase-11 four plus `depends-on`); the prompts carry the §2.1 authoring test verbatim; the review rows show it under every `depends-on` proposal; a one-line pure summary discloses how many dependency proposals survived and how many dropped, with reasons. Proposal and link keys become direction-aware for directional relationships, since `A depends-on B` and `B depends-on A` are two proposals.
 
 **Tech Stack:** plain ES modules, `node --test`.
 
@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Every proposed `depends-on` lands only on a human Accept, stamped `suggested_by: 'llm:<model>'` (the existing `acceptProposal` path in `src/portal/synthesis-review.js`).
-- Every ref must resolve to a captured claim; a `rests_on` id that does not is a rejected row with a reason, never a silent drop.
+- Every ref must resolve to a captured claim; a `depends_on` id that does not is a rejected row with a reason, never a silent drop.
 - The authoring test, verbatim, in both system prompts and on every `depends-on` review row: *Could the source still be true if the target turned out to be false? If yes, the link is `supports`, not `depends-on`.*
 - Both tools keep NO numeric slot (`tests/corpus-prompts.test.mjs` and `tests/corpus-links.test.mjs` grep-guard it); the prompts keep "NEVER output a verdict, score, probability".
 - `MAP_PROMPT_VERSION` stays `corpus-v9` (the extract cache key); `CORPUS_PROMPT_VERSION` → `corpus-v10` and `CLAIM_LINKS_PROMPT_VERSION` → `claim-links-v2` (the reduce and links tool schemas change).
@@ -23,8 +23,8 @@
 
 ## Review Focus
 
-1. A `rests_on` id that names the load-bearing claim itself must be rejected as a self-link, not accepted — Task 3.
-2. A `rests_on` entry on a `load_bearing` row whose `claim_ref` is null must be rejected with a reason naming the missing source — Task 3.
+1. A `depends_on` id that names the load-bearing claim itself must be rejected as a self-link, not accepted — Task 3.
+2. A `depends_on` entry on a `load_bearing` row whose `claim_ref` is null must be rejected with a reason naming the missing source — Task 3.
 3. `A depends-on B` and `B depends-on A` must be two proposals with two keys, while `A contradicts B` and `B contradicts A` stay one — Task 1.
 4. A `depends-on` proposal whose pair already exists as a `supports` link must NOT be rejected as "already exists" (different relationship, different key) — Task 1 / Task 3.
 5. The review row for a `depends-on` proposal must show the authoring test; a `supports` row must not — Task 4.
@@ -94,38 +94,38 @@ test('taxonomy: PROPOSABLE_RELATIONSHIPS is the picker set — the LLM may propo
 
 ---
 
-### Task 3: `rests_on` in the brief; `depends-on` in both tools, the schema, the validators
+### Task 3: `depends_on` in the brief; `depends-on` in both tools, the schema, the validators
 
 **Files:**
-- Modify: `src/shared/corpus-prompts.js` — the reduce tool (`load_bearing` items gain `rests_on: { type: 'array', items: { type: 'string' }, description: 'Existing claim ids this claim CANNOT be true without — necessary conditions only.' }`; the `proposals` relationship enum → `PROPOSABLE_RELATIONSHIPS`), the reduce system prompt (a `DEPENDENCIES` block: the §2.1 definition, the authoring test verbatim, "propose `depends-on` on BOTH sides of a disagreement where it exists; a corpus whose dependencies all sit under one position deserves scrutiny, not smoothing", "`rests_on` names ONLY existing ids from the claims index"), the claim-links tool enum and system prompt (same block), and the version constants (`CORPUS_PROMPT_VERSION = 'corpus-v10'`, `CLAIM_LINKS_PROMPT_VERSION = 'claim-links-v2'`)
-- Modify: `src/shared/case-synthesis.js` — `BRIEF_SCHEMA` (`load_bearing` items gain optional `rests_on: arr(str())`; the proposal enum → `PROPOSABLE_RELATIONSHIPS`); `filterProposals` gains a first step: for each `load_bearing` entry with `rests_on`, synthesize `{ kind: 'relationship', source_claim_id: entry.claim_ref, target_claim_id: id, relationship: 'depends-on', note: entry.why || '', from_rests_on: true }` rows ahead of `brief.proposals` (a null `claim_ref` → rejected `'rests_on names no source claim (claim_ref is null)'`); the relationship check uses `PROPOSABLE_RELATIONSHIPS`
+- Modify: `src/shared/corpus-prompts.js` — the reduce tool (`load_bearing` items gain `depends_on: { type: 'array', items: { type: 'string' }, description: 'Existing claim ids this claim CANNOT be true without — necessary conditions only.' }`; the `proposals` relationship enum → `PROPOSABLE_RELATIONSHIPS`), the reduce system prompt (a `DEPENDENCIES` block: the §2.1 definition, the authoring test verbatim, "propose `depends-on` on BOTH sides of a disagreement where it exists; a corpus whose dependencies all sit under one position deserves scrutiny, not smoothing", "`depends_on` names ONLY existing ids from the claims index"), the claim-links tool enum and system prompt (same block), and the version constants (`CORPUS_PROMPT_VERSION = 'corpus-v10'`, `CLAIM_LINKS_PROMPT_VERSION = 'claim-links-v2'`)
+- Modify: `src/shared/case-synthesis.js` — `BRIEF_SCHEMA` (`load_bearing` items gain optional `depends_on: arr(str())`; the proposal enum → `PROPOSABLE_RELATIONSHIPS`); `filterProposals` gains a first step: for each `load_bearing` entry with `depends_on`, synthesize `{ kind: 'relationship', source_claim_id: entry.claim_ref, target_claim_id: id, relationship: 'depends-on', note: entry.why || '', from_depends_on: true }` rows ahead of `brief.proposals` (a null `claim_ref` → rejected `'depends_on names no source claim (claim_ref is null)'`); the relationship check uses `PROPOSABLE_RELATIONSHIPS`
 - Modify: `src/shared/llm-proposals.js:237-241` (`validateProposal` relationship case → `PROPOSABLE_RELATIONSHIPS`)
-- Test: `tests/corpus-prompts.test.mjs` (version pins; a new prompt test), `tests/corpus-links.test.mjs` (version pin; enum), `tests/case-synthesis.test.mjs` (filterProposals rests_on tests), `tests/llm-proposals.test.mjs`
+- Test: `tests/corpus-prompts.test.mjs` (version pins; a new prompt test), `tests/corpus-links.test.mjs` (version pin; enum), `tests/case-synthesis.test.mjs` (filterProposals depends_on tests), `tests/llm-proposals.test.mjs`
 
 **Interfaces:**
 - Consumes: Task 2's constants.
-- Produces: `filterProposals(brief, ctx)` → `{ acceptable, rejected }` where `rests_on` rows appear as `depends-on` relationship proposals carrying `from_rests_on: true`; rejected rows carry a reason.
+- Produces: `filterProposals(brief, ctx)` → `{ acceptable, rejected }` where `depends_on` rows appear as `depends-on` relationship proposals carrying `from_depends_on: true`; rejected rows carry a reason.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```js
 // tests/case-synthesis.test.mjs
-test('filterProposals: a load_bearing entry\'s rests_on becomes depends-on proposals — source = the claim, each target validated; self and null-source rejected with reasons (D.5)', () => {
+test('filterProposals: a load_bearing entry\'s depends_on becomes depends-on proposals — source = the claim, each target validated; self and null-source rejected with reasons (D.5)', () => {
     const brief = { summary: 's', load_bearing: [
-        { claim_ref: 'c1', article_hash: 'A', quote: 'q', why: 'rests on the log', rests_on: ['c2', 'c1', 'nope'] },
-        { claim_ref: null, article_hash: 'A', quote: 'q', rests_on: ['c2'] }
+        { claim_ref: 'c1', article_hash: 'A', quote: 'q', why: 'rests on the log', depends_on: ['c2', 'c1', 'nope'] },
+        { claim_ref: null, article_hash: 'A', quote: 'q', depends_on: ['c2'] }
     ], proposals: [{ kind: 'relationship', source_claim_id: 'c1', target_claim_id: 'c2', relationship: 'depends-on' }] };
     const { acceptable, rejected } = CS.filterProposals(brief, { claimsById: { c1: {}, c2: {} } });
-    assert.deepEqual(acceptable.map((p) => [p.source_claim_id, p.target_claim_id, p.relationship, p.from_rests_on === true]),
-        [['c1', 'c2', 'depends-on', true]], 'the explicit duplicate proposal dedups against the rests_on row');
+    assert.deepEqual(acceptable.map((p) => [p.source_claim_id, p.target_claim_id, p.relationship, p.from_depends_on === true]),
+        [['c1', 'c2', 'depends-on', true]], 'the explicit duplicate proposal dedups against the depends_on row');
     assert.equal(acceptable[0].note, 'rests on the log');
-    assert.deepEqual(rejected.map((r) => r.reason).sort(), ['rests_on names no source claim (claim_ref is null)', 'source and target are the same claim', 'unknown target claim nope']);
+    assert.deepEqual(rejected.map((r) => r.reason).sort(), ['depends_on names no source claim (claim_ref is null)', 'source and target are the same claim', 'unknown target claim nope']);
 });
 test('filterProposals: depends-on is a valid proposal relationship; a revision value is not', () => { … });
 // tests/corpus-prompts.test.mjs — update the version pin: MAP 'corpus-v9', CORPUS 'corpus-v10'; add:
 test('corpus-prompts: both tools offer depends-on and both prompts carry the authoring test verbatim (D.5)', () => {
     for (const tool of [CP.buildReduceTool(), CP.buildClaimLinksTool()]) { /* find the relationship enum; assert it deepEquals PROPOSABLE_RELATIONSHIPS */ }
-    assert.ok(CP.buildReduceTool().input_schema.properties.load_bearing.items.properties.rests_on);
+    assert.ok(CP.buildReduceTool().input_schema.properties.load_bearing.items.properties.depends_on);
     for (const sys of [CP.buildReduceSystemPrompt({}), CP.buildClaimLinksSystemPrompt({})]) {
         assert.ok(sys.includes(DEPENDENCY_AUTHORING_TEST));
         assert.match(sys, /BOTH sides/);
@@ -136,7 +136,7 @@ test('corpus-prompts: both tools offer depends-on and both prompts carry the aut
 // tests/llm-proposals.test.mjs — validateProposal accepts a depends-on relationship with two refs
 ```
 
-- [ ] **Step 2: Run and watch them fail**; **Step 3: Implement**; **Step 4: Run** the four files plus `tests/structure-guards.test.mjs tests/disciplines.test.mjs` — all PASS (the no-numeric-slot guards included); **Step 5: Commit** `feat(llm): propose depends-on through the brief's rests_on and both relationship tools, behind the authoring test (D.5)`
+- [ ] **Step 2: Run and watch them fail**; **Step 3: Implement**; **Step 4: Run** the four files plus `tests/structure-guards.test.mjs tests/disciplines.test.mjs` — all PASS (the no-numeric-slot guards included); **Step 5: Commit** `feat(llm): propose depends-on through the brief's depends_on and both relationship tools, behind the authoring test (D.5)`
 
 ---
 
@@ -172,6 +172,6 @@ test('synthesis-review: a depends-on row shows the authoring test; a supports ro
 **Files:**
 - Modify: `docs/journal/2026-11.md` (append an entry: direction-aware proposal keys — why, and the one-time reappearance of dismissed directional proposals), regenerate `docs/JOURNAL.md` with `npm run docs:journal`
 - Modify: `docs/SMOKE_TEST.md` (rows P-D.l: Analyze corpus → the brief's proposals include `depends-on` rows each showing the authoring test, with the disclosure line; P-D.m: Suggest links → same; P-D.n: Accept one → a `depends-on` link stamped `llm:<model>` appears on the claim card and the dashboard chips of D.3/D.4 follow)
-- Modify: `docs/CLAIM_DEPENDENCY_DESIGN.md` (§7 row D.5 shipped; §4 item 2 rewritten to the shipped shape: `rests_on` plus the two tools' enums, through `filterProposals`), `CHANGELOG.md`
+- Modify: `docs/CLAIM_DEPENDENCY_DESIGN.md` (§7 row D.5 shipped; §4 item 2 rewritten to the shipped shape: `depends_on` plus the two tools' enums, through `filterProposals`), `CHANGELOG.md`
 
-- [ ] **Step 1: Write the journal entry and regenerate the index**; **Step 2: smoke rows, ladder, §4, changelog**; **Step 3: Run the gates** `npm run lint:js && npm run build && npm run check:budget && npm test` — green; **Step 4: Commit, push, open the PR** — `Verification layer: unit + guard + human-soak (P-D.l–n)`; `Wire format: none`; `Docs: docs/journal/2026-11.md (+ docs/JOURNAL.md), docs/SMOKE_TEST.md (JOURNAL 2026-11-06), docs/CLAIM_DEPENDENCY_DESIGN.md, CHANGELOG.md`; interpretive steps: `rests_on` rides the relationship-proposal path rather than a new accept path; direction-aware keys resurrect dismissed directional proposals once; the prompt's "both sides" rule is an instruction plus the disclosure line, not a post-check that refuses a one-sided result.
+- [ ] **Step 1: Write the journal entry and regenerate the index**; **Step 2: smoke rows, ladder, §4, changelog**; **Step 3: Run the gates** `npm run lint:js && npm run build && npm run check:budget && npm test` — green; **Step 4: Commit, push, open the PR** — `Verification layer: unit + guard + human-soak (P-D.l–n)`; `Wire format: none`; `Docs: docs/journal/2026-11.md (+ docs/JOURNAL.md), docs/SMOKE_TEST.md (JOURNAL 2026-11-06), docs/CLAIM_DEPENDENCY_DESIGN.md, CHANGELOG.md`; interpretive steps: `depends_on` rides the relationship-proposal path rather than a new accept path; direction-aware keys resurrect dismissed directional proposals once; the prompt's "both sides" rule is an instruction plus the disclosure line, not a post-check that refuses a one-sided result.

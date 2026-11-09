@@ -90,7 +90,7 @@ and 9803, a retirement of kinds that were never emitted.
 
 - **Claim dependencies, proposed (D.5).** Analyze corpus and Suggest
   links may now propose `depends-on` edges — the brief's claims-the-
-  case-turns-on carry `rests_on` premises, and both relationship tools
+  case-turns-on carry `depends_on` premises, and both relationship tools
   offer the value — through the same validate-then-Accept path as
   every other proposal, with the authoring test ("could the source
   still be true if the target turned out false? then it is supports")
@@ -101,7 +101,7 @@ and 9803, a retirement of kinds that were never emitted.
   supports A" (a dismissed directional proposal reappears once).
   Every stored case brief reads as stale after this change and
   re-runs on demand; the re-run re-bills the synthesis call only — the
-  per-article extracts stay cached. `rests_on` never publishes: the
+  per-article extracts stay cached. `depends_on` never publishes: the
   kind-30068 brief carries the load-bearing claims as before.
 - **Claim dependencies, adjudicated (D.4).** When a verdict on a
   premise is established-false, every claim that rests on it shows

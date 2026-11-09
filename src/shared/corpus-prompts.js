@@ -105,7 +105,7 @@ const MAP_ENTITY_TYPES = Object.freeze(['person', 'organization', 'place', 'thin
 // layer keeps claim-shaped atoms (MA.4 scope, guard rail 4). One-time
 // cost: every corpus-v8 cached extract is orphaned (MA.1, as ever).
 export const MAP_PROMPT_VERSION = 'corpus-v9';
-// corpus-v10 (claim dependency D.5): the REDUCE schema gained `rests_on`
+// corpus-v10 (claim dependency D.5): the REDUCE schema gained `depends_on`
 // on load_bearing entries and `depends-on` in the proposal enum —
 // reduce-only, so MAP_PROMPT_VERSION (the extract cache key) stays.
 export const CORPUS_PROMPT_VERSION = 'corpus-v10';
@@ -369,7 +369,7 @@ export function buildReduceTool() {
                             article_hash: { type: 'string' },
                             quote: { type: 'string', description: 'Verbatim span from the named member.' },
                             why: { type: 'string' },
-                            rests_on: {
+                            depends_on: {
                                 type: 'array', items: { type: 'string' },
                                 description: 'EXISTING claim ids (from the claims index, from OTHER articles) this claim CANNOT be true without — '
                                     + 'necessary conditions only, never mere support, never itself. `why` then states why it cannot stand without them. Omit rather than guess.'
@@ -442,9 +442,9 @@ export function buildReduceSystemPrompt({ caseName = '', scopeQuestion = '' } = 
         '  is true — a necessary condition, not evidence. Several dependencies behave like AND;',
         '  several `supports` like OR. The test, every time: ' + DEPENDENCY_AUTHORING_TEST,
         '- Two channels, same review: a `relationship` proposal with `depends-on`, or — on a',
-        '  `load_bearing` entry — `rests_on`, the EXISTING claim ids (from the claims index, from',
+        '  `load_bearing` entry — `depends_on`, the EXISTING claim ids (from the claims index, from',
         '  OTHER articles) that claim cannot be true without: necessary conditions only, never mere',
-        '  support, never the claim itself. When you give `rests_on`, its `why` must say why the',
+        '  support, never the claim itself. When you give `depends_on`, its `why` must say why the',
         '  claim cannot stand without them (it becomes each proposed link\'s note). Omit rather than guess.',
         '- Propose `depends-on` on BOTH sides of a disagreement where it exists — a corpus whose',
         '  dependencies all sit under one position deserves scrutiny, not smoothing.',

@@ -501,7 +501,7 @@ const BRIEF_SCHEMA = obj({
         evidence_refs: arr(obj({ article_hash: str(), quote: str({ minLength: 1 }) }, ['article_hash', 'quote'])),
         what_would_resolve: str()
     }, ['question'])),
-    load_bearing: arr(obj({ claim_ref: nullableStr(), article_hash: str(), quote: str({ minLength: 1 }), why: str(), rests_on: arr(str()) }, ['article_hash', 'quote'])),
+    load_bearing: arr(obj({ claim_ref: nullableStr(), article_hash: str(), quote: str({ minLength: 1 }), why: str(), depends_on: arr(str()) }, ['article_hash', 'quote'])),
     coverage_gaps: arr(str()),
     proposals: arr(obj({
         kind: en(['relationship', 'is_key', 'claim']),
@@ -731,18 +731,18 @@ export function filterProposals(brief, { claimsById = {}, memberHashes = new Set
     const acceptable = [];
     const rejected = [];
     const seen = new Set();   // dedup key across all kinds
-    // Claim dependency D.5: a load_bearing entry's `rests_on` is a set
+    // Claim dependency D.5: a load_bearing entry's `depends_on` is a set
     // of depends-on proposals (source = the load-bearing claim, target =
     // each premise) and rides the SAME validate → accept path. They go
     // first so an explicit duplicate in `proposals` dedups against them.
     const fromRestsOn = [];
     for (const lb of (brief.load_bearing || [])) {
-        if (!lb || !Array.isArray(lb.rests_on) || lb.rests_on.length === 0) continue;
-        for (const target of lb.rests_on) {
+        if (!lb || !Array.isArray(lb.depends_on) || lb.depends_on.length === 0) continue;
+        for (const target of lb.depends_on) {
             const row = { kind: 'relationship', source_claim_id: lb.claim_ref || null, target_claim_id: String(target || ''),
-                relationship: 'depends-on', note: lb.why || '', from_rests_on: true, quote: lb.quote || '' };
+                relationship: 'depends-on', note: lb.why || '', from_depends_on: true, quote: lb.quote || '' };
             if (!lb.claim_ref) {
-                rejected.push({ ...row, reason: 'rests_on names no source claim (claim_ref is null)' });
+                rejected.push({ ...row, reason: 'depends_on names no source claim (claim_ref is null)' });
             } else if (claimsById[lb.claim_ref] && claimsById[lb.claim_ref].article_hash && lb.article_hash
                     && claimsById[lb.claim_ref].article_hash !== lb.article_hash) {
                 // The quote grounds the ARTICLE; the source claim must be from it.

@@ -20,7 +20,7 @@ test('corpus-prompts: tool names + versions pinned (map/overall split)', () => {
     // CORPUS_PROMPT_VERSION (staleness) but NOT this. The versions have
     // stayed converged since v7; they may diverge again.
     // corpus-v10 (claim dependency D.5): the REDUCE schema gained
-    // `rests_on` and the depends-on proposal value — reduce-only, so
+    // `depends_on` and the depends-on proposal value — reduce-only, so
     // the map key stays on v9 and every cached extract survives.
     assert.equal(CP.MAP_PROMPT_VERSION, 'corpus-v9');
     assert.equal(CP.CORPUS_PROMPT_VERSION, 'corpus-v10');
@@ -159,7 +159,7 @@ test('corpus-prompts: both tools offer depends-on and both prompts carry the aut
     const linksEnum = CP.buildClaimLinksTool().input_schema.properties.proposals.items.properties.relationship.enum;
     assert.deepEqual(reduceEnum, [...PROPOSABLE_RELATIONSHIPS]);
     assert.deepEqual(linksEnum, [...PROPOSABLE_RELATIONSHIPS]);
-    const restsOn = CP.buildReduceTool().input_schema.properties.load_bearing.items.properties.rests_on;
+    const restsOn = CP.buildReduceTool().input_schema.properties.load_bearing.items.properties.depends_on;
     assert.equal(restsOn.type, 'array');
     assert.match(restsOn.description, /CANNOT be true without/);
     for (const sys of [CP.buildReduceSystemPrompt({}), CP.buildClaimLinksSystemPrompt({})]) {

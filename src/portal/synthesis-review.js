@@ -19,7 +19,7 @@ export function describeProposal(p, claimsById) {
     if (p.kind === 'relationship') {
         const s = claimsById[p.source_claim_id];
         const t = claimsById[p.target_claim_id];
-        if (p.from_rests_on && !p.source_claim_id) {
+        if (p.from_depends_on && !p.source_claim_id) {
             return `Dependency proposal with no source claim (the brief quoted “${truncate(p.quote || '', 60)}” but named no claim): `
                 + `rests on "${truncate((t && t.text) || p.target_claim_id, 50)}"`;
         }

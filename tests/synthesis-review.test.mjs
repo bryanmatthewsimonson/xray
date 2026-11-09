@@ -73,8 +73,8 @@ test('synthesis-review: a legacy sorted triage key never matches a new direction
     assert.equal(partitionProposals([rel('c2', 'c1')], triage).open.length, 1);
 });
 
-test('synthesis-review: a rests_on row with no source claim says so and names its target (D.5 review)', () => {
-    const row = { kind: 'relationship', source_claim_id: null, target_claim_id: 'c2', relationship: 'depends-on', from_rests_on: true, quote: 'The lab log.' };
+test('synthesis-review: a depends_on row with no source claim says so and names its target (D.5 review)', () => {
+    const row = { kind: 'relationship', source_claim_id: null, target_claim_id: 'c2', relationship: 'depends-on', from_depends_on: true, quote: 'The lab log.' };
     const text = describeProposal(row, { c2: { text: 'Target says.' } });
     assert.match(text, /^Dependency proposal with no source claim \(the brief quoted “The lab log\.” but named no claim\): rests on "Target says\."/);
 });
