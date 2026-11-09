@@ -36,7 +36,7 @@ import { ClaimModel } from './claim-model.js';
 import { normalize as normalizeUrl } from './metadata/url-normalizer.js';
 import {
     CLAIM_RELATIONSHIPS, REVISION_RELATIONSHIPS, DEPENDENCY_RELATIONSHIPS,
-    isSymmetricRelationship, isValidSuggestedBy
+    DEPENDENCY_AUTHORING_TEST, isSymmetricRelationship, isValidSuggestedBy
 } from './assessment-taxonomy.js';
 import {
     isLocalClaimId, parseClaimCoord, assertValidClaimRef,
@@ -57,10 +57,9 @@ export const EVIDENCE_RELATIONSHIPS = Object.freeze([
 
 // The §2.1 authoring test, verbatim — the one question that keeps a
 // `supports` from being drawn as a `depends-on` (a dependency drawn
-// where support was meant makes the cascade lie).
-export const DEPENDENCY_AUTHORING_TEST =
-    'Could the source still be true if the target turned out to be false? '
-    + 'If yes, the link is `supports`, not `depends-on`.';
+// where support was meant makes the cascade lie). Defined in the
+// taxonomy (pure) since D.5 writes it into the LLM prompts too.
+export { DEPENDENCY_AUTHORING_TEST };
 
 // The same question in the picker's own words (the buttons read
 // "Supports" / "Depends on"; textContent would show backticks).
