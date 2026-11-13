@@ -667,3 +667,26 @@ each PR's body (`scripts/pr-body-check.mjs`; advisory, re-runs on
 description edits). A `v*` tag triggers `release.yml`
 (builds, packages, creates a GitHub Release with the `.zip`). Get all of
 build + test + lint green locally before pushing.
+
+## Agent skills
+
+Configuration for the engineering skills that work the issue tracker
+and the domain docs (triage, tickets, wayfinding, domain modeling).
+These are not the dev-process skills in `.claude/skills/`. JOURNAL
+2026-11-12.
+
+### Issue tracker
+
+Issues live in GitHub Issues for `bryanmatthewsimonson/xray` (via the
+`gh` CLI). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five triage roles map to `triage`, `needs-info`, `ready-for-agent`,
+`ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` at the repo root (created lazily);
+decisions live in `docs/RULINGS.md` and `docs/journal/`, not
+`docs/adr/`. See `docs/agents/domain.md`.
