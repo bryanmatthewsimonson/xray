@@ -144,6 +144,26 @@ export function isDependencyRelationship(relationship) {
     return DEPENDENCY_RELATIONSHIPS.includes(relationship);
 }
 
+/**
+ * What an LLM pass may PROPOSE as a claim relationship (claim
+ * dependency D.5): exactly the set a human may draw in the reader's
+ * link picker — the Phase-11 four plus `depends-on`. The `revision/*`
+ * values are drawn by the forensic flow and never proposed here.
+ */
+export const PROPOSABLE_RELATIONSHIPS = Object.freeze([
+    ...CLAIM_RELATIONSHIPS, ...DEPENDENCY_RELATIONSHIPS
+]);
+
+/**
+ * The §2.1 authoring test, verbatim (docs/CLAIM_DEPENDENCY_DESIGN.md)
+ * — the one question that keeps a `supports` from being drawn as a
+ * `depends-on`. Shown in the link picker (via evidence-linker.js) and
+ * written into every prompt that may propose a dependency.
+ */
+export const DEPENDENCY_AUTHORING_TEST =
+    'Could the source still be true if the target turned out to be false? '
+    + 'If yes, the link is `supports`, not `depends-on`.';
+
 // ------------------------------------------------------------------
 // Provenance — the manual-now / LLM-ready seam.
 // ------------------------------------------------------------------
