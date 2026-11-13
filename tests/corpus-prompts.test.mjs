@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 const CP = await import('../src/shared/corpus-prompts.js');
+const { PROPOSABLE_RELATIONSHIPS, DEPENDENCY_AUTHORING_TEST } = await import('../src/shared/assessment-taxonomy.js');
 
 test('corpus-prompts: tool names + versions pinned (map/overall split)', () => {
     assert.equal(CP.MAP_TOOL_NAME, 'emit_corpus_extract');
@@ -18,8 +19,11 @@ test('corpus-prompts: tool names + versions pinned (map/overall split)', () => {
     // whole map re-pays once each. A reduce-only change bumps
     // CORPUS_PROMPT_VERSION (staleness) but NOT this. The versions have
     // stayed converged since v7; they may diverge again.
+    // corpus-v10 (claim dependency D.5): the REDUCE schema gained
+    // `depends_on` and the depends-on proposal value — reduce-only, so
+    // the map key stays on v9 and every cached extract survives.
     assert.equal(CP.MAP_PROMPT_VERSION, 'corpus-v9');
-    assert.equal(CP.CORPUS_PROMPT_VERSION, 'corpus-v9');
+    assert.equal(CP.CORPUS_PROMPT_VERSION, 'corpus-v10');
 });
 
 test('corpus-prompts: the reduce prompt asks for FULL holders + all major cruxes (breadth)', () => {
@@ -148,4 +152,20 @@ test('corpus-prompts: the map input is CASE-blind too (corpus-v7 — the pay-onc
     // not disappear.
     assert.match(CP.buildReduceSystemPrompt({ caseName: 'Origins', scopeQuestion: 'Where?' }),
         /"Origins"/);
+});
+
+test('corpus-prompts: both tools offer depends-on and both prompts carry the authoring test verbatim (D.5)', () => {
+    const reduceEnum = CP.buildReduceTool().input_schema.properties.proposals.items.properties.relationship.enum;
+    const linksEnum = CP.buildClaimLinksTool().input_schema.properties.proposals.items.properties.relationship.enum;
+    assert.deepEqual(reduceEnum, [...PROPOSABLE_RELATIONSHIPS]);
+    assert.deepEqual(linksEnum, [...PROPOSABLE_RELATIONSHIPS]);
+    const restsOn = CP.buildReduceTool().input_schema.properties.load_bearing.items.properties.depends_on;
+    assert.equal(restsOn.type, 'array');
+    assert.match(restsOn.description, /CANNOT be true without/);
+    for (const sys of [CP.buildReduceSystemPrompt({}), CP.buildClaimLinksSystemPrompt({})]) {
+        assert.ok(sys.includes(DEPENDENCY_AUTHORING_TEST), 'the authoring test, verbatim');
+        assert.match(sys, /BOTH sides/);
+        assert.match(sys, /NEVER output a verdict, score, probability/);
+        assert.ok(!/corpus-v\d|claim-links-v\d/.test(sys), 'no version labels inside the live prompt text');
+    }
 });

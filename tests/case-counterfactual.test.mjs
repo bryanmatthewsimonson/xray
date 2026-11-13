@@ -16,7 +16,7 @@ globalThis.chrome = globalThis.chrome || {
     storage: { local: { get(_k, cb) { cb({}); }, set(_o, cb) { cb && cb(); }, remove(_k, cb) { cb && cb(); } } }
 };
 
-const { traceClaimDependencies, traceLines, COUNTERFACTUAL_MODES } =
+const { traceClaimDependencies, traceLines, COUNTERFACTUAL_MODES, CASCADE_ASYMMETRY_LINE } =
     await import('../src/shared/case-counterfactual.js');
 
 const CASE_ID = 'entity_00000000000000aa';
@@ -110,6 +110,12 @@ function makeData(over = {}) {
                 link('link_00000000000000s3', C6, C5, 'supports'),
                 att('link_00000000000000a1', C1, C4, 'origin-alpha', 10),
                 att('link_00000000000000a2', C6, C4, 'origin-beta', 20, 'separate chain of custody')
+            ],
+            // Claim dependency D.2: c3 depends on c1, c5 depends on c3
+            // (source depends on target) — a two-step chain under c1.
+            dependencies: [
+                link('link_00000000000000d1', C3, C1, 'depends-on'),
+                link('link_00000000000000d2', C5, C3, 'depends-on')
             ]
         },
         wire: { verdicts: [], findings: [], articles: [] },
@@ -280,6 +286,7 @@ test('case-counterfactual: §4 copy guard — no likelihood/strength/percent phr
     const banned = /more likely|less likely|stronger|weaker|% chance|\d+\s*%|probabilit|confidence|score\b|winner/i;
     for (const mode of COUNTERFACTUAL_MODES) {
         const data = makeData();
+        data.links.dependencies.push(link('link_00000000000000d3', C1, C5, 'depends-on'));   // a cycle, so its line is walked too
         for (const ref of [C1, C2, C4, 'claim_00000000000000ff']) {
             const lines = traceLines(
                 traceClaimDependencies(data, ref, { mode, hypothesisEdges: RICH_EDGES }),
@@ -295,10 +302,12 @@ test('case-counterfactual: §4 copy guard — no likelihood/strength/percent phr
 // Provenance: INTERPRETATION (2026-09-26) — expires 2026-12-25
 test('case-counterfactual: §4 guard — banned keys nowhere, and EVERY numeric sits beside a derivation', () => {
     const hypothesisEdges = [
-        { hypothesis_id: 'hyp_1', label: 'Zoonotic', ref: C1, role: 'supports', edge_id: 'hedge_1' }
+        { hypothesis_id: 'hyp_1', label: 'Zoonotic', ref: C1, role: 'supports', edge_id: 'hedge_1' },
+        { hypothesis_id: 'hyp_1', label: 'Zoonotic', ref: C5, role: 'supports', edge_id: 'hedge_5' }   // reached by the cascade
     ];
     for (const mode of COUNTERFACTUAL_MODES) {
         const delta = traceClaimDependencies(makeData(), C1, { mode, hypothesisEdges });
+        assert.ok(delta.dependencies.hypothesis_edges.count > 0, 'the guard walks a non-empty cascade');
         const banned = /probabilit|likelihood|confidence|score|weight|strength|rating|grade|mean/i;
         const walk = (node, path, insideDerivation) => {
             if (Array.isArray(node)) {
@@ -318,4 +327,121 @@ test('case-counterfactual: §4 guard — banned keys nowhere, and EVERY numeric 
         };
         walk(delta, '$', false);
     }
+});
+
+// ------------------------------------------------------------------
+// Claim dependency D.2 — the cascade (docs/CLAIM_DEPENDENCY_DESIGN.md §3.2)
+// ------------------------------------------------------------------
+
+test('case-counterfactual: the cascade lists every transitive dependent with its chain, in both modes', () => {
+    for (const mode of COUNTERFACTUAL_MODES) {
+        const d = traceClaimDependencies(makeData(), C1, { mode });
+        assert.equal(d.dependencies.undercut.count, 2);
+        assert.deepEqual(d.dependencies.undercut.derivation.map((u) => u.ref), [C3, C5]);
+        assert.deepEqual(d.dependencies.undercut.derivation[1].chain, [C1, C3, C5]);
+        assert.deepEqual(d.dependencies.undercut.derivation[1].derivation, ['link_00000000000000d1', 'link_00000000000000d2']);
+        assert.equal(d.dependencies.treatment, mode === 'negate' ? 'premise-negated' : 'premise-removed');
+    }
+});
+
+test('case-counterfactual: hypothesis edges carried by undercut claims are listed with their chain, never counted onto the hypothesis', () => {
+    const edges = [
+        { hypothesis_id: 'h1', label: 'Zoonotic', ref: C5, role: 'supports', edge_id: 'e5' },
+        { hypothesis_id: 'h1', label: 'Zoonotic', ref: C6, role: 'supports', edge_id: 'e6' }   // c6 does not depend on c1
+    ];
+    const d = traceClaimDependencies(makeData(), C1, { mode: 'negate', hypothesisEdges: edges });
+    assert.equal(d.dependencies.hypothesis_edges.count, 1);
+    const row = d.dependencies.hypothesis_edges.derivation[0];
+    assert.equal(row.edge_id, 'e5');
+    assert.equal(row.ref, C5, 'claim refs are `ref` throughout the trace output');
+    assert.equal(row.role, 'supports');
+    assert.deepEqual(row.via, [C1, C3, C5]);
+    assert.ok(!Object.keys(row).some((k) => /remaining|surviving|total/.test(k)), 'no per-hypothesis tally');
+});
+
+test('case-counterfactual: tracing a mid-chain claim lists only what rests on it, and the root trace sees the whole family', () => {
+    // Tracing c3: only c5 depends on it. Tracing c1: both.
+    const d = traceClaimDependencies(makeData(), C3, { mode: 'remove' });
+    assert.deepEqual(d.dependencies.undercut.derivation.map((u) => u.ref), [C5]);
+    // And tracing c1 itself reports both dependents, so dataWithout must
+    // have had the full family to walk BEFORE filtering it out.
+    assert.equal(traceClaimDependencies(makeData(), C1, { mode: 'remove' }).dependencies.undercut.count, 2);
+});
+
+test('case-counterfactual: a claim with no dependents reports count 0, an empty cycles list, and no hypothesis edges', () => {
+    const d = traceClaimDependencies(makeData(), C6, { mode: 'negate', hypothesisEdges: [
+        { hypothesis_id: 'h1', label: 'Zoonotic', ref: C6, role: 'supports', edge_id: 'e6' }
+    ] });
+    assert.equal(d.dependencies.undercut.count, 0);
+    assert.equal(d.dependencies.cycles.count, 0);
+    assert.equal(d.dependencies.hypothesis_edges.count, 0, 'the claim\'s OWN edges are the one-hop hypotheses section, not the cascade');
+});
+
+test('case-counterfactual: a cycle through the claim is reported, and the walk terminates', () => {
+    const data = makeData();
+    data.links.dependencies.push(link('link_00000000000000d3', C1, C5, 'depends-on'));   // c1 depends on c5: c1→c3→c5→c1
+    const d = traceClaimDependencies(data, C1, { mode: 'negate' });
+    assert.deepEqual(d.dependencies.undercut.derivation.map((u) => u.ref), [C3, C5]);
+    assert.equal(d.dependencies.cycles.count, 1);
+    assert.deepEqual(d.dependencies.cycles.derivation[0].refs, [C1, C3, C5]);
+});
+
+test('traceLines: the cascade — undercut claims with chains, their hypothesis attachments, and the fixed asymmetry sentence', () => {
+    const data = makeData();
+    const edges = [{ hypothesis_id: 'h1', label: 'Zoonotic', ref: C5, role: 'supports', edge_id: 'e5' }];
+    const lines = traceLines(traceClaimDependencies(data, C1, { mode: 'negate', hypothesisEdges: edges }), { claimsById: data.claimsById });
+    const texts = lines.map((l) => l.text);
+    assert.ok(texts.some((t) => /^If this claim were false, 2 claims would lose a necessary premise$/.test(t)), texts.join(' | '));
+    const cascade = lines.find((l) => /lose a necessary premise/.test(l.text));
+    assert.match(cascade.derivation, new RegExp(`${C1} → ${C3} → ${C5}`), 'the chain is on the face');
+    assert.match(cascade.derivation, /Claim claim_00000000000000c3/, 'claim text, not only the id');
+    assert.ok(texts.some((t) => /^1 hypothesis attachment rests on an undercut claim$/.test(t)));
+    assert.ok(texts.includes(CASCADE_ASYMMETRY_LINE));
+    assert.equal(CASCADE_ASYMMETRY_LINE, 'The truth of a premise establishes nothing about its dependents; only falsity propagates.');
+    const remove = traceLines(traceClaimDependencies(data, C1, { mode: 'remove' }), { claimsById: data.claimsById }).map((l) => l.text);
+    assert.ok(remove.some((t) => /^Removing this claim leaves 2 claims without a necessary premise$/.test(t)));
+    assert.ok(!remove.some((t) => /hypothesis attachment/.test(t)), 'no attachment line without hypothesis edges');
+    assert.ok(texts.some((t) => /^With its dependents' edges also flipped to concordance, a contradiction knot of 3: it dissolves as a knot$/.test(t)), texts.join(' | '));
+    assert.ok(remove.some((t) => /^With its dependents gone too, a contradiction knot of 3: it dissolves$/.test(t)), remove.join(' | '));
+});
+
+test('traceLines: a knot the root sits in ALONE gets no cascade knot line — the one-hop section already said it', () => {
+    const data = makeData();
+    // c4 depends on c2; c2 is in the c1—c2—c3 knot, c4 is not.
+    data.links.dependencies.push(link('link_00000000000000d4', C4, C2, 'depends-on'));
+    for (const mode of COUNTERFACTUAL_MODES) {
+        const texts = traceLines(traceClaimDependencies(data, C2, { mode }), { claimsById: data.claimsById }).map((l) => l.text);
+        assert.ok(texts.some((t) => /contradiction knot of 3/.test(t)), 'the one-hop knot line is there');
+        assert.ok(!texts.some((t) => /^With its dependents/.test(t)), `no cascade knot line in ${mode}: ${texts.join(' | ')}`);
+    }
+});
+
+test('traceLines: a cycle through the claim renders as a circular premise', () => {
+    const data = makeData();
+    data.links.dependencies.push(link('link_00000000000000d3', C1, C5, 'depends-on'));
+    const texts = traceLines(traceClaimDependencies(data, C1, { mode: 'negate' }), { claimsById: data.claimsById }).map((l) => l.text);
+    assert.ok(texts.some((t) => /^Circular premise: 3 claims depend on each other$/.test(t)), texts.join(' | '));
+});
+
+test('traceLines: the asymmetry sentence appears only with a non-empty cascade; the honest zero names both directions', () => {
+    const data = makeData();
+    const c6 = traceLines(traceClaimDependencies(data, C6, { mode: 'negate' }), { claimsById: data.claimsById }).map((l) => l.text);
+    assert.ok(!c6.some((t) => /only falsity propagates/.test(t)), 'c6 has one-hop effects but no dependents');
+    const off = traceLines(traceClaimDependencies(data, 'claim_00000000000000ff', { mode: 'negate' }), { claimsById: data.claimsById }).map((l) => l.text);
+    assert.deepEqual(off, ['No structural dependencies found — nothing else in the case graph rests on this claim, and nothing depends on it.']);
+});
+
+test('case-counterfactual: the cascade names its root and diffs the contradiction knots over the whole undercut set', () => {
+    // Knot c1—c2—c3. Undercut of c1 = {c3, c5}. Taking c1 and c3 out
+    // together leaves c2 alone: the knot dissolves (the one-hop diff on
+    // c1 alone only SHRINKS it to c2—c3).
+    const d = traceClaimDependencies(makeData(), C1, { mode: 'negate' });
+    assert.equal(d.dependencies.root, C1);
+    assert.equal(d.dependencies.knots.count, 1);
+    const k = d.dependencies.knots.derivation[0];
+    assert.equal(k.change, 'dissolved');
+    assert.deepEqual([...k.refs_removed].sort(), [C1, C3]);
+    assert.deepEqual([...k.derivation].sort(), ['link_00000000000000k1', 'link_00000000000000k2']);
+    assert.equal(d.knots.derivation[0].change, 'shrunk', 'the one-hop section is unchanged');
+    assert.equal(traceClaimDependencies(makeData(), C6, { mode: 'negate' }).dependencies.knots.count, 0);
 });

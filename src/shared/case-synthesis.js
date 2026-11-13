@@ -14,7 +14,7 @@ import { Crypto } from './crypto.js';
 import { Utils } from './utils.js';
 import { EventBuilder } from './event-builder.js';
 import { createGroundingIndex } from './quote-grounding.js';
-import { CLAIM_RELATIONSHIPS } from './assessment-taxonomy.js';
+import { PROPOSABLE_RELATIONSHIPS, isSymmetricRelationship } from './assessment-taxonomy.js';
 import { walk, obj, str, nullableStr, arr, en, bool } from './schema-walker.js';
 import { deriveArticleRows } from './case-dossier.js';
 import { canonicalIdOf } from './entity-model.js';
@@ -501,11 +501,11 @@ const BRIEF_SCHEMA = obj({
         evidence_refs: arr(obj({ article_hash: str(), quote: str({ minLength: 1 }) }, ['article_hash', 'quote'])),
         what_would_resolve: str()
     }, ['question'])),
-    load_bearing: arr(obj({ claim_ref: nullableStr(), article_hash: str(), quote: str({ minLength: 1 }), why: str() }, ['article_hash', 'quote'])),
+    load_bearing: arr(obj({ claim_ref: nullableStr(), article_hash: str(), quote: str({ minLength: 1 }), why: str(), depends_on: arr(str()) }, ['article_hash', 'quote'])),
     coverage_gaps: arr(str()),
     proposals: arr(obj({
         kind: en(['relationship', 'is_key', 'claim']),
-        source_claim_id: str(), target_claim_id: str(), relationship: en([...CLAIM_RELATIONSHIPS]),
+        source_claim_id: str(), target_claim_id: str(), relationship: en([...PROPOSABLE_RELATIONSHIPS]),
         claim_id: str(), article_hash: str(), text: str(), quote: str(), note: str()
     }, ['kind']))
 }, ['summary']);
@@ -697,8 +697,23 @@ export function groundCaseBrief(brief, indexByMember) {
  * (`record.triage[key] = 'accepted' | 'dismissed'`) is stored under,
  * so a reopened brief doesn't resurrect already-triaged rows.
  */
+/**
+ * Endpoint pair identity: sorted for a SYMMETRIC relationship (one
+ * proposal whichever way it was written), kept in order for a
+ * directional one (the reverse is a different proposal — a dismissed
+ * "A supports B" must never hide "B supports A"; claim dependency D.5
+ * made this load-bearing for depends-on).
+ */
+function pairKey(a, b, relationship) {
+    // Directional keys carry their own prefix so no legacy sorted key
+    // (`rel:…`, written for either direction before D.5) can equal a
+    // new ordered one: legacy directional triage entries are inert.
+    if (isSymmetricRelationship(relationship)) return `rel:${[a, b].sort().join('|')}:${relationship}`;
+    return `rel-dir:${a}|${b}:${relationship}`;
+}
+
 export function proposalKey(p) {
-    if (p.kind === 'relationship') return `rel:${[p.source_claim_id, p.target_claim_id].sort().join('|')}:${p.relationship}`;
+    if (p.kind === 'relationship') return pairKey(p.source_claim_id, p.target_claim_id, p.relationship);
     if (p.kind === 'is_key') return `key:${p.claim_id}`;
     if (p.kind === 'claim') return `claim:${p.article_hash}|${p.text}`;
     return `other:${JSON.stringify(p)}`;
@@ -710,11 +725,34 @@ export function proposalKey(p) {
  * needs an existing claim id; claim needs a real member and (already
  * grounded) quote. Rejected rows carry a human reason.
  */
+const sameArticle = (a, b) => Boolean(a && b && a.article_hash && b.article_hash && a.article_hash === b.article_hash);
+
 export function filterProposals(brief, { claimsById = {}, memberHashes = new Set() } = {}) {
     const acceptable = [];
     const rejected = [];
     const seen = new Set();   // dedup key across all kinds
-    for (const p of (brief.proposals || [])) {
+    // Claim dependency D.5: a load_bearing entry's `depends_on` is a set
+    // of depends-on proposals (source = the load-bearing claim, target =
+    // each premise) and rides the SAME validate → accept path. They go
+    // first so an explicit duplicate in `proposals` dedups against them.
+    const fromRestsOn = [];
+    for (const lb of (brief.load_bearing || [])) {
+        if (!lb || !Array.isArray(lb.depends_on) || lb.depends_on.length === 0) continue;
+        for (const target of lb.depends_on) {
+            const row = { kind: 'relationship', source_claim_id: lb.claim_ref || null, target_claim_id: String(target || ''),
+                relationship: 'depends-on', note: lb.why || '', from_depends_on: true, quote: lb.quote || '' };
+            if (!lb.claim_ref) {
+                rejected.push({ ...row, reason: 'depends_on names no source claim (claim_ref is null)' });
+            } else if (claimsById[lb.claim_ref] && claimsById[lb.claim_ref].article_hash && lb.article_hash
+                    && claimsById[lb.claim_ref].article_hash !== lb.article_hash) {
+                // The quote grounds the ARTICLE; the source claim must be from it.
+                rejected.push({ ...row, reason: `claim_ref ${lb.claim_ref} is not from the quoted article` });
+            } else {
+                fromRestsOn.push(row);
+            }
+        }
+    }
+    for (const p of [...fromRestsOn, ...(brief.proposals || [])]) {
         const dk = proposalKey(p);
         if (seen.has(dk)) continue;   // silent dedup — a repeat is not a reject
         seen.add(dk);
@@ -724,7 +762,12 @@ export function filterProposals(brief, { claimsById = {}, memberHashes = new Set
             if (!claimsById[p.source_claim_id]) reason = `unknown source claim ${p.source_claim_id}`;
             else if (!claimsById[p.target_claim_id]) reason = `unknown target claim ${p.target_claim_id}`;
             else if (p.source_claim_id === p.target_claim_id) reason = 'source and target are the same claim';
-            else if (!CLAIM_RELATIONSHIPS.includes(p.relationship)) reason = `invalid relationship "${p.relationship}"`;
+            else if (!PROPOSABLE_RELATIONSHIPS.includes(p.relationship)) reason = `invalid relationship "${p.relationship}"`;
+            else if (p.relationship === 'depends-on' && sameArticle(claimsById[p.source_claim_id], claimsById[p.target_claim_id])) {
+                // Intra-article dependencies are a later, separate decision
+                // (docs/CLAIM_DEPENDENCY_DESIGN.md §4 item 3).
+                reason = 'a dependency inside one article is deferred (docs/CLAIM_DEPENDENCY_DESIGN.md §4)';
+            }
         } else if (p.kind === 'is_key') {
             if (!claimsById[p.claim_id]) reason = `unknown claim ${p.claim_id}`;
         } else if (p.kind === 'claim') {
@@ -773,5 +816,22 @@ export function prepareLinkProposals(linksInput, { claimsById = {}, existingKeys
 
 /** proposalKey-shaped identity for an EXISTING EvidenceLinker record. */
 export function linkRecordKey(link) {
-    return `rel:${[link.source_claim_id, link.target_claim_id].sort().join('|')}:${link.relationship}`;
+    return pairKey(link.source_claim_id, link.target_claim_id, link.relationship);
+}
+
+/**
+ * Claim dependency D.5 — the one-line disclosure a surface shows beside
+ * its proposals: how many `depends-on` proposals survived the firewall
+ * and how many it dropped, with every distinct reason. '' when the run
+ * proposed no dependency at all. A count, never a judgment.
+ */
+export function dependencyProposalSummary(acceptable, rejected) {
+    const isDep = (p) => p && p.kind === 'relationship' && p.relationship === 'depends-on';
+    const kept = (acceptable || []).filter(isDep);
+    const dropped = (rejected || []).filter(isDep);
+    if (kept.length === 0 && dropped.length === 0) return '';
+    const reasons = [...new Set(dropped.map((r) => r.reason).filter(Boolean))];
+    let line = `${kept.length} dependency proposal${kept.length === 1 ? '' : 's'} to review`;
+    if (dropped.length > 0) line += ` · ${dropped.length} dropped${reasons.length ? ` (${reasons.join('; ')})` : ''}`;
+    return line;
 }

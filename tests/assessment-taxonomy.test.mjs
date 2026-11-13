@@ -14,6 +14,8 @@ const {
     isStandardLabel, isValidLabel,
     STANCE_VALUES, STANCE_LABELS, isValidStance,
     CLAIM_RELATIONSHIPS, SYMMETRIC_RELATIONSHIPS, isSymmetricRelationship,
+    REVISION_RELATIONSHIPS, DEPENDENCY_RELATIONSHIPS, isDependencyRelationship,
+    PROPOSABLE_RELATIONSHIPS, DEPENDENCY_AUTHORING_TEST,
     isValidSuggestedBy
 } = await import('../src/shared/assessment-taxonomy.js');
 
@@ -96,4 +98,22 @@ test('taxonomy: suggested_by provenance values', () => {
     assert.equal(isValidSuggestedBy('bot'), false);
     assert.equal(isValidSuggestedBy(''), false);
     assert.equal(isValidSuggestedBy(null), false);
+});
+
+test('taxonomy: depends-on is its own directional vocabulary (CLAIM_DEPENDENCY_DESIGN §2.1)', () => {
+    assert.deepEqual(DEPENDENCY_RELATIONSHIPS, ['depends-on']);
+    assert.equal(Object.isFrozen(DEPENDENCY_RELATIONSHIPS), true);
+    assert.equal(isDependencyRelationship('depends-on'), true);
+    assert.equal(isDependencyRelationship('supports'), false);
+    assert.equal(isSymmetricRelationship('depends-on'), false, 'source depends on target — never sorted');
+    // The picker vocabulary is untouched until D.3.
+    assert.equal(CLAIM_RELATIONSHIPS.includes('depends-on'), false);
+    assert.equal(REVISION_RELATIONSHIPS.includes('depends-on'), false);
+});
+
+test('taxonomy: PROPOSABLE_RELATIONSHIPS is the picker set — the LLM may propose exactly what a human may draw (D.5)', () => {
+    assert.deepEqual(PROPOSABLE_RELATIONSHIPS, [...CLAIM_RELATIONSHIPS, ...DEPENDENCY_RELATIONSHIPS]);
+    assert.equal(Object.isFrozen(PROPOSABLE_RELATIONSHIPS), true);
+    assert.ok(!PROPOSABLE_RELATIONSHIPS.some((r) => REVISION_RELATIONSHIPS.includes(r)), 'revision values are drawn by the forensic flow, never proposed here');
+    assert.match(DEPENDENCY_AUTHORING_TEST, /^Could the source still be true if the target turned out to be false\? If yes, the link is `supports`, not `depends-on`\.$/);
 });

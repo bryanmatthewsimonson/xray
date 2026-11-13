@@ -74,12 +74,12 @@ function claimTitleByCoord(items) {
     return map;
 }
 
-// Non-contradiction relationship links (supports / updates / duplicates)
+// Non-contradiction relationship links (supports / updates / duplicates / depends-on)
 // touching each claim coordinate, both directions — the cross-article
 // links the dashboard never surfaced. Contradiction keeps its own ⚠
 // badge; the diachronic revision/* edges are a forensic surface,
 // excluded here. Returns coord → [{relationship, dir, otherCoord}].
-const RELATED_RELATIONSHIPS = new Set(['supports', 'updates', 'duplicates']);
+const RELATED_RELATIONSHIPS = new Set(['supports', 'updates', 'duplicates', 'depends-on']);
 function relatedLinksByCoord(items) {
     const map = new Map();
     const add = (coord, entry) => {
@@ -99,7 +99,9 @@ function relatedLinksByCoord(items) {
 const RELATED_PHRASE = {
     supports:   { out: 'supports', in: 'supported by' },
     updates:    { out: 'updates', in: 'updated by' },
-    duplicates: { out: 'duplicates', in: 'duplicated by' }
+    duplicates: { out: 'duplicates', in: 'duplicated by' },
+    // Claim dependency D.3: source depends on target.
+    'depends-on': { out: 'depends on', in: 'depended on by' }
 };
 
 // 2026-07-20 declutter — collapsible sections with per-case memory.

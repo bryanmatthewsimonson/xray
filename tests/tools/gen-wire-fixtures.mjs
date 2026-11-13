@@ -385,6 +385,18 @@ export const SPECS = [
         async build(i, createdAt) { return withPubkey((await MB.buildClaimRelationshipEvent({ ...i, createdAt })).event, TV1); }
     },
     {
+        kind: 30055, shape: 'dependency', signer: 'TV1', rebuild: 'exact',
+        builder: { module: 'src/shared/metadata/builders.js', fn: 'buildClaimRelationshipEvent' },
+        notes: 'Directional edge (depends-on): source depends on target, NOT sorted — docs/CLAIM_DEPENDENCY_DESIGN.md §2.1. Same endpoints as 30055-relationship so the two differ only in relationship, note and d.',
+        inputs: {
+            sourceCoord: CLAIM_COORD_B, targetCoord: CLAIM_COORD, relationship: 'depends-on',
+            sourceUrl: `${ORIGIN}/video-2?utm_source=x`, targetUrl: `${ORIGIN}/video-1`,
+            sourceEventId: H['source-event'], targetEventId: H['target-event'], sourceRelayHint: RELAY, targetRelayHint: '',
+            note: 'Cannot be true unless the court filing exists.', suggestedBy: 'user'
+        },
+        async build(i, createdAt) { return withPubkey((await MB.buildClaimRelationshipEvent({ ...i, createdAt })).event, TV1); }
+    },
+    {
         kind: 1985, shape: 'review-label', signer: 'TV1', rebuild: 'exact',
         builder: { module: 'src/shared/metadata/builders.js', fn: 'buildReviewRequestLabelEvent' },
         notes: 'xray/review label on an addressable coordinate; never a p.',
