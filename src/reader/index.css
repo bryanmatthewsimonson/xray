@@ -1997,6 +1997,14 @@ body {
   gap: 6px;
 }
 
+/* Claim dependency D.3 — the authoring test under the picker. */
+.xr-link-modal__rel-help {
+  margin-top: 6px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--xr-text-dim);
+}
+
 .xr-link-modal__rel-btn {
   padding: 8px 10px;
   border: 1px solid var(--xr-border);

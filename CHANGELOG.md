@@ -88,6 +88,55 @@ and 9803, a retirement of kinds that were never emitted.
 
 ### Added
 
+- **Claim dependencies, proposed (D.5).** Analyze corpus and Suggest
+  links may now propose `depends-on` edges — the brief's claims-the-
+  case-turns-on carry `depends_on` premises, and both relationship tools
+  offer the value — through the same validate-then-Accept path as
+  every other proposal, with the authoring test ("could the source
+  still be true if the target turned out false? then it is supports")
+  in the prompts and on every review row, and a line disclosing how
+  many dependency proposals survived and how many dropped, with
+  reasons. Proposal keys now keep endpoint order for directional
+  relationships, so a dismissed "A supports B" no longer hides "B
+  supports A" (a dismissed directional proposal reappears once).
+  Every stored case brief reads as stale after this change and
+  re-runs on demand; the re-run re-bills the synthesis call only — the
+  per-article extracts stay cached. `depends_on` never publishes: the
+  kind-30068 brief carries the load-bearing claims as before.
+- **Claim dependencies, adjudicated (D.4).** When a verdict on a
+  premise is established-false, every claim that rests on it shows
+  "premise adjudicated false by <author> under <standard>" — one chip
+  per verdict, never merged, with every other verdict on that premise
+  listed beside it by author and standard in the tooltip; a second
+  chip names both sides when the dependent is itself adjudicated
+  true ("an inconsistency, not a correction" for one adjudicator, "two
+  adjudicators disagree; neither corrects the other" for two), and the
+  dependent's own verdicts are listed beside, unchanged. No verdict is
+  recomputed, no majority, no consensus (R-026). Case dashboard claim
+  rows and hypothesis-card edge rows; the chips are tooltips, not yet
+  links to the verdict.
+- **Claim dependencies, visible (D.3).** The reader's link picker
+  offers **Depends on** (last, behind its authoring test: "could the
+  source still be true if the target turned out false? then it is
+  supports"); a claim's measured load shows as "Load-bearing (n
+  dependents)" with its dependents and chains in the tooltip; Trace
+  dependencies renders the cascade and always states "only falsity
+  propagates"; hypothesis cards name a premise two supporting
+  arguments share; the case graph draws dependency arrows; the case
+  view's claim list shows "depends on" / "depended on by" chips. The
+  model's article-extract flag is relabelled "Argument-critical (the
+  model's reading)" so that in the reader and on the case dashboard
+  "load-bearing" means the measured count only (the published brief's
+  `## Load-bearing claims` heading and the audit's term flag keep
+  their own vocabularies).
+- **Claim dependencies, computed (D.2).** The case dossier collects
+  `depends-on` links, and a pure module walks them: what transitively
+  depends on a claim (its load), what it rests on, circular premises,
+  and the premise two of a hypothesis's supporting arguments share.
+  The counterfactual trace gains a `dependencies` section listing
+  what would lose a necessary premise if the claim were removed or
+  negated. Counts with derivations only; nothing rendered yet (D.3);
+  no wire change (`docs/CLAIM_DEPENDENCY_DESIGN.md` §3).
 - **A durable extraction layer.** The corpus map's per-article output
   is now a kept record instead of a disposable cache: paid for once
   per article, shared by every case and entity page, and reviewable on

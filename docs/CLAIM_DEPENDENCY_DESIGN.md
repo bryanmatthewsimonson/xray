@@ -242,6 +242,13 @@ hypothesis map's verdict chip (HYPOTHESIS_MAP_DESIGN §8, "show as
 context") is the precedent. The maintainer confirmed this reading
 2026-11-06 (R-026) with the per-adjudicator condition above.]
 
+Relay verdicts reach the markers only as `collectCaseDossierData`'s
+existing `wire` option supplies them (`data.wire.verdicts`, rows with
+the local `proposition_id`); the case dashboard does not hand it any
+yet, so today the markers show the local adjudicator's verdicts, and
+the tooltip's distribution grows the day a caller passes relay rows.
+No slice of this design fetches relays.
+
 ## §4. Populating the edges
 
 Three producers, in order of trust, all landing through
@@ -252,17 +259,19 @@ Three producers, in order of trust, all landing through
    offer the Phase-11 four. The modal adds `depends-on` to the picker
    with the §2.1 authoring test as its helper text. `suggested_by:
    'user'`.
-2. **LLM-suggested at corpus level.** The reduce tool schema in
-   `src/shared/corpus-prompts.js` today emits `load_bearing: [{claim_ref,
-   article_hash, quote, why}]`. It gains, per entry, `rests_on:
-   [claim_ref…]` — the existing claims the model judges that claim
-   presupposes — and the `why` becomes the reason for the dependency.
-   Every ref must resolve to a captured claim (the `filterProposals`
-   pattern), every quote grounds verbatim, ungrounded entries drop with
-   the drop count disclosed, and each surviving edge lands only on a
-   human Accept, stamped `suggested_by: 'llm:<model>'`. The prompt
-   carries the §2.1 test verbatim and the standing hard rule (no
-   verdict, score, or "who is right").
+2. **LLM-suggested at corpus level** (shipped as D.5). The reduce
+   tool's `load_bearing` entries carry `depends_on: [claim_id…]` — the
+   existing claims the model judges that claim cannot be true without
+   — and both relationship-proposal tools (the brief's `proposals` and
+   the standalone links pass) may propose `depends-on` directly. Each
+   lands as an ordinary relationship proposal through `filterProposals`:
+   every ref must resolve to a captured claim, a null source, a
+   self-link or an unknown target is rejected with a reason, the
+   disclosure line counts survivors and drops, and each surviving edge
+   lands only on a human Accept, stamped `suggested_by: 'llm:<model>'`.
+   The prompts carry the §2.1 test verbatim, the both-sides rule, and
+   the standing hard rule (no verdict, score, or "who is right"); the
+   review row repeats the test under every `depends-on` proposal.
 3. **Not at the per-article pass.** Adding premise output to the
    article extract would bump corpus-v9, invalidate every cached
    extract and re-bill every article. Intra-article dependencies are a
@@ -310,11 +319,11 @@ Three producers, in order of trust, all landing through
 | Slice | Content | Wire |
 |---|---|---|
 | D.0 | This doc, approved + a ROADMAP Phase-26 addendum | — |
-| D.1 | `depends-on` in `CLAIM_RELATIONSHIPS` (`src/shared/assessment-taxonomy.js`), builder + parser (`metadata/builders.js`, `evidence-linker.js`), label/icon, NIP_DRAFT §30055 text, wire fixture; tests for id determinism, direction, coexistence with `supports` | **additive** |
-| D.2 | Pure cascade + load + shared-premise walks in `case-counterfactual.js` (or a sibling `claim-dependencies.js` if the file would cross its ceiling); cycle detection; derivation guard extended | — |
-| D.3 | Render: link-modal picker + authoring test; trace-expander lines; case-list "Load-bearing (n)"; graph arrows; the ⭐ relabel | — |
-| D.4 | The live per-adjudicator "premise adjudicated false" badge, the multi-verdict distribution render, the inconsistency marker (R-026) | — |
-| D.5 | LLM `rests_on` suggestion through the reduce firewall; both-sides / drop-count disclosure | — |
+| D.1 | **Shipped (PR #433).** `depends-on` as its own `DEPENDENCY_RELATIONSHIPS` constant beside `CLAIM_RELATIONSHIPS` (`src/shared/assessment-taxonomy.js` — kept out of the picker vocabulary until D.3), builder + parser (`metadata/builders.js`, `evidence-linker.js`), label/icon, NIP_DRAFT §30055 text, the `30055-dependency` wire fixture; tests for id determinism, direction, coexistence with `supports` | **additive** |
+| D.2 | **Shipped.** `links.dependencies` in the dossier collector; the pure walks in the sibling `src/shared/case-dependencies.js` (dependents / premises / load, cycles, shared premises); the cascade joined into `traceClaimDependencies` as its `dependencies` section in BOTH modes (stamped `premise-removed` / `premise-negated`); the CF.1 derivation guard covers it. No copy yet — `traceLines` is untouched until D.3 | — |
+| D.3 | **Shipped.** The picker offers `depends-on` last, behind the §2.1 authoring test (`RELATIONSHIP_HELP`); `traceLines` renders the cascade (undercut chains, attachments, the set-wide knot diff, circular premises, the fixed asymmetry line); "Load-bearing (n dependents)" and "circular premise" chips on claim rows (`loadLabel` / `loadTooltip`); shared-premise rows on hypothesis cards under a fixed explainer; directed dependency arrows in the case graph; `depends on` / `depended on by` chips on the case view; the extract flag relabelled "Argument-critical (the model's reading of this article)", the brief list "Claims the brief turns on" | — |
+| D.4 | **Shipped, one gap named.** `premiseVerdictMarkers` / `premiseMarkerLabel` / `premiseMarkerTooltip` / `inconsistencyLabel` / `ownVerdictLabel` (`src/shared/case-dependencies.js`): one marker per `established-false` verdict in view on a transitive premise — every un-superseded local record and every live wire row, keyed by event id — reading "premise adjudicated false by <author> under <standard>", with the premise's whole distribution (every state, its authors and standards) in the tooltip and the fixed closing line; the dependent's own verdicts listed beside, unchanged; an inconsistency row per (own established-true × false premise), "an inconsistency, not a correction" for one adjudicator and "two adjudicators disagree; neither corrects the other" for two; capped at four chips with a disclosed overflow; on the case dashboard's claim rows and hypothesis-card edge rows (R-026). **Gap:** the chips are tooltips, not links — §3.4's "linking to the verdict" waits for a surface that can navigate to a verdict (the adjudicate modal opens from the reader, not from a dashboard row); a local record with no adjudicator reads "this X-Ray's record (no adjudicator named)" because the adjudicate modal has no adjudicator field yet | — |
+| D.5 | **Shipped.** The reduce's `load_bearing` entries carry `depends_on` (existing claim ids the claim cannot be true without); `filterProposals` turns each into a `depends-on` relationship proposal on the SAME validate → human-accept path, rejecting a null source, a self-link or an unknown target with a reason; both relationship tools' enums are `PROPOSABLE_RELATIONSHIPS` (the picker set); both prompts carry the §2.1 authoring test verbatim and the both-sides rule (prompt-only: no post-check refuses a one-sided result and no position-level disclosure exists); every `depends-on` review row shows the authoring test; a one-line disclosure counts open dependency proposals and drops with reasons; a dependency inside one article is rejected as deferred (§4 item 3) and a `depends_on` source must come from its quoted article; `depends_on` never publishes (the kind-30068 brief strips it); proposal and link keys keep endpoint order for directional relationships (JOURNAL 2026-11-06). `CORPUS_PROMPT_VERSION` corpus-v10, `CLAIM_LINKS_PROMPT_VERSION` claim-links-v2; the map cache key is untouched | — |
 | — (refused) | Any upward propagation; any hypothesis-level state; any weight on an edge | — |
 
 D.1 is the only slice that touches the wire lane and carries the
@@ -345,9 +354,16 @@ store boundary and renders nothing wrong; D.1's tests pin that.
   lose that detail"; consensus "is not a foregone conclusion or clean
   and easy process". §3.4 carries the consequences.
 
-Open, for the maintainer at D.3:
-
-- The exact replacement copy for the extract flag's ⭐.
+Closed at D.3 (an interpretive step, maintainer may rename): the
+extract flag's ⭐ tooltip reads "Argument-critical (the model's
+reading of this article): <why>"; the corpus brief's list reads
+"Claims the brief turns on (N)"; the inspector's count reads "N
+brief-critical claim(s)". In the reader and on the case dashboard,
+"load-bearing" now names only the measured "Load-bearing (n
+dependents)" chip. Two vocabularies keep the word on purpose: the
+published brief's `## Load-bearing claims` heading (wire content —
+renaming it is a separate `Wire format:` decision) and the epistemic
+audit's `load_bearing` term flag (its own family's term, PHILOSOPHY).
 
 ## Related
 

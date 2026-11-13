@@ -143,6 +143,7 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
     const contradicts = [];
     const attestations = [];
     const related = [];
+    const dependencies = [];
     const orbitClaimIdForProposition = new Set(orbitPropositions.map((p) => p.claim_id));
     for (const link of Object.values(allLinks)) {
         const sourceRef = canon(link.source_claim_id);
@@ -165,6 +166,34 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
             related.push(withRefs);
         }
     }
+    // Claim dependency D.2 (docs/CLAIM_DEPENDENCY_DESIGN.md §3) — the
+    // necessary-condition family the dependency walks run over: every
+    // depends-on link REACHABLE from the orbit, to a fixpoint (source
+    // depends on target). An endpoint-in-orbit test would cut a chain
+    // the moment it passed through an out-of-orbit claim, and the walk
+    // would silently stop one hop short. Kept OUT of `related`: the
+    // support-loss diff is supports-specific and a dependency is not
+    // evidential support.
+    {
+        const candidates = Object.values(allLinks)
+            .filter((link) => link.relationship === 'depends-on')
+            .map((link) => ({ ...link, source_ref: canon(link.source_claim_id), target_ref: canon(link.target_claim_id) }));
+        const reached = new Set(orbitClaimIds);
+        const taken = new Set();
+        let grew = true;
+        while (grew) {
+            grew = false;
+            for (const link of candidates) {
+                if (taken.has(link.id)) continue;
+                if (reached.has(link.source_ref) || reached.has(link.target_ref)) {
+                    taken.add(link.id);
+                    dependencies.push(link);
+                    if (!reached.has(link.source_ref)) { reached.add(link.source_ref); grew = true; }
+                    if (!reached.has(link.target_ref)) { reached.add(link.target_ref); grew = true; }
+                }
+            }
+        }
+    }
     // Contradicts in id order (deterministic knot node ordering).
     // Attestations in AUTHORING order (created, then id) — the
     // convergence baseline is the earliest-authored origin, so this
@@ -174,6 +203,7 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
     contradicts.sort(byIdAsc);
     attestations.sort((a, b) => (a.created || 0) - (b.created || 0) || byIdAsc(a, b));
     related.sort(byIdAsc);
+    dependencies.sort(byIdAsc);
 
     return {
         case: {
@@ -202,7 +232,7 @@ export async function collectCaseDossierData(caseEntityId, options = {}) {
         integrity:     integrityHeads,
         integrityAll:  allIntegrity,
         forensic,
-        links:         { contradicts, attestations, related },
+        links:         { contradicts, attestations, related, dependencies },
         articles,
         predictions,
         resolutions,

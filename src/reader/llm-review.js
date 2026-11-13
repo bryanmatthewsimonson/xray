@@ -41,7 +41,7 @@ import { AssessmentModel } from '../shared/assessment-model.js';
 import { EvidenceLinker } from '../shared/evidence-linker.js';
 import { ForensicModel, ForensicBaseline } from '../shared/forensic-model.js';
 import { SUGGESTABLE_ENTITY_TYPES } from '../shared/llm-prompts.js';
-import { STANCE_VALUES, STANCE_LABELS, CLAIM_RELATIONSHIPS, REVISION_RELATIONSHIPS } from '../shared/assessment-taxonomy.js';
+import { STANCE_VALUES, STANCE_LABELS, PROPOSABLE_RELATIONSHIPS, REVISION_RELATIONSHIPS } from '../shared/assessment-taxonomy.js';
 import { ROLES, BASIS_VALUES } from '../shared/forensic-taxonomy.js';
 import {
     normalizeProposals, validateProposal, subjectLabelOf, PROPOSAL_ORDER,
@@ -108,7 +108,7 @@ const EDIT_FIELDS = {
         { key: 'rationale', label: 'Rationale', type: 'textarea' }
     ],
     relationship: [
-        { key: 'relationship', label: 'Relationship', type: 'select', options: CLAIM_RELATIONSHIPS },
+        { key: 'relationship', label: 'Relationship', type: 'select', options: PROPOSABLE_RELATIONSHIPS },
         { key: 'note', label: 'Note', type: 'text' }
     ],
     revision: [
@@ -302,8 +302,12 @@ export async function openLlmReview(opts) {
                     // extract (UA.1) — with its why as the tooltip — or
                     // the legacy is_key on parked pre-UA.1 batches.
                     // Neither writes claim.is_key at accept (guard rail 6).
+                    // Claim dependency D.3: the words "load-bearing" now
+                    // name the MEASURED dependent count on the case
+                    // dashboard; this model-asserted flag is labelled as
+                    // the model's reading of the article.
                     const why = p.load_bearing && p.why_load_bearing
-                        ? ` title="Load-bearing: ${escapeHtml(truncate(p.why_load_bearing, 200))}"` : '';
+                        ? ` title="Argument-critical (the model's reading of this article): ${escapeHtml(truncate(p.why_load_bearing, 200))}"` : '';
                     const star = (p.load_bearing || p.is_key) ? `<span${why}>⭐ </span>` : '';
                     const ab = about.length ? ` <span class="xr-llm__dim">about ${escapeHtml(about.join(', '))}</span>` : '';
                     return `${star}${escapeHtml(truncate(p.text, 160))}${ab}${quoteHtml(p.quote)}`;

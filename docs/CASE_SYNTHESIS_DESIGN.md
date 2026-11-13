@@ -86,7 +86,7 @@ Nothing the model returns is trusted or applied automatically:
    / load_bearing / claim proposal); the drop count is disclosed on the
    block and stored.
 3. **Filter** — proposals must resolve: a `relationship` needs two
-   existing claim ids and a valid `CLAIM_RELATIONSHIPS` enum; `is_key`
+   existing claim ids and a valid `PROPOSABLE_RELATIONSHIPS` enum (the picker set — the Phase-11 four plus `depends-on` since claim dependency D.5); `is_key`
    needs an existing claim id; a new `claim` needs a real member and a
    grounded quote. Rejects render with a reason, never as acceptable.
 4. **Accept** — a human clicks Accept on the portal review surface,

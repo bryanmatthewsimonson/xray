@@ -226,7 +226,7 @@ function section(brief, { memberIndex = {}, claimsById = {}, entitySummary = nul
     }
     if ((brief.load_bearing || []).length) {
         const s = el('details', 'xr-synth__sec');
-        s.appendChild(el('summary', null, `Load-bearing claims (${brief.load_bearing.length})`));
+        s.appendChild(el('summary', null, `Claims the brief turns on (${brief.load_bearing.length})`));
         for (const lb of brief.load_bearing) {
             const d = el('div', 'xr-synth__lb');
             d.appendChild(el('blockquote', 'xr-finding-row__quote', truncate(lb.quote || '', 200)));
