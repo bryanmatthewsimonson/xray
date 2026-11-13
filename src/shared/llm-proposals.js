@@ -36,7 +36,7 @@ import { ENTITY_TYPES, canonicalIdOf } from './entity-model.js';
 import { SUGGESTABLE_ENTITY_TYPES } from './llm-prompts.js';
 import {
     isValidLabel, isValidStance, isValidSuggestedBy,
-    CLAIM_RELATIONSHIPS, REVISION_RELATIONSHIPS
+    PROPOSABLE_RELATIONSHIPS, REVISION_RELATIONSHIPS
 } from './assessment-taxonomy.js';
 import {
     isValidManeuver, isValidRole, isValidBasis, BASIS_VALUES, ROLES
@@ -235,8 +235,8 @@ export function validateProposal(prop, ctx = {}) {
             return OK;
         }
         case 'relationship': {
-            if (!CLAIM_RELATIONSHIPS.includes(prop.relationship)) {
-                return fail(`Relationship must be one of: ${CLAIM_RELATIONSHIPS.join(', ')}`);
+            if (!PROPOSABLE_RELATIONSHIPS.includes(prop.relationship)) {
+                return fail(`Relationship must be one of: ${PROPOSABLE_RELATIONSHIPS.join(', ')}`);
             }
             return validateLink(prop, claimRefs);
         }

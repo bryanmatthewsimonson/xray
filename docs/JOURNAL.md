@@ -34,6 +34,12 @@ the entry's heading anchor in its monthly file.
 
 <!-- journal-index:start -->
 
+## 2026-11
+
+- **2026-11-12** — [Agent-skills configuration: GitHub Issues, the existing `triage` label, and no `docs/adr/`](journal/2026-11.md#2026-11-12--agent-skills-configuration-github-issues-the-existing-triage-label-and-no-docsadr) · process, design
+- **2026-11-06** — [Proposal and link keys keep endpoint order for directional relationships](journal/2026-11.md#2026-11-06--proposal-and-link-keys-keep-endpoint-order-for-directional-relationships) · design, synthesis
+- **2026-11-06** — [`depends-on` joins the kind-30055 vocabulary (claim dependency D.1)](journal/2026-11.md#2026-11-06--depends-on-joins-the-kind-30055-vocabulary-claim-dependency-d1) · wire, design, one-way-door
+
 ## 2026-09
 
 - **2026-09-30** — [An embedded tweet's text no longer becomes live code on the captured page](journal/2026-09.md#2026-09-30--an-embedded-tweets-text-no-longer-becomes-live-code-on-the-captured-page) · bug, security

@@ -302,3 +302,24 @@ words), then the answer chosen and the maintainer's words, verbatim.
 - **Supersedes:** the session-only rule for lens readings, "never durably written" (`docs/MORAL_LENS_JURISDICTION_DESIGN.md` §6; questionnaire Q15, firewall F12), as listed in the dated notes in this PR that cite R-025.
 - **Pinned by:** `tests/lens-guards.test.mjs` 'guard: lens modules export no wire builders (no lens event exists to build)' pins "publishes nothing"; no test pins the cache permission. Until the lens-cache PR, three tests in `tests/lens-engine.test.mjs` pin today's session-only code: 'runLensPass: assembles the §7 object — identity stamped from the registry, zero durable writes'; 'cache: round-trips through storage.session and never touches storage.local'; 'cache: with NO session area it declines — it must not fall back to local'.
 - **Record:** `docs/ideas/GOVERNANCE_RECONCILIATION_QUESTIONNAIRE.md` §6; JOURNAL 2026-09-26.
+
+### R-026 — The dependency badge reads one adjudicator's verdict, never a consensus
+
+- **Ruled:** 2026-11-06, by the maintainer, in the claim-dependency design session (PR #432).
+- **Answer chosen (verbatim):** Agree with your reading, keep D.4
+- **In the maintainer's words:**
+
+  > But keep in mind that other future users of X-Ray may adjudicate in a different direction. If millions of users end up evaluating the same claims, they're bound to disagree.
+  >
+  > The badge is helpful, but it is not definitive. Jurors disagree with one another frequently. The goal is to know who by what standard a person has adjudicated something and not lose that detail.
+  >
+  > Consensus will emerge in many cases, but it is not a forgone conclusion or clean and easy process.
+
+- **Applies to:** the question put to the maintainer, in the design's words (`docs/CLAIM_DEPENDENCY_DESIGN.md` §3.4, as drafted):
+
+  > reading a kind-30063 state to place a structural marker on a claim in the case view is a derived view over one family's published record, not a fusion across families (Art. 6)
+
+  The reading holds; slice D.4 stays. The condition: every such marker names the adjudicator and the standard of proof, several adjudicators' verdicts render as a distribution side by side, and no surface declares a consensus.
+- **Supersedes:** nothing; `docs/CLAIM_DEPENDENCY_DESIGN.md` §3.4 and §6 red line 3a are written under it.
+- **Pinned by:** none yet; D.4 adds a test that the badge render carries author and standard and emits no majority or consensus string.
+- **Record:** this ledger; `docs/CLAIM_DEPENDENCY_DESIGN.md` §8.
