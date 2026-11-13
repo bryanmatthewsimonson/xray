@@ -21,25 +21,157 @@ function sanitizeMdUrl(raw) {
   return value.replace(/"/g, '&quot;');
 }
 
+// A tweet's displayed text with its line breaks: a <br> is a newline
+// and source-formatting whitespace is one space. innerText would do
+// this, but it needs layout, and the clone the pre-pass reads has none.
+function tweetTextOf(node) {
+  let out = '';
+  for (const child of Array.from(node.childNodes || [])) {
+    if (child.nodeType === 3) {
+      out += String(child.nodeValue || '').replace(/[ \t\n\r\f]+/g, ' ');
+    } else if (child.nodeType === 1) {
+      const name = String(child.nodeName || '').toUpperCase();
+      if (name === 'BR') out += '\n';
+      else if (name !== 'SCRIPT' && name !== 'STYLE') out += tweetTextOf(child);
+    }
+  }
+  return out;
+}
+
+// Text → paragraphs of lines: one newline breaks a line, a blank line
+// breaks a paragraph; edge spaces and empty lines go.
+function tweetParagraphs(text) {
+  const paragraphs = [[]];
+  for (const raw of String(text || '').split('\n')) {
+    const line = raw.trim();
+    const current = paragraphs[paragraphs.length - 1];
+    if (line) current.push(line);
+    else if (current.length) paragraphs.push([]);
+  }
+  return paragraphs.filter(lines => lines.length);
+}
+
+// A tweet's own status URL, on twitter.com or x.com (www./mobile.
+// allowed): /<handle>/status/<id>, /i/web/status/<id>, or /statuses/.
+// Group 1 is the tweet id.
+const TWEET_STATUS_RX = /^https?:\/\/(?:(?:www|mobile)\.)?(?:twitter|x)\.com\/(?:i\/web|[A-Za-z0-9_]{1,15})\/status(?:es)?\/(\d{1,20})(?:[/?#]|$)/i;
+
+// The tweet id an embed carries as data-tweet-id, on itself or (a tweet
+// widgets.js already rendered) on its iframe. '' = none.
+function tweetIdOf(tweet) {
+  for (const el of [tweet, tweet.querySelector('[data-tweet-id]')]) {
+    const id = String((el && el.getAttribute && el.getAttribute('data-tweet-id')) || '').trim();
+    if (/^\d{1,20}$/.test(id)) return id;
+  }
+  return '';
+}
+
+// The tweet's own status link: the LAST status link outside the tweet
+// text `textEl` (the date link of the standard embed; a status link
+// inside the text names some other tweet), else a status link to the
+// embed's own data-tweet-id, else the blockquote's cite, else
+// twitter.com/i/web/status/<data-tweet-id>. Never a profile, hashtag,
+// t.co or look-alike-host link.
+function tweetStatusUrl(tweet, textEl) {
+  const inText = new Set(textEl ? Array.from(textEl.querySelectorAll('a[href]')) : []);
+  const links = Array.from(tweet.querySelectorAll('a[href]'))
+    .filter(a => TWEET_STATUS_RX.test(a.href || ''));
+  const outside = links.filter(a => !inText.has(a));
+  if (outside.length) return outside[outside.length - 1].href;
+  const id = tweetIdOf(tweet);
+  const own = id && links.find(a => TWEET_STATUS_RX.exec(a.href)[1] === id);
+  if (own) return own.href;
+  const cite = String((tweet.getAttribute && tweet.getAttribute('cite')) || '').trim();
+  if (TWEET_STATUS_RX.test(cite)) return cite;
+  return id ? `https://twitter.com/i/web/status/${id}` : '';
+}
+
+// The author as the standard embed prints it, "— Name (@handle) ": the
+// bare text directly inside the blockquote, or of the <p> that holds
+// the status link when that is not the tweet text (WordPress's wpautop
+// wraps the line in one). Else the @handle in the status URL. Never a
+// link's text.
+function tweetAuthor(tweet, statusUrl, textEl) {
+  const ownText = (el) => Array.from(el.childNodes || [])
+    .filter(child => child.nodeType === 3).map(child => child.nodeValue || '').join('');
+  const holders = [tweet, ...Array.from(tweet.childNodes || []).filter(child => statusUrl &&
+    child.nodeType === 1 && child !== textEl && String(child.nodeName || '').toUpperCase() === 'P' &&
+    Array.from(child.querySelectorAll('a[href]')).some(a => a.href === statusUrl))];
+  for (const el of holders) {
+    const printed = /^[\u2014\u2013-]\s*(\S[\s\S]*)$/.exec(ownText(el).replace(/[ \t\n\r\f]+/g, ' ').trim());
+    if (printed) return printed[1].trim();
+  }
+  const handle = /^https?:\/\/[^/]+\/([A-Za-z0-9_]{1,15})\/status/i.exec(statusUrl || '');
+  return handle && handle[1].toLowerCase() !== 'i' ? '@' + handle[1] : '';
+}
+
+// The tweet link's Markdown destination: an absolute http(s) URL only,
+// with every character that can end or restructure a link destination
+// percent-encoded, so "[View on Twitter/X](…)" cannot be broken out of,
+// in X-Ray's markdownToHtml or a CommonMark renderer. '' = no link.
+function tweetLinkUrl(raw) {
+  let url;
+  try { url = new URL(String(raw || '').trim()); } catch (e) { return ''; }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return '';
+  return url.href.replace(/[()[\]*`\\<>\s]/g,
+    c => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'));
+}
+
+// Text inside <xmp>, <iframe>, <noembed> and <noframes> serializes
+// unescaped (HTML's raw-text rule). Text a script put in one that holds
+// the element's own end tag, "</xmp><img src=x onerror=…>", therefore
+// comes back as markup in every parse of the serialized article: the
+// image fix-up, Turndown, the reader (JOURNAL 2026-09-30). Run on the
+// clone before Readability serializes it. An <xmp>, whose text the page
+// shows, becomes a <pre> holding the same text. The others, whose text
+// the page never shows, lose it. Text that cannot end its element
+// round-trips unchanged and is left alone.
+function neutralizeRawText(doc) {
+  doc.querySelectorAll('xmp, iframe, noembed, noframes').forEach(el => {
+    const tag = String(el.nodeName || '').toLowerCase();
+    const text = el.textContent || '';
+    if (!new RegExp(`</${tag}[\\s/>]`, 'i').test(text)) return;
+    if (tag === 'xmp') {
+      const pre = doc.createElement('pre');
+      pre.textContent = text;
+      el.parentNode?.replaceChild(pre, el);
+    } else {
+      el.textContent = '';
+    }
+  });
+}
+
 // The clean stand-in extractArticle swaps in for an embedded tweet, on
-// the LIVE page, before cloning. Built with DOM calls only, never
-// innerHTML: `text` and `author` are the tweet's DISPLAYED text
-// (textContent undoes the page's escaping), so a tweet that reads
-// "<img src=x onerror=…>" has to stay text. Parsed as HTML, it became
-// live markup that ran on the captured site (JOURNAL 2026-09-30).
+// the page's CLONE (the live page is never written). Built with DOM
+// calls only, never innerHTML: `text` and `author` are the tweet's
+// DISPLAYED text (textContent undoes the page's escaping), so a tweet
+// that reads "<img src=x onerror=…>" has to stay text. Parsed as HTML,
+// it became live markup that ran on the captured site (JOURNAL
+// 2026-09-30). One <p> per paragraph of `text`, a <br> per line break.
+// The author rides twice, because Readability drops a <footer>: as
+// `data-tweet-author` for the Markdown rule, and as a visible <cite>.
 export function buildTweetEmbed(doc, { text = '', author = '', url = '' } = {}) {
   const quote = doc.createElement('blockquote');
   quote.className = 'xr-tweet-embed';
   quote.setAttribute('data-tweet-url', url);
-  const p = doc.createElement('p');
-  p.textContent = text;
-  quote.appendChild(p);
+  if (author) quote.setAttribute('data-tweet-author', author);
+  const paragraphs = tweetParagraphs(text);
+  (paragraphs.length ? paragraphs : [[]]).forEach(lines => {
+    const p = doc.createElement('p');
+    lines.forEach((line, i) => {
+      if (i) p.appendChild(doc.createElement('br'));
+      p.appendChild(doc.createTextNode(line));
+    });
+    quote.appendChild(p);
+  });
   if (author) {
-    const footer = doc.createElement('footer');
-    footer.textContent = `— ${author}`;
-    quote.appendChild(footer);
+    const byline = doc.createElement('cite');
+    byline.textContent = `— ${author}`;
+    quote.appendChild(byline);
   }
   if (url) {
+    // A line break keeps the byline and the link apart in the reader.
+    if (author) quote.appendChild(doc.createElement('br'));
     const cite = doc.createElement('cite');
     const a = doc.createElement('a');
     a.setAttribute('href', url);
@@ -54,28 +186,48 @@ export const ContentExtractor = {
   // Extract article using Readability (bundled via npm)
   extractArticle: () => {
     try {
-      // Pre-process lazy-loaded images before cloning
-      document.querySelectorAll('img[data-src], img[data-lazy-src], img[data-original], img[data-lazy]').forEach(img => {
+      // Clone FIRST: every pass below edits the clone, and the user's
+      // tab is only ever read (JOURNAL 2026-09-30). The live <img> list
+      // is taken in the same synchronous block as the clone, so no page
+      // script runs in between and the two lists pair index-for-index;
+      // Fix A reads its layout-only sizes from the live twin.
+      const liveImgs = Array.from(document.querySelectorAll('img'));
+      const documentClone = document.cloneNode(true);
+      const cloneImgs = Array.from(documentClone.querySelectorAll('img'));
+      const imgsPaired = liveImgs.length === cloneImgs.length;
+      // Clone images a pass below gives a new source. Their live twin
+      // still shows the old one (a 1x1 placeholder, an alt-text box, a
+      // broken-image icon), so its layout says nothing about the new
+      // image: Fix A sizes these from their attributes alone.
+      const repointed = new Set();
+
+      // Pre-process lazy-loaded images
+      documentClone.querySelectorAll('img[data-src], img[data-lazy-src], img[data-original], img[data-lazy]').forEach(img => {
           const lazySrc = img.dataset.src || img.dataset.lazySrc || img.dataset.original || img.dataset.lazy;
           if (lazySrc && (!img.src || img.src.includes('data:') || img.src.includes('placeholder') || img.src.includes('blank'))) {
               img.src = lazySrc;
+              repointed.add(img);
           }
       });
 
       // Handle srcset fallback for images without proper src
-      document.querySelectorAll('img[srcset]:not([src]), img[data-srcset]').forEach(img => {
+      documentClone.querySelectorAll('img[srcset]:not([src]), img[data-srcset]').forEach(img => {
           const srcset = img.srcset || img.dataset.srcset;
           if (srcset) {
               const firstUrl = srcset.split(',')[0].trim().split(/\s+/)[0];
               if (firstUrl && (!img.src || img.src.includes('data:') || img.src.includes('placeholder'))) {
                   img.src = firstUrl;
+                  repointed.add(img);
               }
           }
       });
 
-      // Handle noscript image fallbacks (many sites put real images in noscript tags)
-      document.querySelectorAll('noscript').forEach(noscript => {
-          const temp = document.createElement('div');
+      // Handle noscript image fallbacks (many sites put real images in noscript tags).
+      // Parsed in an element the CLONE owns: the clone has no browsing
+      // context, so the markup loads nothing and runs no handler. An
+      // element of the live page would do both, even detached.
+      documentClone.querySelectorAll('noscript').forEach(noscript => {
+          const temp = documentClone.createElement('div');
           temp.innerHTML = noscript.textContent || noscript.innerHTML;
           const noscriptImgs = temp.querySelectorAll('img[src]');
           noscriptImgs.forEach(nImg => {
@@ -84,17 +236,23 @@ export const ContentExtractor = {
                   const existingImg = parent.querySelector('img');
                   if (existingImg && (!existingImg.src || existingImg.src.includes('data:') || existingImg.src.includes('placeholder'))) {
                       existingImg.src = nImg.src;
+                      repointed.add(existingImg);
                       if (nImg.alt) existingImg.alt = nImg.alt;
                   }
               }
           });
       });
 
-      // Fix A: Preserve original image dimensions before cloning
-      // Small images (avatars, icons, emoji) get enlarged by max-width:100% in reader view
-      document.querySelectorAll('img').forEach(img => {
-          const naturalWidth = img.naturalWidth || parseInt(img.getAttribute('width')) || img.offsetWidth;
-          const naturalHeight = img.naturalHeight || parseInt(img.getAttribute('height')) || img.offsetHeight;
+      // Fix A: Preserve original image dimensions
+      // Small images (avatars, icons, emoji) get enlarged by max-width:100% in reader view.
+      // The sizes need layout, which only the live page has: read them
+      // from the live twin, stamp the clone. Unpaired lists (never seen;
+      // a guard) and re-pointed images fall back to the width/height
+      // attributes.
+      cloneImgs.forEach((img, i) => {
+          const live = imgsPaired && !repointed.has(img) ? liveImgs[i] : null;
+          const naturalWidth = (live && live.naturalWidth) || parseInt(img.getAttribute('width')) || (live && live.offsetWidth) || 0;
+          const naturalHeight = (live && live.naturalHeight) || parseInt(img.getAttribute('height')) || (live && live.offsetHeight) || 0;
           // Only tag small images (< 100px) to prevent enlargement in reader view
           if (naturalWidth > 0 && naturalWidth < 100) {
               img.classList.add('xr-inline-img');
@@ -103,8 +261,8 @@ export const ContentExtractor = {
           }
       });
 
-      // Pre-process embedded tweets before cloning (expanded selectors for NYT, etc.)
-      document.querySelectorAll([
+      // Pre-process embedded tweets (expanded selectors for NYT, etc.)
+      documentClone.querySelectorAll([
           'blockquote.twitter-tweet',
           'blockquote[cite*="twitter.com"]',
           'blockquote[cite*="x.com"]',
@@ -115,21 +273,21 @@ export const ContentExtractor = {
           'div[class*="tweet-embed"]',
           'div[class*="twitter-tweet"]'
       ].join(', ')).forEach(tweet => {
-          // Extract tweet text, author, and URL from the blockquote
-          const tweetText = tweet.querySelector('p')?.textContent?.trim() || tweet.textContent?.trim() || '';
-          const tweetLink = tweet.querySelector('a[href*="twitter.com"], a[href*="x.com"]');
-          const tweetUrl = tweetLink?.href || '';
-          const authorEl = tweet.querySelector('a:not([href*="/status/"])') || tweet.querySelector('a');
-          const authorName = authorEl?.textContent?.trim() || '';
+          // Extract tweet text (the first <p>, else the whole embed; <br>
+          // kept as a line break), its own status URL, and the author.
+          const textEl = tweet.querySelector('p');
+          const tweetText = (textEl && tweetTextOf(textEl).trim()) || tweetTextOf(tweet);
+          const tweetUrl = tweetStatusUrl(tweet, textEl);
+          const authorName = tweetAuthor(tweet, tweetUrl, textEl);
 
           // Replace complex tweet HTML with clean blockquote
-          const cleanTweet = buildTweetEmbed(document, { text: tweetText, author: authorName, url: tweetUrl });
+          const cleanTweet = buildTweetEmbed(documentClone, { text: tweetText, author: authorName, url: tweetUrl });
 
           tweet.parentNode?.replaceChild(cleanTweet, tweet);
       });
 
       // Also handle Twitter avatar/profile images - constrain their size
-      document.querySelectorAll('img[src*="pbs.twimg.com/profile_images"], img[src*="twimg.com/profile"]').forEach(img => {
+      documentClone.querySelectorAll('img[src*="pbs.twimg.com/profile_images"], img[src*="twimg.com/profile"]').forEach(img => {
           img.classList.add('xr-inline-img');
           img.style.width = '48px';
           img.style.height = '48px';
@@ -138,8 +296,13 @@ export const ContentExtractor = {
           img.setAttribute('height', '48');
       });
 
-      // Clone document for Readability
-      const documentClone = document.cloneNode(true);
+      // Raw-text elements whose text would end them: text, never markup.
+      neutralizeRawText(documentClone);
+
+      // Featured image: read from the prepared clone BEFORE Readability
+      // rewrites it, so the lazy-image swaps above still count. It used
+      // to see them only because they were made on the live page.
+      const featuredImage = ContentExtractor.extractFeaturedImage(documentClone);
 
       // Unwrap inline glossary/footnote popups before Readability runs.
       // Sites like josephsmithpapers.org wrap inline person/place names in
@@ -152,16 +315,17 @@ export const ContentExtractor = {
 
       // Readability is now bundled via npm import
       {
-        const reader = new Readability(documentClone);
-        const article = reader.parse();
-        
+        const article = ContentExtractor._parseArticle(documentClone);
+
         if (!article || article.textContent.length < CONFIG.extraction.min_content_length) {
           console.log('[NAC] Readability extraction failed or content too short');
           return null;
         }
         
-        // Post-process extracted content to fix image URLs
-        const tempDiv = document.createElement('div');
+        // Post-process extracted content to fix image URLs. Re-parsed in
+        // the (inert) clone, never the live page: the clone keeps the
+        // page's URL and <base>, so img.src below resolves the same.
+        const tempDiv = documentClone.createElement('div');
         tempDiv.innerHTML = article.content;
 
         tempDiv.querySelectorAll('img').forEach(img => {
@@ -226,8 +390,8 @@ export const ContentExtractor = {
           article.publishedAtSource = dateResult.source;
         }
         
-        // Extract featured image
-        article.featuredImage = ContentExtractor.extractFeaturedImage();
+        // Featured image (read from the clone above)
+        article.featuredImage = featuredImage;
         
         // Extract publication icon (favicon)
         article.publicationIcon = ContentExtractor.extractPublicationIcon();
@@ -291,6 +455,10 @@ export const ContentExtractor = {
       return ContentExtractor.extractSimple();
     }
   },
+
+  // Readability over the detached clone. Its own seam so a test can
+  // drive extractArticle past the parse on stub documents (no jsdom).
+  _parseArticle: (doc) => new Readability(doc).parse(),
 
   // Unwrap inline glossary/footnote popups so the visible reference text
   // survives Readability. Targets the josephsmithpapers.org shape:
@@ -536,8 +704,9 @@ export const ContentExtractor = {
     return null;
   },
 
-  // Extract featured image
-  extractFeaturedImage: () => {
+  // Extract featured image. `root` is the document read: the capture
+  // passes its prepared clone; the default is the live page.
+  extractFeaturedImage: (root = document) => {
     const selectors = [
       'meta[property="og:image"]',
       'meta[name="twitter:image"]',
@@ -546,7 +715,7 @@ export const ContentExtractor = {
     ];
     
     for (const selector of selectors) {
-      const element = document.querySelector(selector);
+      const element = root.querySelector(selector);
       if (element) {
         const src = element.getAttribute('content') || element.getAttribute('src');
         if (src) {
@@ -752,27 +921,39 @@ export const ContentExtractor = {
                      node.classList.contains('xr-tweet-embed') ||
                      node.getAttribute('data-tweet-url')));
           },
+          // The tweet's text and author are the page's (and the tweet
+          // author's) words: escaped with Turndown's own escape, line by
+          // line, exactly as an ordinary paragraph's text is, so they
+          // plant nothing an ordinary paragraph would not. A CommonMark
+          // renderer shows them as text. X-Ray's markdownToHtml ignores
+          // backslash escapes, so there an escaped "[x](url)" is still a
+          // live link, as in any paragraph (JOURNAL 2026-09-30).
           replacement: function(content, node) {
-            const tweetUrl = node.getAttribute('data-tweet-url') || '';
-            const paragraphs = node.querySelectorAll('p');
-            const tweetText = Array.from(paragraphs).map(p => p.textContent.trim()).filter(t => t).join('\n');
+            const tweetUrl = tweetLinkUrl(node.getAttribute('data-tweet-url'));
+            const paragraphs = [];
+            Array.from(node.querySelectorAll('p')).forEach(p => {
+              paragraphs.push(...tweetParagraphs(tweetTextOf(p)));
+            });
             const footer = node.querySelector('footer');
-            const authorName = footer?.textContent?.replace(/^—\s*/, '').trim() || '';
+            const authorName = (node.getAttribute('data-tweet-author') ||
+                                footer?.textContent?.replace(/^—\s*/, '') || '').replace(/\s+/g, ' ').trim();
 
             let md = '> 🐦 **Tweet';
-            if (authorName) md += ` by ${authorName}`;
+            if (authorName) md += ` by ${turndown.escape(authorName)}`;
             md += '**\n';
             md += '> \n';
 
-            // Add tweet text as blockquote lines
-            if (tweetText) {
-              tweetText.split('\n').forEach(line => {
-                md += `> ${line}\n`;
+            // Add tweet text as blockquote lines: a hard break ("  ")
+            // between the lines of a paragraph, a "> " line between paragraphs
+            paragraphs.forEach((lines, i) => {
+              if (i) md += '> \n';
+              lines.forEach((line, j) => {
+                md += `> ${turndown.escape(line)}${j < lines.length - 1 ? '  ' : ''}\n`;
               });
-            }
+            });
 
             if (tweetUrl) {
-              md += '> \n';
+              if (paragraphs.length) md += '> \n';
               md += `> [View on Twitter/X](${tweetUrl})\n`;
             }
 
