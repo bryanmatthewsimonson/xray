@@ -90,6 +90,7 @@ import { runTranscriptionJob, chromeIo as transcribeChromeIo, describeProgress, 
 import { putSessionArticle } from '../shared/session-articles.js';
 import { mediaKeyForArticle } from '../shared/media-key.js';
 import { openMediaModal } from './media-modal.js';
+import { renderRecaptureBanner } from './recapture-diff.js';
 import { scanPodcastSignals } from '../shared/podcast-identity.js';
 import { openSpeakersModal, speakerEntityId, decorateSpeakerLabels } from './speakers-modal.js';
 import { runDraftPass } from '../shared/transcriber-client.js';
@@ -382,8 +383,9 @@ async function adoptArticle(article, stored) {
     // sequenced, not racing, so the comparison reads the prior row.
     if (state.article && state.article.url && !(stored && stored.readOnly)) {
         (async () => {
+            let fullBody = null;
             try {
-                const fullBody = EventBuilder.assembleArticleBody(hashableArticle(state.article));
+                fullBody = EventBuilder.assembleArticleBody(hashableArticle(state.article));
                 // The AUDITABLE key: audits cover at most
                 // MAX_AUDIT_INPUT_CHARS, and their hash gate covers the
                 // sliced text — for every normal-length capture this is
@@ -425,7 +427,10 @@ async function adoptArticle(article, stored) {
                 }
                 if (prior && prior.articleHash && state.articleHash
                         && prior.articleHash !== state.articleHash) {
-                    renderHashMismatchBanner(prior);
+                    // The hash is byte-exact; the banner claims an
+                    // EDIT. Diff the bodies so extraction noise alone
+                    // never raises it (recapture-diff.js).
+                    renderRecaptureBanner(prior, fullBody, isMarkdownCanonical);
                 }
                 // Rehydrate tagged entities from the prior archive row.
                 // Fresh captures never carry entities, and the save
@@ -1716,32 +1721,6 @@ async function refreshAuditStatus() {
             }
         });
     });
-}
-
-// Stealth-edit surface: the same URL hashed differently on a prior
-// capture. Informational — the prior text stays in the archive; the
-// re-audit affordance arrives with the audit panel (13.6).
-function renderHashMismatchBanner(prior) {
-    let banner = $('#xr-hash-banner');
-    if (!banner) {
-        banner = document.createElement('aside');
-        banner.id = 'xr-hash-banner';
-        banner.className = 'xr-hash-banner';
-        const main = $('#xr-main');
-        if (!main || !main.parentElement) return;
-        main.parentElement.insertBefore(banner, main);
-    }
-    const ago = prior.cachedAt ? new Date(prior.cachedAt * 1000).toLocaleDateString() : 'earlier';
-    banner.innerHTML = `
-      <div class="xr-hash-banner__body">
-        <div class="xr-hash-banner__label">⚠️ Content changed since your last capture (${escapeHtml(ago)})</div>
-        <div class="xr-hash-banner__metric">The text hashes differently — the page was edited between captures. Your previous capture stays in the archive; audits anchor to the exact text they scored.</div>
-      </div>
-      <div class="xr-hash-banner__actions">
-        <button type="button" class="xr-reader__btn xr-reader__btn--ghost" id="xr-hash-dismiss">Dismiss</button>
-      </div>
-    `;
-    $('#xr-hash-dismiss').addEventListener('click', () => banner.remove());
 }
 
 /**

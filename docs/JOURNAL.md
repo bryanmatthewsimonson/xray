@@ -40,6 +40,10 @@ the entry's heading anchor in its monthly file.
 - **2026-11-06** — [Proposal and link keys keep endpoint order for directional relationships](journal/2026-11.md#2026-11-06--proposal-and-link-keys-keep-endpoint-order-for-directional-relationships) · design, synthesis
 - **2026-11-06** — [`depends-on` joins the kind-30055 vocabulary (claim dependency D.1)](journal/2026-11.md#2026-11-06--depends-on-joins-the-kind-30055-vocabulary-claim-dependency-d1) · wire, design, one-way-door
 
+## 2026-10
+
+- **2026-10-17** — ["Content changed since your last capture" now needs a word to change, and shows which](journal/2026-10.md#2026-10-17--content-changed-since-your-last-capture-now-needs-a-word-to-change-and-shows-which) · bug, reader, design
+
 ## 2026-09
 
 - **2026-09-30** — [Capture no longer writes to the user's tab, and an embedded tweet can no longer plant markup in the capture](journal/2026-09.md#2026-09-30--capture-no-longer-writes-to-the-users-tab-and-an-embedded-tweet-can-no-longer-plant-markup-in-the-capture) · bug, security, capture
