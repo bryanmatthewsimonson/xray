@@ -59,7 +59,7 @@ export function renderLinksBlock(host, { data, dossier, callbacks = {} }) {
         block.appendChild(el('h3', 'xr-case__heading',
             'Cross-article links — suggested relationships, not a ruling'));
         block.appendChild(el('p', 'xr-case__explainer',
-            'Proposes supports / contradicts / updates / duplicates relationships between '
+            'Proposes supports / contradicts / updates / duplicates / depends-on relationships between '
             + 'captured claims from different sources — reviewable structure the corpus '
             + 'analysis then builds on. Accepting a link never judges which claim is right.'));
 
