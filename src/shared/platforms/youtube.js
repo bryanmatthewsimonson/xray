@@ -865,8 +865,11 @@ function trackDisplayName(track) {
  * kind-30023 event. Prioritizes faithfulness + machine-readability —
  * every transcript is labeled with language, kind, role, and
  * timestamped lines are preserved.
+ *
+ * Exported for tests/recapture-diff.test.mjs, which holds the reader's
+ * re-capture comparison to what this function actually writes.
  */
-function composeMarkdownBody(opts) {
+export function composeMarkdownBody(opts) {
     const { title, channelName, canonicalUrl, videoId, durationSeconds,
             viewCount, publishDate, category, description, keywords,
             transcripts, isShort } = opts;
