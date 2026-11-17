@@ -13,7 +13,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { EXTENSION_PAGES, expectedBundles } from '../tools/smoke/lib/browser.mjs';
 
@@ -57,7 +57,10 @@ test('guard: expectedBundles() is exactly the set the product loads', async () =
 });
 
 test('guard: every HTML shell under src/ is a discovered extension page — none drops out of `pages` silently', () => {
-    const shells = walk(join(REPO, 'src'), ['.html']).map((f) => f.replace(REPO + '/', '')).sort();
+    // '/'-separated repo-relative names on every platform: EXTENSION_PAGES
+    // spells its paths that way, and stripping `REPO + '/'` never matched
+    // a Windows path, so the comparison was absolute-vs-relative there.
+    const shells = walk(join(REPO, 'src'), ['.html']).map((f) => relative(REPO, f).split(sep).join('/')).sort();
     const discovered = EXTENSION_PAGES.map((p) => p.path).sort();
     assert.ok(shells.length >= 1, 'no HTML shell under src/ — the scanner is blind');
     assert.deepEqual(discovered, shells,

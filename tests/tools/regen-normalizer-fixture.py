@@ -54,6 +54,19 @@ def _mapping_sha() -> str:
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()
 
 
+def _reference_sha() -> str:
+    """Pin normalize.py by its REPOSITORY bytes, not this checkout's.
+
+    A Windows checkout with core.autocrlf=true smudges the file to CRLF
+    while the committed blob is LF, so the raw working-tree bytes hash to
+    a value Linux CI can never reproduce. Undo the smudge first; the JS
+    test (tests/provider-normalize.test.mjs) applies the same rule, and
+    _mapping_sha above already gets it from read_text's universal
+    newlines.
+    """
+    return hashlib.sha256(REF.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
 def w(text, start=None, end=None):
     return {"text": text, "start": start, "end": end}
 
@@ -428,7 +441,7 @@ doc = {
     ),
     "reference": {
         "file": "companion/transcriber/transcriber/providers/normalize.py",
-        "sha256": hashlib.sha256(REF.read_bytes()).hexdigest(),
+        "sha256": _reference_sha(),
         "regenerate": "python3 tests/tools/regen-normalizer-fixture.py",
     },
     "max_segment_s": 30.0,
