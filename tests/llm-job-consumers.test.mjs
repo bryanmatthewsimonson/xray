@@ -26,7 +26,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { installDomStub, installChromeStub, walkNodes, textOf, byText, until } from './helpers/page-stub.mjs';
+import { installDomStub, installChromeStub, walkNodes, textOf, byText, until, untilListening } from './helpers/page-stub.mjs';
 import { createJobStub, jobSendMessage } from './helpers/llm-job-stub.mjs';
 
 await import('fake-indexeddb/auto');
@@ -111,7 +111,9 @@ const LINKS_OUT = {
 async function mountLinks() {
     const host = mount();
     renderLinksBlock(host, { data: linksData(), dossier: { scope: { question: 'Where did it begin?' } } });
-    assert.ok(await until(() => byText(host, 'Suggest links…')), 'the Suggest links control rendered');
+    // The LISTENER, not the button: the block appends the button, reads
+    // the stored run, and only then wires the click (JOURNAL 2026-11-16).
+    await untilListening(host, 'Suggest links…');
     return host;
 }
 
@@ -170,6 +172,35 @@ test('links: a status poll dropped by a torn-down worker (lastError) is retried 
     assert.ok(H.jobOps('status').length >= 2, 'the dropped poll was re-sent');
 });
 
+test('links: a click sent as soon as the block is mounted reaches its listener — a stored-run read held past the poll never drops it', async () => {
+    // JOURNAL 2026-11-16. The block appends the button, awaits the stored
+    // run, and only then attaches the click listener. Under a loaded
+    // full run that read outlasted the 5 ms poll once in nine: the mount
+    // helper, which waited for the BUTTON, returned inside the window,
+    // the click ran no listener, and the test read an empty status.
+    // Holding the read here puts every mount in that window. Only the
+    // outcome is asserted — the window itself is the product's to close.
+    await freshTest();
+    let calls = 0;
+    H.startWorker({ 'corpus-links': async () => { calls += 1; return LINKS_OUT; } });
+    const realGet = IDBObjectStore.prototype.get;
+    IDBObjectStore.prototype.get = function get(...args) {
+        if (this.name === 'case-link-suggestions') {
+            const end = Date.now() + 25;
+            while (Date.now() < end) { /* hold the read */ }
+        }
+        return realGet.apply(this, args);
+    };
+    let host;
+    try {
+        host = await mountLinks();
+        await byText(host, 'Suggest links…').dispatch('click');
+    } finally { IDBObjectStore.prototype.get = realGet; }
+    assert.equal(calls, 1, 'the click reached the listener');
+    assert.match(textOf(host), /Done — 1 proposal/);
+    assert.ok(await released());
+});
+
 // ------------------------------------------------------------------
 // portal — Suggest edges (hypothesis-edges): render-only review
 // ------------------------------------------------------------------
@@ -204,7 +235,7 @@ async function seedHypothesis() {
 async function mountHypotheses() {
     const host = mount();
     renderHypothesesBlock(host, { data: hypData(), dossier: {}, callbacks: {} });
-    assert.ok(await until(() => byText(host, 'Suggest edges (LLM)…')), 'the Suggest edges control rendered');
+    await untilListening(host, 'Suggest edges (LLM)…');
     return host;
 }
 
@@ -276,7 +307,7 @@ test('hypothesis edges: a panel in a HIDDEN view (the portal showing the library
     const host = document.createElement('div');
     view.appendChild(host);
     renderHypothesesBlock(host, { data: hypData(), dossier: {}, callbacks: {} });
-    assert.ok(await until(() => byText(host, 'Suggest edges (LLM)…')));
+    await untilListening(host, 'Suggest edges (LLM)…');
     await byText(host, 'Suggest edges (LLM)…').dispatch('click');
     assert.ok(await until(() => d.calls.length === 1));
     view.hidden = true;                       // the user went to the library
@@ -322,7 +353,7 @@ function forensicData() {
 async function mountForensic() {
     const host = mount();
     renderForensicCorpusBlock(host, { data: forensicData(), callbacks: {} });
-    assert.ok(await until(() => byText(host, 'Analyze subject…')));
+    await untilListening(host, 'Analyze subject…');
     walkNodes(host).find((n) => n.tagName === 'SELECT').value = 'eP';
     return host;
 }
@@ -377,7 +408,7 @@ test('forensic: a review in a HIDDEN view (the library showing) keeps the record
     const host = document.createElement('div');
     view.appendChild(host);
     renderForensicCorpusBlock(host, { data: forensicData(), callbacks: {} });
-    assert.ok(await until(() => byText(host, 'Analyze subject…')));
+    await untilListening(host, 'Analyze subject…');
     walkNodes(host).find((n) => n.tagName === 'SELECT').value = 'eP';
     const click = byText(host, 'Analyze subject…').dispatch('click');
     assert.ok(await until(() => d.calls.length === 1));
