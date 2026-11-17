@@ -2,6 +2,7 @@
 // never by extraction noise alone, and its diff shows what changed.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
 
 // EventBuilder transitively imports Storage, which probes
 // chrome.storage.local at module-load time.
@@ -14,6 +15,9 @@ const {
 } = await import('../src/reader/recapture-diff.js');
 const { EventBuilder } = await import('../src/shared/event-builder.js');
 const { articleHash: canonicalArticleHash } = await import('../src/shared/audit/article-hash.js');
+const { ContentExtractor } = await import('../src/shared/content-extractor.js');
+const { composeMarkdownBody } = await import('../src/shared/platforms/youtube.js');
+const { buildTranscriptSection } = await import('../src/shared/transcript-article.js');
 
 const BODY = [
     '# The headline',
@@ -116,6 +120,169 @@ test('summary names what changed', () => {
     assert.equal(summarizeDiff({ stats: { changed: 2, added: 1, removed: 0 } }), '2 paragraphs edited, 1 added');
 });
 
+// --- the same words, cut into paragraphs differently ---------------------
+//
+// A paragraph break is not a word. Transcript paragraphs are X-Ray's own
+// invention (the composers glue timed caption cues together), so the same
+// speech arrives broken at other points whenever the cues do.
+
+test('the same words in paragraphs split or merged differently are not a change', () => {
+    const prior = 'One fact here. Two facts there.\n\nThree facts more.\n\nThe end.';
+    const current = 'One fact here.\n\nTwo facts there. Three facts more.\n\nThe end.';
+    const d = diffBodies(prior, current);
+    assert.equal(d.substantive, false);
+    assert.deepEqual(d.stats, { added: 0, removed: 0, changed: 0 });
+});
+
+test('paragraphs in another order are still a change', () => {
+    assert.equal(diffBodies('A one.\n\nB two.', 'B two.\n\nA one.').substantive, true);
+});
+
+test('an oversized re-cut is not a change either — it never reaches the coarse count', () => {
+    const a = Array.from({ length: 3000 }, (_, i) => `a${i}.`);
+    const b = [];
+    for (let i = 0; i < a.length; i += 2) b.push(`${a[i]} ${a[i + 1]}`);
+    const d = diffBodies(a.join('\n\n'), b.join('\n\n'));
+    assert.equal(d.substantive, false);
+    assert.equal(d.coarse, false);
+});
+
+// --- time anchors ---------------------------------------------------------
+
+test("a transcript paragraph's leading time anchor is a position, not a word", () => {
+    const turns = (shiftMs) => [
+        { speaker: 'Chair', startMs: 5000 + shiftMs, text: 'The quay is sound.' },
+        { speaker: 'Engineer', startMs: 9000 + shiftMs, text: 'The outer wall is not.' }
+    ];
+    // The three stamp forms the transcript composers write.
+    const forms = {
+        'a YouTube deep link': { meta: { url: 'https://www.youtube.com/watch?v=abc' }, linkFor: (s) => `https://www.youtube.com/watch?v=abc&t=${s}s` },
+        'a media-fragment link': { meta: { url: 'https://example.org/episode.mp3' } },
+        'a bare stamp': { meta: {} }
+    };
+    for (const [name, opts] of Object.entries(forms)) {
+        const a = buildTranscriptSection({ turns: turns(0), ...opts });
+        const b = buildTranscriptSection({ turns: turns(3000), ...opts });
+        assert.notEqual(a, b, `${name}: the fixture must move the stamps`);
+        assert.equal(diffBodies(a, b).substantive, false, name);
+    }
+});
+
+test('a clock time inside a sentence is a word', () => {
+    assert.equal(diffBodies('The board met at 9:30 on Tuesday.', 'The board met at 10:30 on Tuesday.').substantive, true);
+    assert.equal(diffBodies('Set the timer to `9:30` and wait.', 'Set the timer to `10:30` and wait.').substantive, true);
+});
+
+// --- counts the capture header carries ------------------------------------
+
+const headerWith = (line) => `---\n\n**Video**: [T](https://example.com/v)  \n${line}  \n**Video ID**: \`x\`\n\n---`;
+
+test('a count on a header line of its own is noise; the same text inside a sentence is not', () => {
+    assert.equal(diffBodies(headerWith('**Views**: 1,734,097'), headerWith('**Views**: 1,773,844')).substantive, false);
+    assert.equal(diffBodies('The clip passed Views: 12 by noon.', 'The clip passed Views: 99 by noon.').substantive, true);
+});
+
+// Every capture header is written by a composer under
+// src/shared/platforms/. A count one of them writes that this module
+// does not treat as noise raises the banner on EVERY re-capture of that
+// platform — which is how "**Views**: 1,204" got past a filter that knew
+// only "1,204 views". So this reads the composers' own templates instead
+// of a list kept here. It finds a count by its `.toLocaleString()`; one
+// written any other way is outside what this can see.
+test('every count a platform composer writes into a body is noise to the comparison', () => {
+    const dir = new URL('../src/shared/platforms/', import.meta.url);
+    const found = [];
+    for (const name of readdirSync(dir).filter((f) => f.endsWith('.js'))) {
+        const src = readFileSync(new URL(name, dir), 'utf8');
+        for (const line of src.split('\n')) {
+            if (!/\.push\(/.test(line) || !/toLocaleString\(\)/.test(line) || /new Date\(/.test(line)) continue;
+            const tpl = (line.match(/`([^`]*)`/) || [])[1];
+            assert.ok(tpl, `${name}: could not read the template in: ${line.trim()}`);
+            found.push({ name, tpl });
+        }
+    }
+    assert.ok(found.length >= 15, `only ${found.length} count templates found — did the composers change shape?`);
+    for (const { name, tpl } of found) {
+        const render = (n) => {
+            const out = tpl.replace(/\$\{[^}]*toLocaleString\(\)\}/g, n);
+            assert.ok(!out.includes('${'), `${name}: unrendered part in ${tpl}`);
+            // A labelled field is a header line of its own; anything
+            // else is one bit of a " · "-joined stats line.
+            return headerWith(out.startsWith('**') ? out : `**Stats**: ${out} · Verified`);
+        };
+        assert.equal(normalizeForComparison(render('1,204')), normalizeForComparison(render('98,765')), `${name}: ${tpl}`);
+    }
+});
+
+// --- video re-capture: what the YouTube composer really writes -----------
+//
+// Held to the composer's real output, round-tripped the way the reader
+// assembles a video body, so the comparison and the composer cannot
+// drift apart unnoticed.
+
+const SENTENCES = Array.from({ length: 40 }, (_, i) =>
+    `Sentence number ${i} says something specific about the harbour and berth ${i} today.`);
+
+// `per` sentences to a caption cue: the same words, cut at other points —
+// so the composer ends its paragraphs after other sentences.
+function cues(sentences, per) {
+    const out = [];
+    for (let i = 0; i < sentences.length; i += per) {
+        out.push({ startMs: i * 4000, durationMs: per * 4000, text: sentences.slice(i, i + per).join(' ') });
+    }
+    return out;
+}
+
+function videoArticle({ views, events }) {
+    const markdown = composeMarkdownBody({
+        title: 'Harbour board meeting', channelName: 'Harbour Desk',
+        canonicalUrl: 'https://www.youtube.com/watch?v=abc123XYZ_-', videoId: 'abc123XYZ_-',
+        durationSeconds: 160, viewCount: views, publishDate: '2026-09-01T12:00:00Z',
+        category: 'News & Politics', description: 'The full meeting.', keywords: ['harbour'],
+        transcripts: [{ kind: 'scraped', displayName: 'YouTube panel', role: 'origin-scraped', events }],
+        isShort: false
+    });
+    // What a capture stores: the rendered HTML. A video is not
+    // markdown-canonical, so the reader turns it back into markdown.
+    return { contentType: 'video', content: ContentExtractor.markdownToHtml(markdown) };
+}
+const bodyOf = (article) => EventBuilder.assembleArticleBody(article);
+
+const OLD_VIDEO = videoArticle({ views: 1734097, events: cues(SENTENCES, 1) });
+const NEW_VIDEO = videoArticle({ views: 1773844, events: cues(SENTENCES, 2) });
+
+test('the video fixture: the same speech, more views, paragraphs cut at other points', async () => {
+    const a = bodyOf(OLD_VIDEO), b = bodyOf(NEW_VIDEO);
+    assert.notEqual(await canonicalArticleHash(a), await canonicalArticleHash(b));
+    assert.match(a, /\*\*Views\*\*: 1,734,097/);
+    assert.match(a, /\[`0:20`\]\([^)]*\) Sentence number 5 /);
+    assert.match(b, /\[`0:24`\]\([^)]*\) Sentence number 6 /);
+    const spoken = (body) => body.slice(body.indexOf('## Transcript'))
+        .replace(/\[`[\d:]+`\]\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+    assert.equal(spoken(a), spoken(b));
+});
+
+test('video re-capture: more views and re-cut paragraphs are not a change', () => {
+    const d = diffBodies(bodyOf(OLD_VIDEO), bodyOf(NEW_VIDEO));
+    assert.equal(d.substantive, false);
+    assert.deepEqual(d.stats, { added: 0, removed: 0, changed: 0 });
+    assert.deepEqual(d.hunks, []);
+});
+
+test('video re-capture: one changed word in a re-cut transcript is found, and only its stretch is marked', () => {
+    const edited = SENTENCES.slice();
+    edited[33] = edited[33].replace('harbour', 'marina');
+    const d = diffBodies(bodyOf(OLD_VIDEO), bodyOf(videoArticle({ views: 1773844, events: cues(edited, 2) })));
+    assert.equal(d.substantive, true);
+    // Both cuts break after sentences 29 and 39; the edit sits between,
+    // in two paragraphs on each side. Sentences 0–29 are only re-cut.
+    assert.deepEqual(d.stats, { added: 0, removed: 0, changed: 2 });
+    const marked = d.hunks.flat().filter((r) => r.op === 'change')
+        .flatMap((r) => r.words).filter((w) => w.op !== 'same').map((w) => w.text).join(' ');
+    assert.match(marked, /marina/);
+    assert.ok(!/berth 12 /.test(marked), 'a paragraph far from the edit was marked');
+});
+
 // --- the seam: the banner the reader calls ------------------------------
 
 const isMarkdownCanonical = (a) => !!(a && a.markdown && a.contentType === 'pdf');
@@ -170,6 +337,13 @@ function stubDoc() {
 test('banner: noise-only recapture renders nothing', () => {
     const doc = stubDoc();
     const shown = renderRecaptureBanner({ article: { content: BODY }, cachedAt: 1 }, NOISY, isMarkdownCanonical, doc);
+    assert.equal(shown, false);
+    assert.equal(doc.getElementById('xr-hash-banner'), null);
+});
+
+test('banner: a video re-captured with more views and re-cut paragraphs renders nothing', () => {
+    const doc = stubDoc();
+    const shown = renderRecaptureBanner({ article: OLD_VIDEO, cachedAt: 1 }, bodyOf(NEW_VIDEO), isMarkdownCanonical, doc);
     assert.equal(shown, false);
     assert.equal(doc.getElementById('xr-hash-banner'), null);
 });

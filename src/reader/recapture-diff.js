@@ -28,7 +28,20 @@ const MAX_WORD_CELLS = 250_000;
 const CONTEXT = 1;
 
 const RELATIVE_TIME = /\b(?:about |over |almost )?(?:an?|\d+)\s*(?:s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?|d|days?|w|wks?|weeks?|mo|months?|y|yrs?|years?)\s+ago\b/gi;
-const ENGAGEMENT_COUNT = /\b\d[\d.,]*\s*[KkMm]?\s+(?:likes?|comments?|replies|reply|shares?|views?|restacks?|reposts?|retweets?|quotes?|bookmarks?|reactions?|subscribers?|followers?)\b/gi;
+// What a page or a capture header counts. One list, two word orders:
+// a page writes "1,204 views", a platform composer's header writes
+// "**Views**: 1,204" (tests/recapture-diff.test.mjs reads the composers'
+// own templates, so a count they add that is missing here goes red).
+const COUNTED = 'likes?|comments?|replies|reply|shares?|views?|restacks?|reposts?|retweets?|quotes?|bookmarks?|reactions?|subscribers?|followers?|posts?';
+const ENGAGEMENT_COUNT = new RegExp(`\\b\\d[\\d.,]*\\s*[KkMm]?\\s+(?:${COUNTED})\\b`, 'gi');
+// Only a line that is nothing but the label and its number — the same
+// text inside a sentence is the author's.
+const LABELLED_COUNT = new RegExp(`^[ \\t]*(?:${COUNTED})[ \\t]*:[ \\t]*\\d[\\d.,]*[ \\t]*[KkMm]?[ \\t]*$`, 'gim');
+// A transcript paragraph opens with the time it starts at, linked or
+// bare: [`1:02`](…&t=62s), [`1:02`](…#t=62), `1:02`. That is a position
+// in the recording, not a word anyone said. Leading only — a clock time
+// inside a sentence stays.
+const TIME_ANCHOR = /^\s*(?:\[`\d{1,3}:\d{2}(?::\d{2})?`\]\([^)]*\)|`\d{1,3}:\d{2}(?::\d{2})?`)\s*/;
 
 /**
  * The comparison key for one paragraph — NEVER a hash input. Drops what
@@ -38,6 +51,7 @@ const ENGAGEMENT_COUNT = /\b\d[\d.,]*\s*[KkMm]?\s+(?:likes?|comments?|replies|re
 export function normalizeForComparison(text) {
     return String(text ?? '')
         .normalize('NFKC')
+        .replace(TIME_ANCHOR, '')
         // Images reduce to their alt text: the src is a CDN path that
         // rotates sizes, formats and signatures between loads.
         .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
@@ -56,6 +70,8 @@ export function normalizeForComparison(text) {
         .replace(ENGAGEMENT_COUNT, '')
         // Markdown emphasis markers carry no words.
         .replace(/[*_]{1,3}/g, '')
+        // After the markers go, so "**Views**: 1,204" reads "Views: 1,204".
+        .replace(LABELLED_COUNT, '')
         .replace(/\s+/g, ' ')
         .trim();
 }
@@ -92,6 +108,56 @@ function lcsOps(a, b, eq) {
     return ops;
 }
 
+// The words of a run of paragraphs, the breaks between them gone.
+const flowOf = (paras) => paras.map((p) => p.key).join(' ');
+
+/**
+ * The first point after the start of two paragraph lists (before the
+ * end, when `fromEnd`) where both break after the same words. Returns
+ * how many paragraphs each side spends getting there, or null when the
+ * words differ first.
+ */
+function syncPoint(a, b, fromEnd) {
+    const keyAt = (list, k) => list[fromEnd ? list.length - 1 - k : k].key;
+    const join = (acc, key) => (!acc ? key : fromEnd ? `${key} ${acc}` : `${acc} ${key}`);
+    let x = 0, y = 0, fa = '', fb = '';
+    for (;;) {
+        if (fa && fa.length === fb.length) return fa === fb ? [x, y] : null;
+        if (fa.length <= fb.length) {
+            if (x === a.length) return null;
+            fa = join(fa, keyAt(a, x++));
+        } else {
+            if (y === b.length) return null;
+            fb = join(fb, keyAt(b, y++));
+        }
+    }
+}
+
+/**
+ * Split one run of changed paragraphs at the points where both sides
+ * break after the same words. A piece whose words are equal is the same
+ * text cut into paragraphs differently — `reflow`, never an edit: a
+ * transcript's paragraphs are X-Ray's own, glued from caption cues that
+ * arrive cut at other points from one capture to the next. Whatever is
+ * left between the pieces peeled from each end holds the real change.
+ */
+function splitRun(dels, inss) {
+    const head = [], tail = [];
+    let a = dels, b = inss, cut;
+    while ((cut = syncPoint(a, b, false))) {
+        head.push({ reflow: true, inss: b.slice(0, cut[1]) });
+        a = a.slice(cut[0]);
+        b = b.slice(cut[1]);
+    }
+    while ((cut = syncPoint(a, b, true))) {
+        tail.unshift({ reflow: true, inss: b.slice(b.length - cut[1]) });
+        a = a.slice(0, a.length - cut[0]);
+        b = b.slice(0, b.length - cut[1]);
+    }
+    if (a.length || b.length) head.push({ reflow: false, dels: a, inss: b });
+    return head.concat(tail);
+}
+
 /** Word-level diff of two paragraphs → [{ op: 'same'|'del'|'ins', text }]. */
 export function diffWords(before, after) {
     const a = String(before ?? '').split(/(\s+)/).filter(Boolean);
@@ -111,14 +177,16 @@ export function diffWords(before, after) {
 }
 
 /**
- * Compare two article bodies (assembled markdown).
+ * Compare two article bodies (assembled markdown). What is compared is
+ * the WORDS, in order: where a paragraph breaks is not one of them, so
+ * the same text cut into other paragraphs is not a change.
  *
  * @returns {{
  *   substantive: boolean,   // false → every difference was noise
  *   coarse: boolean,        // true → too large to align; counts only
  *   stats: { added: number, removed: number, changed: number },
  *   hunks: Array<Array<{ op: 'same'|'del'|'ins'|'change', before?: string, after?: string, words?: Array }>>
- * }}
+ * }}                        // a 'same' row for a re-cut paragraph carries only `after`
  */
 export function diffBodies(priorBody, currentBody) {
     const a = paragraphsOf(priorBody);
@@ -132,11 +200,11 @@ export function diffBodies(priorBody, currentBody) {
     let endA = a.length, endB = b.length;
     while (endA > start && endB > start && a[endA - 1].key === b[endB - 1].key) { endA--; endB--; }
 
-    if (start === endA && start === endB) {
+    const midA = a.slice(start, endA), midB = b.slice(start, endB);
+    // Nothing left, or the same words under other paragraph breaks.
+    if (flowOf(midA) === flowOf(midB)) {
         return { substantive: false, coarse: false, stats, hunks: [] };
     }
-
-    const midA = a.slice(start, endA), midB = b.slice(start, endB);
     if (midA.length * midB.length > MAX_LCS_CELLS) {
         stats.removed = midA.length;
         stats.added = midB.length;
@@ -155,17 +223,24 @@ export function diffBodies(priorBody, currentBody) {
         }
         const dels = [], inss = [];
         while (k < ops.length && ops[k].op !== 'same') {
-            if (ops[k].op === 'del') dels.push(midA[ops[k].a].raw);
-            else inss.push(midB[ops[k].b].raw);
+            if (ops[k].op === 'del') dels.push(midA[ops[k].a]);
+            else inss.push(midB[ops[k].b]);
             k++;
         }
-        const pairs = Math.min(dels.length, inss.length);
-        for (let p = 0; p < pairs; p++) {
-            rows.push({ op: 'change', before: dels[p], after: inss[p], words: diffWords(dels[p], inss[p]) });
-            stats.changed++;
+        for (const piece of splitRun(dels, inss)) {
+            if (piece.reflow) {
+                for (const p of piece.inss) rows.push({ op: 'same', after: p.raw });
+                continue;
+            }
+            const pairs = Math.min(piece.dels.length, piece.inss.length);
+            for (let p = 0; p < pairs; p++) {
+                const before = piece.dels[p].raw, after = piece.inss[p].raw;
+                rows.push({ op: 'change', before, after, words: diffWords(before, after) });
+                stats.changed++;
+            }
+            for (const d of piece.dels.slice(pairs)) { rows.push({ op: 'del', before: d.raw }); stats.removed++; }
+            for (const s of piece.inss.slice(pairs)) { rows.push({ op: 'ins', after: s.raw }); stats.added++; }
         }
-        for (const d of dels.slice(pairs)) { rows.push({ op: 'del', before: d }); stats.removed++; }
-        for (const s of inss.slice(pairs)) { rows.push({ op: 'ins', after: s }); stats.added++; }
     }
     for (let i = endA, j = endB; i < a.length; i++, j++) rows.push({ op: 'same', before: a[i].raw, after: b[j].raw });
 
