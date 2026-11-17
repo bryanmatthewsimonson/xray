@@ -35,7 +35,16 @@ const FIXTURE = JSON.parse(readFileSync(repoUrl('tests/fixtures/normalizer-parit
 // ------------------------------------------------------------------
 
 test('the reference implementation has not changed under the fixture', () => {
-    const ref = readFileSync(repoUrl(FIXTURE.reference.file));
+    // A Windows checkout with core.autocrlf=true smudges the file to
+    // CRLF; the committed blob is LF, and those are the bytes the
+    // fixture pins. Undo the smudge byte-exactly (latin1 round-trips
+    // every byte) so the hash is over the repo's bytes on every
+    // platform — the generator applies the same rule. This cannot hide
+    // a real drift: Python reads CRLF and LF source lines identically,
+    // inside string literals too, and .gitattributes pins *.py to LF,
+    // so a CRLF-only edit is not a change git can commit.
+    const ref = Buffer.from(
+        readFileSync(repoUrl(FIXTURE.reference.file), 'latin1').replace(/\r\n/g, '\n'), 'latin1');
     const sha = createHash('sha256').update(ref).digest('hex');
     assert.equal(sha, FIXTURE.reference.sha256,
         `${FIXTURE.reference.file} changed since the parity fixture was generated.\n`
