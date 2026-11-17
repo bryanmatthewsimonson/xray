@@ -63,9 +63,24 @@ export function installDomStub() {
                 return null;
             },
             addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
-            /** Test seam: run every `type` listener and await them all. */
+            /** Test seam: has anything attached a `type` listener yet? */
+            hasListener(type) { return (listeners[type] || []).length > 0; },
+            /**
+             * Test seam: run every `type` listener and await them all.
+             * THROWS when nothing listens. A real click on an unwired
+             * control does nothing, and a test that dispatched one used
+             * to resolve at once and go on to read a page the click
+             * never touched (JOURNAL 2026-11-16) — so the stub refuses
+             * instead. Wait with `untilListening` before dispatching.
+             */
             dispatch(type) {
-                return Promise.all((listeners[type] || []).map((fn) =>
+                const fns = listeners[type] || [];
+                if (fns.length === 0) {
+                    throw new Error(`page-stub: dispatch('${type}') on <${node.tagName}> `
+                        + `${JSON.stringify(node.textContent)} would run no listener — nothing has attached one. `
+                        + 'A block may append a control before it wires it: wait with untilListening(), not for the node.');
+                }
+                return Promise.all(fns.map((fn) =>
                     fn({ type, target: node, preventDefault() {}, stopPropagation() {} })));
             }
         };
@@ -197,4 +212,28 @@ export async function until(pred, { tries = 400, ms = 5 } = {}) {
         await new Promise((r) => setTimeout(r, ms));
     }
     return false;
+}
+
+/**
+ * The node labelled `text`, once something LISTENS for `type` on it.
+ *
+ * Wait on this before a dispatch, never on the node alone. A block may
+ * append a control, await (a stored-run read, a config snapshot) and
+ * only then attach its listener; a poll that lands in between finds a
+ * control nothing answers for yet (JOURNAL 2026-11-16: links-block.js
+ * reads IndexedDB between the two). Throws, saying which half is
+ * missing, when the wait runs out.
+ */
+export async function untilListening(root, text, type = 'click', opts) {
+    let node = null;
+    const wired = await until(() => {
+        node = byText(root, text);
+        return !!node && node.hasListener(type);
+    }, opts);
+    if (!wired) {
+        throw new Error(node
+            ? `page-stub: ${JSON.stringify(text)} rendered, but nothing attached a ${type} listener to it`
+            : `page-stub: no node with the text ${JSON.stringify(text)} rendered`);
+    }
+    return node;
 }
