@@ -15,6 +15,11 @@
 *.css   text eol=lf
 *.yml   text eol=lf
 *.svg   text eol=lf
+# The companion is not shipped, but npm test hashes two of its files:
+# tests/provider-normalize.test.mjs pins normalize.py's sha256 and
+# tests/direct-transcribe-deepgram.test.mjs pins deepgram.py's mapping
+# functions. (Both also undo a smudge already on disk.)
+*.py    text eol=lf
 *.png   binary
 
 # The JOURNAL is split by month (docs/journal/YYYY-MM.md) and appended

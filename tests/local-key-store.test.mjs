@@ -49,6 +49,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 await import('fake-indexeddb/auto');
 
@@ -990,7 +991,9 @@ test('guard: the content bundle never includes the keystore module (THREAT_MODEL
 // would dodge a pattern that only matched `.keys.set(`. Reads go through
 // getKey / listKeys; writes through the locked methods.
 test('guard: no module outside local-key-manager.js touches LocalKeyManager.keys or calls save()', () => {
-    const ROOT = new URL('..', import.meta.url).pathname;
+    // fileURLToPath, never URL.pathname: on Windows the pathname is
+    // `/C:/…`, which fs resolves to `C:\C:\…` (ENOENT before any scan).
+    const ROOT = fileURLToPath(new URL('..', import.meta.url));
     const files = [];
     const walk = (dir) => {
         for (const e of readdirSync(join(ROOT, dir), { withFileTypes: true })) {

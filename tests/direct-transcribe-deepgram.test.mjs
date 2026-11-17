@@ -74,7 +74,11 @@ test('the Deepgram mapping functions have not changed under the fixture', () => 
     // the request URL or the progress ticker does not red this suite
     // spuriously while a mapping edit does.
     const ref = FIXTURE.provider_reference.deepgram;
-    const src = readFileSync(repoUrl(ref.file), 'utf8');
+    // CRLF -> LF first: a core.autocrlf=true checkout smudges the file,
+    // and the generator's read_text already turns CRLF into LF
+    // (Python's universal newlines). Without it the two sides slice
+    // different text on Windows (every line here keeps its \r).
+    const src = readFileSync(repoUrl(ref.file), 'utf8').replace(/\r\n/g, '\n');
     // The SAME textual rule the generator uses (see _extract_function
     // there): from `def <name>(` up to the next line starting in column
     // 0, trailing whitespace stripped. A text rule is the only

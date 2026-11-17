@@ -65,6 +65,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 await import('fake-indexeddb/auto');
 
@@ -1563,7 +1564,9 @@ const DIRECT_REGISTRY_RMW = /Storage\s*\.\s*(set|getStrict|delete)\s*\(\s*['"`]e
 test('guard: no module outside entity-model.js reads-for-write or writes the entity registry directly', () => {
     assert.ok(DIRECT_REGISTRY_RMW.test("await Storage.set('entities', all)"), 'sanity: the pattern sees the pre-fix pull\'s write');
     assert.ok(!DIRECT_REGISTRY_RMW.test("await Storage.get('entities', {})"), 'sanity: display reads are allowed');
-    const ROOT = new URL('..', import.meta.url).pathname;
+    // fileURLToPath, never URL.pathname: on Windows the pathname is
+    // `/C:/…`, which fs resolves to `C:\C:\…` (ENOENT before any scan).
+    const ROOT = fileURLToPath(new URL('..', import.meta.url));
     const files = [];
     const walk = (dir) => {
         for (const e of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
