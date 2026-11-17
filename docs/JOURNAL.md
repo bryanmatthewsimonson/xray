@@ -36,6 +36,7 @@ the entry's heading anchor in its monthly file.
 
 ## 2026-11
 
+- **2026-11-16** — [The content-changed banner read a published article as edited: its prior body came from a rendering, not from what was published](journal/2026-11.md#2026-11-16--the-content-changed-banner-read-a-published-article-as-edited-its-prior-body-came-from-a-rendering-not-from-what-was-published) · bug, reader, design
 - **2026-11-14** — [The content-changed banner fired on every video re-capture: a view count, and the same words in other paragraphs](journal/2026-11.md#2026-11-14--the-content-changed-banner-fired-on-every-video-re-capture-a-view-count-and-the-same-words-in-other-paragraphs) · bug, reader, youtube
 - **2026-11-12** — [Agent-skills configuration: GitHub Issues, the existing `triage` label, and no `docs/adr/`](journal/2026-11.md#2026-11-12--agent-skills-configuration-github-issues-the-existing-triage-label-and-no-docsadr) · process, design
 - **2026-11-06** — [Proposal and link keys keep endpoint order for directional relationships](journal/2026-11.md#2026-11-06--proposal-and-link-keys-keep-endpoint-order-for-directional-relationships) · design, synthesis

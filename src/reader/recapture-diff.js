@@ -17,6 +17,7 @@
 // reader/index.js.
 
 import { EventBuilder } from '../shared/event-builder.js';
+import { archivedDraftIsCanonical, archivedDraftSource } from '../shared/archive-draft.js';
 import { Utils } from '../shared/utils.js';
 
 // Above this many paragraph-pair cells in the changed middle, the
@@ -302,20 +303,43 @@ export function renderDiffHtml(diff) {
 }
 
 /**
+ * The body the archived row's hash covers — the prior side of the diff.
+ *
+ * A publish leaves `content` as a RENDERING of the markdown it shipped,
+ * and that rendering does not turn back into the same markdown: the
+ * escape backslashes come back doubled, a link with a bracket in its
+ * text comes back as text, a nested list comes back broken. Assembled
+ * from `content`, a published row read as edited on the next capture of
+ * an unedited page. So the row's own published markdown is the prior
+ * body — when, and only when, it assembles to the row's hash. A capture
+ * that was never published carries markdown too (a video's composer
+ * output), and there the hash covers the rendering, as it does for the
+ * capture now open. The hash decides; nothing cheaper does
+ * (shared/archive-draft.js).
+ *
+ * Unproven, the body is assembled as the reader assembles the current
+ * one: markdown-canonical types from their markdown, the rest from
+ * `content`.
+ */
+async function priorBodyOf(prior, isMarkdownCanonical) {
+    const a = prior.article;
+    if (await archivedDraftIsCanonical({ ...a, _articleHash: prior.articleHash })) {
+        return EventBuilder.assembleArticleBody({ ...a, content: archivedDraftSource(a), _contentIsMarkdown: true });
+    }
+    return EventBuilder.assembleArticleBody(isMarkdownCanonical(a)
+        ? { ...a, content: a.markdown, _contentIsMarkdown: true }
+        : a);
+}
+
+/**
  * The diff between the archived row's body and the body now open, or
  * null when it cannot be computed (no prior article, an assembly
  * failure) — the banner then shows without detail, never not at all.
- * The prior body is assembled exactly as the reader assembles the
- * current one: markdown-canonical types hash their markdown.
  */
-export function priorBodyDiff(prior, currentBody, isMarkdownCanonical) {
+export async function priorBodyDiff(prior, currentBody, isMarkdownCanonical) {
     try {
         if (!prior || !prior.article || currentBody == null) return null;
-        const a = prior.article;
-        const hashable = isMarkdownCanonical(a)
-            ? { ...a, content: a.markdown, _contentIsMarkdown: true }
-            : a;
-        return diffBodies(EventBuilder.assembleArticleBody(hashable), currentBody);
+        return diffBodies(await priorBodyOf(prior, isMarkdownCanonical), currentBody);
     } catch (err) {
         Utils.log('recapture diff failed:', err);
         return null;
@@ -328,8 +352,8 @@ export function priorBodyDiff(prior, currentBody, isMarkdownCanonical) {
  * Raised only when the words changed; a noise-only hash move
  * returns false and renders nothing.
  */
-export function renderRecaptureBanner(prior, currentBody, isMarkdownCanonical, doc = document) {
-    const diff = priorBodyDiff(prior, currentBody, isMarkdownCanonical);
+export async function renderRecaptureBanner(prior, currentBody, isMarkdownCanonical, doc = document) {
+    const diff = await priorBodyDiff(prior, currentBody, isMarkdownCanonical);
     if (diff && !diff.substantive) return false;
     let banner = doc.getElementById('xr-hash-banner');
     if (!banner) {
