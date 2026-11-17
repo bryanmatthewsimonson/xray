@@ -24,7 +24,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
     createLlmJobRunner, runLlmJob, ackLlmJob, findLlmJob, llmJobScopeKey, llmJobRequestHash,
@@ -672,9 +673,12 @@ function srcFiles() {
             else if (p.endsWith('.js') && !p.endsWith('.bundle.js')) files.push(p);
         }
     };
-    walk(new URL('../src', import.meta.url).pathname);
-    const root = new URL('..', import.meta.url).pathname;
-    return files.map((abs) => abs.slice(root.length));
+    // fileURLToPath, never URL.pathname (on Windows `/C:/…` resolves to
+    // `C:\C:\…`), and '/'-separated repo-relative names on every
+    // platform — JOB_CONSUMERS and read() key on that spelling.
+    const root = fileURLToPath(new URL('..', import.meta.url));
+    walk(join(root, 'src'));
+    return files.map((abs) => relative(root, abs).split(sep).join('/'));
 }
 
 // Who drives each pass page-side. Every runLlmJob call site in src must
