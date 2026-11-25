@@ -430,7 +430,7 @@ async function adoptArticle(article, stored) {
                     // The hash is byte-exact; the banner claims an
                     // EDIT. Diff the bodies so extraction noise alone
                     // never raises it (recapture-diff.js).
-                    renderRecaptureBanner(prior, fullBody, isMarkdownCanonical);
+                    await renderRecaptureBanner(prior, fullBody, isMarkdownCanonical);
                 }
                 // Rehydrate tagged entities from the prior archive row.
                 // Fresh captures never carry entities, and the save

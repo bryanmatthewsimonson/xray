@@ -36,6 +36,7 @@ the entry's heading anchor in its monthly file.
 
 ## 2026-11
 
+- **2026-11-16** — [The content-changed banner read a published article as edited: its prior body came from a rendering, not from what was published](journal/2026-11.md#2026-11-16--the-content-changed-banner-read-a-published-article-as-edited-its-prior-body-came-from-a-rendering-not-from-what-was-published) · bug, reader, design
 - **2026-11-16** — [Seven tests failed only on Windows: Python checked out as CRLF, and URL pathnames used as file paths](journal/2026-11.md#2026-11-16--seven-tests-failed-only-on-windows-python-checked-out-as-crlf-and-url-pathnames-used-as-file-paths) · bug, tests, process
 - **2026-11-16** — [A baseline before the R3 refactor: one commit walked end to end, and a false "Content changed" banner found on the way](journal/2026-11.md#2026-11-16--a-baseline-before-the-r3-refactor-one-commit-walked-end-to-end-and-a-false-content-changed-banner-found-on-the-way) · process, verification, reader
 - **2026-11-16** — [A test click sent before its listener was attached ran nothing and passed for a click](journal/2026-11.md#2026-11-16--a-test-click-sent-before-its-listener-was-attached-ran-nothing-and-passed-for-a-click) · bug, tests, process

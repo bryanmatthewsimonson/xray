@@ -4,10 +4,19 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 
+// Before the archive cache is imported: its indexedDB lookup must land
+// on the fake.
+await import('fake-indexeddb/auto');
+
 // EventBuilder transitively imports Storage, which probes
-// chrome.storage.local at module-load time.
+// chrome.storage.local at module-load time. The archive cache reads the
+// workspace pointer through the CALLBACK form, so the stub must answer
+// it — one that only returns a promise leaves every save waiting.
 globalThis.chrome = globalThis.chrome || {
-    storage: { local: { get: async () => ({}), set: async () => {} }, onChanged: { addListener() {} } }
+    storage: {
+        local: { get(_k, cb) { cb({}); }, set(_o, cb) { cb && cb(); }, remove(_k, cb) { cb && cb(); } },
+        onChanged: { addListener() {} }
+    }
 };
 const {
     normalizeForComparison, diffBodies, diffWords, summarizeDiff, renderDiffHtml,
@@ -18,6 +27,7 @@ const { articleHash: canonicalArticleHash } = await import('../src/shared/audit/
 const { ContentExtractor } = await import('../src/shared/content-extractor.js');
 const { composeMarkdownBody } = await import('../src/shared/platforms/youtube.js');
 const { buildTranscriptSection } = await import('../src/shared/transcript-article.js');
+const { saveArticle } = await import('../src/shared/archive-cache.js');
 
 const BODY = [
     '# The headline',
@@ -287,22 +297,22 @@ test('video re-capture: one changed word in a re-cut transcript is found, and on
 
 const isMarkdownCanonical = (a) => !!(a && a.markdown && a.contentType === 'pdf');
 
-test('priorBodyDiff assembles the prior body the way the reader assembles the current one', () => {
+test('priorBodyDiff assembles the prior body the way the reader assembles the current one', async () => {
     // A PDF row: markdown is canonical, `content` a derived rendering
     // that would NOT match — diffing it would false-flag every revisit.
     const prior = { article: { contentType: 'pdf', markdown: 'Same text.', content: '<p>Rendered differently</p>' } };
-    const d = priorBodyDiff(prior, 'Same text.', isMarkdownCanonical);
+    const d = await priorBodyDiff(prior, 'Same text.', isMarkdownCanonical);
     assert.equal(d.substantive, false);
 });
 
-test('priorBodyDiff includes the video transcript section in the comparison', () => {
+test('priorBodyDiff includes the video transcript section in the comparison', async () => {
     const article = { contentType: 'video', content: 'Desc.', transcript: 'One. Two. Three. Four.' };
     const current = EventBuilder.assembleArticleBody({ ...article, transcript: 'One. Two. Three. Five.' });
-    assert.equal(priorBodyDiff({ article }, current, isMarkdownCanonical).substantive, true);
+    assert.equal((await priorBodyDiff({ article }, current, isMarkdownCanonical)).substantive, true);
 });
 
-test('priorBodyDiff returns null (banner without detail) when there is no prior article', () => {
-    assert.equal(priorBodyDiff({}, 'x', isMarkdownCanonical), null);
+test('priorBodyDiff returns null (banner without detail) when there is no prior article', async () => {
+    assert.equal(await priorBodyDiff({}, 'x', isMarkdownCanonical), null);
 });
 
 // Minimal DOM stub — the reader's own banner wiring, no jsdom.
@@ -334,24 +344,24 @@ function stubDoc() {
     return { getElementById: (id) => byId.get(id) || null, createElement: el };
 }
 
-test('banner: noise-only recapture renders nothing', () => {
+test('banner: noise-only recapture renders nothing', async () => {
     const doc = stubDoc();
-    const shown = renderRecaptureBanner({ article: { content: BODY }, cachedAt: 1 }, NOISY, isMarkdownCanonical, doc);
+    const shown = await renderRecaptureBanner({ article: { content: BODY }, cachedAt: 1 }, NOISY, isMarkdownCanonical, doc);
     assert.equal(shown, false);
     assert.equal(doc.getElementById('xr-hash-banner'), null);
 });
 
-test('banner: a video re-captured with more views and re-cut paragraphs renders nothing', () => {
+test('banner: a video re-captured with more views and re-cut paragraphs renders nothing', async () => {
     const doc = stubDoc();
-    const shown = renderRecaptureBanner({ article: OLD_VIDEO, cachedAt: 1 }, bodyOf(NEW_VIDEO), isMarkdownCanonical, doc);
+    const shown = await renderRecaptureBanner({ article: OLD_VIDEO, cachedAt: 1 }, bodyOf(NEW_VIDEO), isMarkdownCanonical, doc);
     assert.equal(shown, false);
     assert.equal(doc.getElementById('xr-hash-banner'), null);
 });
 
-test('banner: a real edit renders the summary and a working Show changes toggle', () => {
+test('banner: a real edit renders the summary and a working Show changes toggle', async () => {
     const doc = stubDoc();
     const edited = BODY.replace('$4 million', '$40 million');
-    const shown = renderRecaptureBanner({ article: { content: BODY }, cachedAt: 1 }, edited, isMarkdownCanonical, doc);
+    const shown = await renderRecaptureBanner({ article: { content: BODY }, cachedAt: 1 }, edited, isMarkdownCanonical, doc);
     assert.equal(shown, true);
     const banner = doc.getElementById('xr-hash-banner');
     assert.match(banner.innerHTML, /1 paragraph edited/);
@@ -363,9 +373,263 @@ test('banner: a real edit renders the summary and a working Show changes toggle'
     assert.equal(toggle.textContent, 'Hide changes');
 });
 
-test('banner: no prior article still raises the banner, without detail', () => {
+test('banner: no prior article still raises the banner, without detail', async () => {
     const doc = stubDoc();
-    assert.equal(renderRecaptureBanner({ cachedAt: 1 }, 'x', isMarkdownCanonical, doc), true);
+    assert.equal(await renderRecaptureBanner({ cachedAt: 1 }, 'x', isMarkdownCanonical, doc), true);
     const html = doc.getElementById('xr-hash-banner').innerHTML;
     assert.ok(!html.includes('xr-hash-diff-toggle'));
+});
+
+// --- a published row ------------------------------------------------------
+//
+// A publish rewrites the archive row. `content` becomes a RENDERING of
+// the markdown that was published (every publish since 2026-07-07), and
+// that markdown rides beside it. The rendering is not the page's HTML:
+// markdownToHtml leaves turndown's escape backslashes as text, cannot
+// read a link whose text holds a bracket, and breaks a nested list.
+// Turned back into markdown it is another body than the one published,
+// so an unedited page read as edited (issue #468).
+//
+// Rows of this shape are already in every archive, so these fixtures
+// stay valid whatever a later publish path stores. They are built by the
+// reader's own two writes, through the real event builder and the real
+// archive cache; only the lines of reader/index.js that cannot be
+// imported are repeated here.
+
+const PUBKEY = '6daa7f3b0f5a4c8e9b2d1a7c3e5f80916d4b2a8c7e1f3059d8b6a4c2e0f19375';
+// The reader's own predicate (reader/index.js, isMarkdownCanonical).
+const readerIsMarkdownCanonical = (a) => !!(a && a.markdown && ['pdf', 'transcript', 'epub'].includes(a.contentType));
+// The body a capture's hash covers (reader/index.js, hashableArticle).
+const hashedBody = (a) => EventBuilder.assembleArticleBody(
+    readerIsMarkdownCanonical(a) ? { ...a, content: a.markdown, _contentIsMarkdown: true } : a);
+
+let rowSeq = 0;
+// A capture: the article, saved under the hash of its assembled body.
+async function capturedRow(article) {
+    const a = { url: `https://example.com/story-${++rowSeq}`, title: 'Quay Road', ...article };
+    return saveArticle({ article: { ...a, _articleHash: await canonicalArticleHash(hashedBody(a)) }, source: 'capture' });
+}
+// The same capture, then published untouched. `strip` names what a row
+// written by an older build lacks.
+async function publish(article, { strip = [] } = {}) {
+    const captured = (await capturedRow(article)).article;
+    const draft = readerIsMarkdownCanonical(captured) ? captured.markdown : ContentExtractor.htmlToMarkdown(captured.content);
+    const shipped = { ...captured, content: draft, markdown: draft, _publishedDraft: draft, _contentIsMarkdown: true };
+    const event = await EventBuilder.buildArticleEvent(shipped, [], PUBKEY);
+    shipped._articleHash = event.tags.find((t) => t[0] === 'x')[1];
+    const archived = { ...shipped, content: ContentExtractor.markdownToHtml(draft) };
+    delete archived._contentIsMarkdown;
+    for (const key of strip) delete archived[key];
+    return { event, row: await saveArticle({ article: archived, source: 'capture', publishedToRelay: true }) };
+}
+const publishedRow = async (article, opts) => (await publish(article, opts)).row;
+// "Load archive" on a relay copy: the reconstruction of the published
+// event becomes the row, under the event's own hash.
+async function relayLoadedRow(event) {
+    const rebuilt = EventBuilder.reconstructArticleFromEvent({ ...event, id: 'e'.repeat(64) });
+    return saveArticle({ article: { ...rebuilt, url: `https://example.com/story-${++rowSeq}` }, source: 'capture' });
+}
+
+const THEN = 'Updated 3 hours ago · 1,204 views';
+const NOW = 'Updated 5 hours ago · 1,377 views';
+// Prose turndown escapes: `*`, `[`, `]`, `_`. Plain sentences come back
+// from the rendering byte for byte and pass against the bug — do not
+// tidy these.
+const quayPage = (stamp, verdict = 'safe') => `<p>${stamp}</p>`
+    + '<p>Trucks heavier than 5 * 3 tonnes will use Quay Road [1].</p>'
+    + `<p>The file final_budget_v2_draft called the old quay ${verdict} [2].</p>`;
+const articleOf = (html) => ({ contentType: 'article', content: html });
+const bodyOfPage = (html) => hashedBody(articleOf(html));
+const marksOf = (d) => d.hunks.flat().filter((r) => r.op === 'change').flatMap((r) => r.words)
+    .filter((w) => w.op !== 'same').map((w) => [w.op, w.text]);
+const say = (d) => `${summarizeDiff(d)} ${JSON.stringify(marksOf(d))}`;
+
+test('the published-row fixture: the row keeps the escapes as text, turning it back doubles them, and the hash moved', async () => {
+    const row = await publishedRow(articleOf(quayPage(THEN)));
+    // One backslash in the published markdown and, as text, in the row.
+    assert.ok(row.article.markdown.includes('5 \\* 3 tonnes'), row.article.markdown);
+    assert.ok(row.article.content.includes('5 \\* 3 tonnes'), row.article.content);
+    // Three once the row's rendering is turned back into markdown.
+    assert.ok(EventBuilder.assembleArticleBody(row.article).includes('5 \\\\\\* 3 tonnes'));
+    // The row's hash is the published body's, and the page's moved.
+    assert.equal(row.articleHash, await canonicalArticleHash(row.article.markdown));
+    assert.notEqual(row.articleHash, await canonicalArticleHash(bodyOfPage(quayPage(NOW))));
+});
+
+test('control — a capture never published, re-captured with only a time and a view count moved, is not a change', async () => {
+    const row = await capturedRow(articleOf(quayPage(THEN)));
+    const d = await priorBodyDiff(row, bodyOfPage(quayPage(NOW)), readerIsMarkdownCanonical);
+    assert.equal(d.substantive, false, say(d));
+});
+
+test('a published article re-captured with only a time and a view count moved is not a change', async () => {
+    const row = await publishedRow(articleOf(quayPage(THEN)));
+    const now = bodyOfPage(quayPage(NOW));
+    const d = await priorBodyDiff(row, now, readerIsMarkdownCanonical);
+    assert.equal(d.substantive, false, say(d));
+    assert.deepEqual(d.stats, { added: 0, removed: 0, changed: 0 });
+    // The seam: what the reader calls, with the row the cache returns.
+    const doc = stubDoc();
+    assert.equal(await renderRecaptureBanner(row, now, readerIsMarkdownCanonical, doc), false);
+    assert.equal(doc.getElementById('xr-hash-banner'), null);
+});
+
+test('a published article with one word changed: one paragraph edited, and only that word is marked', async () => {
+    const row = await publishedRow(articleOf(quayPage(THEN)));
+    const now = bodyOfPage(quayPage(NOW, 'unsafe'));
+    const d = await priorBodyDiff(row, now, readerIsMarkdownCanonical);
+    assert.equal(d.substantive, true);
+    assert.deepEqual(d.stats, { added: 0, removed: 0, changed: 1 }, say(d));
+    assert.deepEqual(marksOf(d), [['del', 'safe'], ['ins', 'unsafe']]);
+    const doc = stubDoc();
+    assert.equal(await renderRecaptureBanner(row, now, readerIsMarkdownCanonical, doc), true);
+    const html = doc.getElementById('xr-hash-banner').innerHTML;
+    assert.match(html, /1 paragraph edited/);
+    assert.deepEqual(html.match(/<(del|ins)>[^<]*<\/\1>/g), ['<del>safe</del>', '<ins>unsafe</ins>']);
+});
+
+test('a row published before rows carried `_publishedDraft` is read from its `markdown`', async () => {
+    // 2026-07-07 to 2026-07-16: the rendering in `content`, the published
+    // markdown under `markdown` only.
+    const row = await publishedRow(articleOf(quayPage(THEN)), { strip: ['_publishedDraft'] });
+    assert.equal(row.article._publishedDraft, undefined);
+    const d = await priorBodyDiff(row, bodyOfPage(quayPage(NOW)), readerIsMarkdownCanonical);
+    assert.equal(d.substantive, false, say(d));
+});
+
+// What else the rendering cannot hold: each of these comes back from
+// markdownToHtml and turndown as other markdown than went in, and no
+// folding of backslashes puts a broken list back together.
+const UNSTABLE_SHAPES = {
+    'a nested list': '<ul><li>Outer one<ul><li>Inner a</li><li>Inner b</li></ul></li><li>Outer two</li></ul>',
+    'a bracket inside a link': '<p>Read the <a href="https://example.com/report_v2">full report [PDF]</a> today.</p>',
+    'a backtick in prose': '<p>Type `make` and wait.</p>',
+    'a literal backslash': '<p>Saved under C:\\Users\\harbour, with a shrug ¯\\_(ツ)_/¯.</p>',
+    'lines that open like a list, a heading or a quote': '<p>14. The defendant denies it.</p><p># not a heading</p><p>&gt; not a quote</p><p>- not a list</p>'
+};
+for (const [name, html] of Object.entries(UNSTABLE_SHAPES)) {
+    test(`a published article holding ${name}, re-captured unedited, is not a change`, async () => {
+        const page = (stamp) => `<p>${stamp}</p>${html}`;
+        const row = await publishedRow(articleOf(page(THEN)));
+        assert.notEqual(EventBuilder.assembleArticleBody(row.article), row.article.markdown,
+            'the fixture must be one the rendering does not survive');
+        const d = await priorBodyDiff(row, bodyOfPage(page(NOW)), readerIsMarkdownCanonical);
+        assert.equal(d.substantive, false, say(d));
+    });
+}
+
+// A video: the composer's markdown rendered to HTML, as the YouTube
+// handler stores it. Captions say "[Music]" in most videos.
+const CAPTIONS = ['[Music] Welcome back to the harbour_desk stream.', ...SENTENCES.slice(0, 10),
+    '[Applause] That makes 5 * 3 berths.'];
+function youtubeArticle(views, lines = CAPTIONS) {
+    const markdown = composeMarkdownBody({
+        title: 'Harbour board meeting', channelName: 'Harbour Desk',
+        canonicalUrl: 'https://www.youtube.com/watch?v=abc123XYZ_-', videoId: 'abc123XYZ_-',
+        durationSeconds: 48, viewCount: views, publishDate: '2026-09-01T12:00:00Z',
+        category: 'News & Politics', description: 'The full meeting [live].', keywords: ['harbour'],
+        transcripts: [{ kind: 'scraped', displayName: 'YouTube panel', role: 'origin-scraped', events: cues(lines, 1) }],
+        isShort: false
+    });
+    return { contentType: 'video', markdown, content: ContentExtractor.markdownToHtml(markdown) };
+}
+
+test('a published video re-captured with more views is not a change', async () => {
+    const row = await publishedRow(youtubeArticle(1734097));
+    assert.ok(row.article.content.includes('\\[Music\\]'), 'the fixture must store an escape as text');
+    const d = await priorBodyDiff(row, hashedBody(youtubeArticle(1773844)), readerIsMarkdownCanonical);
+    assert.equal(d.substantive, false, say(d));
+});
+
+test('a published video with one caption word changed: only that word is marked', async () => {
+    const row = await publishedRow(youtubeArticle(1734097));
+    const edited = CAPTIONS.slice();
+    edited[11] = edited[11].replace('berths', 'cranes');
+    const d = await priorBodyDiff(row, hashedBody(youtubeArticle(1773844, edited)), readerIsMarkdownCanonical);
+    assert.deepEqual(d.stats, { added: 0, removed: 0, changed: 1 }, say(d));
+    assert.deepEqual(marksOf(d), [['del', 'berths.'], ['ins', 'cranes.']]);
+});
+
+// --- the row's own markdown is used only when the row's hash proves it ----
+//
+// "It has a markdown field" is not enough, and neither is "it carries a
+// published draft". Each of these rows holds markdown its hash does NOT
+// cover; taking it for the prior body reports an edit nobody made.
+
+test('a video never published keeps its composer markdown, but its hash covers the rendering: compared through the rendering', async () => {
+    // The composer's nested list does not survive the rendering, on
+    // either capture. The two rendered bodies agree; the composer's
+    // markdown and a rendered body do not.
+    const nested = (views) => {
+        const markdown = `**Views**: ${views}\n\n-   Outer one\n    -   Inner a\n    -   Inner b\n-   Outer two`;
+        return { contentType: 'video', markdown, content: ContentExtractor.markdownToHtml(markdown) };
+    };
+    const row = await capturedRow(nested('1,204'));
+    assert.equal(diffBodies(row.article.markdown, hashedBody(row.article)).substantive, true,
+        'the fixture must be one whose markdown and hashed body differ in words');
+    const d = await priorBodyDiff(row, hashedBody(nested('1,377')), readerIsMarkdownCanonical);
+    assert.equal(d.substantive, false, say(d));
+});
+
+test('a published draft left on a row whose body has since been replaced is not the prior body', async () => {
+    const stale = 'The old quay is safe, the survey says.';
+    const row = await capturedRow({ ...articleOf(quayPage(THEN, 'unsafe')), markdown: stale, _publishedDraft: stale });
+    const d = await priorBodyDiff(row, bodyOfPage(quayPage(NOW, 'unsafe')), readerIsMarkdownCanonical);
+    assert.equal(d.substantive, false, say(d));
+});
+
+// --- markdown-canonical captures, and rows loaded back from a relay -------
+//
+// A PDF's or a transcript's markdown is its body; the rendering is never
+// turned back, captured or published. What a relay hands back is another
+// matter: a reconstruction has no `markdown`, so its body used to come
+// from the rendering, whatever the type.
+
+// Raw extractor markdown: nothing escaped, a numbered run and a nested
+// list the rendering would renumber and break.
+const filing = (stamp) => [
+    `Retrieved ${stamp}`,
+    '## 1. Findings',
+    'Trucks heavier than 5 * 3 tonnes will use Quay Road [1]. See final_budget_v2_draft.',
+    '14. The defendant denies the allegation.\n15. The plaintiff repeats it.',
+    '-   Outer one\n    -   Inner a\n    -   Inner b\n-   Outer two'
+].join('\n\n');
+const pdfArticle = (stamp) => ({ contentType: 'pdf', markdown: filing(stamp), content: ContentExtractor.markdownToHtml(filing(stamp)) });
+const hearing = (views) => buildTranscriptSection({
+    turns: [
+        { speaker: 'Chair', startMs: 5000, text: `[Music] Welcome to harbour_desk, now at ${views} views.` },
+        { speaker: 'Engineer', startMs: 9000, text: 'That makes 5 * 3 berths.' }
+    ],
+    meta: { url: 'https://example.org/episode.mp3' }
+});
+const transcriptArticle = (views) => ({ contentType: 'transcript', markdown: hearing(views), content: ContentExtractor.markdownToHtml(hearing(views)) });
+
+for (const [type, make, then, now] of [
+    ['PDF', pdfArticle, '3 hours ago', '5 hours ago'],
+    ['transcript', transcriptArticle, '1,204', '1,377']
+]) {
+    test(`a ${type}, captured or published, re-captured with only noise moved is not a change`, async () => {
+        const current = hashedBody(make(now));
+        for (const row of [await capturedRow(make(then)), await publishedRow(make(then))]) {
+            assert.notEqual(row.articleHash, await canonicalArticleHash(current), 'the fixture must move the hash');
+            const d = await priorBodyDiff(row, current, readerIsMarkdownCanonical);
+            assert.equal(d.substantive, false, say(d));
+        }
+    });
+}
+
+test('a published article loaded back from a relay copy, then re-captured unedited, is not a change', async () => {
+    const { event } = await publish(articleOf(quayPage(THEN)));
+    const row = await relayLoadedRow(event);
+    assert.equal(row.article.markdown, undefined, 'a reconstruction carries no `markdown`');
+    const d = await priorBodyDiff(row, bodyOfPage(quayPage(NOW)), readerIsMarkdownCanonical);
+    assert.equal(d.substantive, false, say(d));
+});
+
+test('a published PDF loaded back from a relay copy, then re-captured unedited, is not a change', async () => {
+    const { event } = await publish(pdfArticle('3 hours ago'));
+    const row = await relayLoadedRow(event);
+    assert.equal(readerIsMarkdownCanonical(row.article), false, 'a reconstruction is not markdown-canonical');
+    const d = await priorBodyDiff(row, hashedBody(pdfArticle('5 hours ago')), readerIsMarkdownCanonical);
+    assert.equal(d.substantive, false, say(d));
 });
